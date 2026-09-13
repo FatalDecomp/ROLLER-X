@@ -6,6 +6,7 @@
 #include "mecha_mesh.h"
 #include "mecha_render.h"
 #include "mecha_sim.h"
+#include "mecha_sound.h"
 #include "view.h"
 #include "roller.h"
 
@@ -87,11 +88,14 @@ static const int s_aiRoundSeconds[] = { 30, 60, 90, 120, 0 };
  * roster has, over and over, until the world is full -- sixteen of them on
  * MERIDIAN CROSSING costs a fifth of a second of simulation for a minute of
  * fighting, and needs about five thousand quads at its worst. [MODE-04]
+ * Team is the same sixteen machines split down the middle, eight a side.
+ * [MODE-08]
  */
 typedef enum
 {
   MECHA_GAME_DUEL = 0,
   MECHA_GAME_SURVIVAL,
+  MECHA_GAME_TEAM,
   MECHA_GAME_COUNT
 } eMechaGameMode;
 
@@ -99,6 +103,7 @@ static const char *mecha_mode_game_name(int iMode)
 {
   switch (iMode) {
   case MECHA_GAME_SURVIVAL: return "SURVIVAL";
+  case MECHA_GAME_TEAM:     return "TEAM 8 V 8";
   default:                  return "DUEL";
   }
 }
@@ -431,6 +436,38 @@ static void mecha_mode_free_camera_update(void)
 
 //-------------------------------------------------------------------------------------------------
 
+/*
+ * A side fights in one colour. The player's side wears whatever the briefing
+ * chose; the other takes a colour of its own off the match seed, through an
+ * RNG of its own rather than the world's -- the world's stream decides how
+ * the fight goes and paint must not shift it [SIM-22] -- and steps past the
+ * player's if it lands on the same one, because two sides in one colour is
+ * the one thing this mode cannot have. [MODE-08]
+ */
+static void mecha_mode_paint_teams(void)
+{
+  tMechaRng paint;
+  int iSchemes = mecha_scheme_count();
+  int iFoe;
+  int i;
+
+  mecha_rng_seed(&paint, s_World.uiSeed ^ 0x5EA1u);
+  iFoe = mecha_rng_range(&paint, iSchemes);
+  if (iSchemes > 1 && iFoe == s_iScheme % iSchemes)
+    iFoe = (iFoe + 1) % iSchemes;
+
+  for (i = 0; i < MECHA_MAX_MECHS; i++) {
+    tMechaMech *pMech = &s_World.aMechs[i];
+
+    if (!pMech->bActive)
+      continue;
+    pMech->byScheme = pMech->byTeam == 0 ? (uint8_t)s_iScheme
+                                         : (uint8_t)iFoe;
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static void mecha_mode_start_match(void)
 {
   int iSeat;
@@ -443,10 +480,10 @@ static void mecha_mode_start_match(void)
                                                % MECHA_ROUND_CHOICES]);
   mecha_sim_set_ai_hold_fire(&s_World, s_bAiHoldFire);
   /*
-   * Everyone on their own team, so a free-for-all is genuinely free: the
-   * simulation only ever asks whether two machines share a team, and no two
-   * of these do. A spectator's chosen machine still takes the field with a
-   * computer pilot in it: leaving the seat empty would put a single machine
+   * A free-for-all puts everyone on their own team, so it is genuinely free:
+   * the simulation only ever asks whether two machines share a team, and no
+   * two of those do. A spectator's chosen machine still takes the field with
+   * a computer pilot in it: leaving the seat empty would put a single machine
    * in a duel, and a round with one team in it can never end. [MODE-04]
    */
   iSeat = mecha_sim_add_mech(&s_World, s_iPlayerDef,
@@ -461,11 +498,32 @@ static void mecha_mode_start_match(void)
                              (s_iOpponentDef + iSlot) % mecha_mode_mech_count(),
                              MECHA_CONTROL_AI, (uint8)(iSlot + 1)) < 0)
         break;
+  } else if (s_iGameMode == MECHA_GAME_TEAM) {
+    /*
+     * Eight a side, each side flying the machine its row of the briefing
+     * names: a duel with sixteen machines in it, so the MECH and OPPONENT
+     * rows mean here what they mean there.
+     *
+     * The seats alternate sides because a round hands out its spawn points
+     * in seat order, and both arena spawn shapes split a duel by that
+     * order -- one keep each where there are keeps, opposite sides of the
+     * ring where there are not. Filling one side's seats first would put
+     * half of each team in the enemy's base. [MODE-08]
+     */
+    int iSlot;
+
+    for (iSlot = 1; iSlot < MECHA_MAX_MECHS; iSlot++)
+      if (mecha_sim_add_mech(&s_World,
+                             (iSlot & 1) ? s_iOpponentDef : s_iPlayerDef,
+                             MECHA_CONTROL_AI, (uint8)(iSlot & 1)) < 0)
+        break;
   } else {
     mecha_sim_add_mech(&s_World, s_iOpponentDef, MECHA_CONTROL_AI, 1);
   }
   if (iSeat >= 0)
     s_World.aMechs[iSeat].byScheme = (uint8_t)s_iScheme;
+  if (s_iGameMode == MECHA_GAME_TEAM)
+    mecha_mode_paint_teams();
   mecha_sim_begin_match(&s_World);
 
   mecha_camera_reset(&s_Camera);
@@ -477,6 +535,8 @@ static void mecha_mode_start_match(void)
     mecha_mode_free_camera_place();
   }
 
+  /* The briefing's music stops with the briefing. */
+  mecha_sound_match();
   s_ullResultHoldNs = 0;
   s_ullLastTimeNs = SDL_GetTicksNS();
   s_ullAccumulatorNs = 0;
@@ -506,6 +566,7 @@ static void mecha_mode_return_to_briefing(const char *szResult, bool bWin)
     g_bNoclip = false;
     noclip_camera_reset();
   }
+  mecha_sound_briefing();
   s_eScreen = MECHA_SCREEN_BRIEFING;
   s_iBriefSelection = MECHA_ROW_START;
   s_ullResultHoldNs = 0;
@@ -594,6 +655,8 @@ void mecha_mode_enter(void)
   }
 
   mecha_render_init_assets(g_pGameRenderer);
+  mecha_sound_enter();
+  mecha_sound_briefing();
 
   /* The briefing first, always. Coming straight in on --arena would
    * otherwise drop a player into a fight without ever having been told
@@ -803,6 +866,9 @@ void mecha_mode_update(void)
   else
     mecha_mode_free_camera_update();
 
+  /* After the camera: the listener stands where the frame is drawn from. */
+  mecha_sound_update(&s_World, &s_Camera);
+
   /* A decided match holds on VICTORY or DEFEAT long enough to be read, then
    * hands the player back to the briefing. The simulation keeps ticking
    * through it so the last blast plays out. */
@@ -810,7 +876,8 @@ void mecha_mode_update(void)
     s_ullResultHoldNs += ullElapsed;
     if (s_ullResultHoldNs >= MECHA_RESULT_HOLD_NS) {
       int iWinner = s_World.match.iWinnerIdx;
-      bool bWin = iWinner >= 0 && iWinner == s_iPlayerIdx;
+      bool bWin = iWinner >= 0
+                  && mecha_mech_allied(&s_World, s_iPlayerIdx, iWinner);
 
       if (iWinner < 0) {
         mecha_mode_return_to_briefing("LAST MATCH:  DRAW", false);
@@ -885,6 +952,7 @@ void mecha_mode_exit(void)
     return;
 
   SDL_Log("arena: exiting");
+  mecha_sound_exit();
   /* The renderer stays: tearing it down nulls g_pGameRenderer, which is what
    * the menus and the race then reach for. [MODE-02] */
   s_bCreatedRenderer = false;

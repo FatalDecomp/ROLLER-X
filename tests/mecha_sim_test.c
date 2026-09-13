@@ -404,8 +404,11 @@ static int test_firing_and_reload(void)
     iStartAmmo = world.aMechs[0].aiAmmo[MECHA_SLOT_LEFT];
     CHECK(iStartAmmo > 0);
 
+    /* An outer press waits out the pairing window before it fires alone. */
     aInputs[0].bFireLeft = true;
     mecha_sim_tick(&world, aInputs, 2);
+    CHECK(world.aMechs[0].aiAmmo[MECHA_SLOT_LEFT] == iStartAmmo);
+    run_ticks(&world, aInputs, 2, MECHA_FIRE_PAIR_TICKS);
     CHECK(world.aMechs[0].aiAmmo[MECHA_SLOT_LEFT] == iStartAmmo - 1);
     CHECK(world.aMechs[0].iRecovery > 0);
     CHECK(count_projectiles(&world) >= (int)pWeapon->byCount);
@@ -420,7 +423,7 @@ static int test_firing_and_reload(void)
     memset(aInputs, 0, sizeof(aInputs));
     mecha_sim_tick(&world, aInputs, 2);
     aInputs[0].bFireLeft = true;
-    mecha_sim_tick(&world, aInputs, 2);
+    run_ticks(&world, aInputs, 2, MECHA_FIRE_PAIR_TICKS + 1);
     CHECK(world.aMechs[0].aiAmmo[MECHA_SLOT_LEFT] == 0);
     CHECK(world.aMechs[0].aiReload[MECHA_SLOT_LEFT] > 0);
 
@@ -3071,7 +3074,7 @@ static int test_the_gun_car_has_one_gun_and_a_bumper(void)
         CHECK(world.aMechs[0].aiAmmo[iSlot] == MECHA_CAR_MAGAZINE);
 
     aInputs[0].bFireLeft = true;
-    mecha_sim_tick(&world, aInputs, 2);
+    run_ticks(&world, aInputs, 2, MECHA_FIRE_PAIR_TICKS + 1);
     printf("   one trigger costs all three: %d %d %d rounds left\n",
            world.aMechs[0].aiAmmo[0], world.aMechs[0].aiAmmo[1],
            world.aMechs[0].aiAmmo[2]);
@@ -3134,7 +3137,10 @@ static int test_the_gun_car_has_one_gun_and_a_bumper(void)
         /* The lance: one round, no spread, and the fastest of the three. */
         CHECK(pLance->byCount == 1 && pLance->iSpreadAngle == 0);
         CHECK(pLance->fSpeed > pShot->fSpeed * 2.0f);
-        CHECK(pLance->fSpeed > pShell->fSpeed * 4.0f);
+        /* However the shell is tuned it stays the slowest of the three: it
+         * is the one that arcs over cover, and a shell as quick as the
+         * pellets would just be a worse lance. */
+        CHECK(pShell->fSpeed < pShot->fSpeed);
         /* Reach: the pellets die long before the lance does. */
         CHECK(pShot->fSpeed * (float)pShot->iLifeTicks
               < pLance->fSpeed * (float)pLance->iLifeTicks * 0.2f);
@@ -4125,6 +4131,79 @@ static int test_a_spread_is_a_cone_not_a_fan(void)
  * A full arena of machines, all on their own side, fights itself down to a
  * winner -- and the geometry it builds still fits in the buffer.
  */
+static int test_eight_a_side_is_won_by_a_side(void)
+{
+    tMechaWorld world;
+    tMechaInput aInputs[MECHA_MAX_MECHS];
+    /* A close map, so a side is wiped out rather than shot at across half a
+     * kilometre until the clock decides it. */
+    int iArena = arena_by_name("MERIDIAN CROSSING");
+    int aiSurvivors[2] = { 0, 0 };
+    int iWinner;
+    uint8_t byWon;
+    int i;
+    int t;
+
+    CHECK(iArena >= 0);
+    mecha_sim_init(&world, iArena, 0x8A51Du, 1);
+    /* No clock, so the round is decided by who is left rather than by who
+     * has the most armour when it runs out. */
+    mecha_sim_set_round_seconds(&world, 0);
+    /* Two sides, seated alternately the way the briefing seats them. */
+    for (i = 0; i < MECHA_MAX_MECHS; i++)
+        CHECK(mecha_sim_add_mech(&world, i % mecha_def_count(),
+                                 MECHA_CONTROL_AI, (uint8_t)(i & 1)) >= 0);
+    mecha_sim_begin_match(&world);
+
+    /* Allies are allies both ways round, and nobody else is. */
+    CHECK(mecha_mech_allied(&world, 0, 2));
+    CHECK(mecha_mech_allied(&world, 2, 0));
+    CHECK(!mecha_mech_allied(&world, 0, 1));
+    CHECK(!mecha_mech_allied(&world, 1, 0));
+    /* A machine is on its own side; nothing off the end of the world is. */
+    CHECK(mecha_mech_allied(&world, 3, 3));
+    CHECK(!mecha_mech_allied(&world, 0, -1));
+    CHECK(!mecha_mech_allied(&world, 0, MECHA_MAX_MECHS));
+
+    memset(aInputs, 0, sizeof(aInputs));
+    for (t = 0; t < MECHA_TICK_HZ * 180; t++) {
+        mecha_sim_tick(&world, aInputs, MECHA_MAX_MECHS);
+        /* No pilot ever points the reticle at one of its own. */
+        for (i = 0; i < MECHA_MAX_MECHS; i++) {
+            int iTarget = world.aMechs[i].iTargetIdx;
+
+            if (iTarget >= 0)
+                CHECK(!mecha_mech_allied(&world, i, iTarget));
+        }
+        if (world.match.byPhase == MECHA_PHASE_MATCH_OVER)
+            break;
+    }
+    CHECK(world.match.byPhase == MECHA_PHASE_MATCH_OVER);
+
+    iWinner = world.match.iWinnerIdx;
+    CHECK(iWinner >= 0);
+    byWon = world.aMechs[iWinner].byTeam;
+    for (i = 0; i < MECHA_MAX_MECHS; i++)
+        if (mecha_mech_alive(&world.aMechs[i]))
+            aiSurvivors[world.aMechs[i].byTeam & 1]++;
+    printf("   eight a side: team %d took it, %d left against %d\n",
+           (int)byWon, aiSurvivors[byWon & 1], aiSurvivors[!(byWon & 1)]);
+    /* The side that was wiped out lost; the side still standing won. */
+    CHECK(aiSurvivors[!(byWon & 1)] == 0);
+    CHECK(aiSurvivors[byWon & 1] > 0);
+
+    /*
+     * The round goes to the side, not to whoever happened to land the last
+     * shot: credit only the one machine and a match of eight can never be
+     * won, because the round that ends the match is rarely the same
+     * machine's. [SIM-25]
+     */
+    for (i = 0; i < MECHA_MAX_MECHS; i++)
+        CHECK(world.aMechs[i].iRoundsWon
+              == (world.aMechs[i].byTeam == byWon ? 1 : 0));
+    return 0;
+}
+
 static int test_a_full_arena_fights_itself_out(void)
 {
     tMechaWorld world;
@@ -4227,6 +4306,45 @@ static int test_paint_schemes_repaint_the_machine(void)
         printf("   %s: %d of %d quads repainted\n",
                mecha_def_get(iDef)->szName, iDiffer, plain.iCount);
         CHECK(iDiffer > 0);
+    }
+
+    /*
+     * A computer pilot picks its own colour off the match seed, so a crowded
+     * arena is not sixteen machines in one paint. Two things have to hold:
+     * the same seed paints the same grid twice, and one seed's grid is not
+     * all one colour. [SIM-22]
+     */
+    {
+        tMechaWorld other;
+        int aiSeen[256];          /* byScheme is a byte */
+        int iDistinct = 0;
+        int iSlot;
+
+        memset(aiSeen, 0, sizeof(aiSeen));
+        mecha_sim_init(&world, 0, 0x1234u, 1);
+        mecha_sim_init(&other, 0, 0x1234u, 1);
+        for (iSlot = 0; iSlot < MECHA_MAX_MECHS; iSlot++) {
+            mecha_sim_add_mech(&world, iSlot % mecha_def_count(),
+                               MECHA_CONTROL_AI, (uint8_t)(iSlot + 1));
+            mecha_sim_add_mech(&other, iSlot % mecha_def_count(),
+                               MECHA_CONTROL_AI, (uint8_t)(iSlot + 1));
+        }
+        for (iSlot = 0; iSlot < MECHA_MAX_MECHS; iSlot++) {
+            uint8_t byScheme = world.aMechs[iSlot].byScheme;
+
+            CHECK(byScheme == other.aMechs[iSlot].byScheme);
+            CHECK(byScheme < (uint8_t)iSchemes);
+            if (aiSeen[byScheme]++ == 0)
+                iDistinct++;
+        }
+        printf("   %d machines wearing %d different paints\n",
+               MECHA_MAX_MECHS, iDistinct);
+        CHECK(iDistinct >= 4);
+
+        /* A player's machine is left alone: the briefing chose that one. */
+        mecha_sim_init(&world, 0, 0x1234u, 1);
+        CHECK(mecha_sim_add_mech(&world, 0, MECHA_CONTROL_HUMAN, 0) == 0);
+        CHECK(world.aMechs[0].byScheme == 0);
     }
     return 0;
 }
@@ -6264,6 +6382,568 @@ static void measure_handling(int iDefIdx, float *pfSkidMetres,
 
 //-------------------------------------------------------------------------------------------------
 
+/*
+ * Both outer triggers inside the window is the centre weapon, and outside it
+ * is two separate shots. [TEST-11]
+ */
+static int test_both_triggers_make_the_centre_shot(void)
+{
+    tMechaWorld world;
+    tMechaInput aInputs[2];
+    int iCar = wheeled_def();
+    int aiStart[MECHA_WEAPON_SLOTS];
+    int iSlot;
+
+    CHECK(iCar >= 0);
+
+    /* --- right follows left inside the window ---------------------------- */
+    start_duel(&world, iCar, iCar, 0, 0x2B71u, 1);
+    memset(aInputs, 0, sizeof(aInputs));
+    for (iSlot = 0; iSlot < MECHA_WEAPON_SLOTS; iSlot++)
+        aiStart[iSlot] = world.aMechs[0].aiAmmo[iSlot];
+
+    aInputs[0].bFireLeft = true;
+    mecha_sim_tick(&world, aInputs, 2);
+    /* Nothing yet: the press is waiting for its partner. */
+    CHECK(count_projectiles(&world) == 0);
+    aInputs[0].bFireRight = true;
+    mecha_sim_tick(&world, aInputs, 2);
+    CHECK(world.aMechs[0].iLastFiredSlot == MECHA_SLOT_CENTER);
+
+    /* --- and a lone press still goes off, a few ticks later -------------- */
+    start_duel(&world, iCar, iCar, 0, 0x2B72u, 1);
+    memset(aInputs, 0, sizeof(aInputs));
+    aInputs[0].bFireLeft = true;
+    run_ticks(&world, aInputs, 2, MECHA_FIRE_PAIR_TICKS + 1);
+    CHECK(world.aMechs[0].iLastFiredSlot == MECHA_SLOT_LEFT);
+
+    /*
+     * --- pumping one trigger is not a way to hold its own shot hostage ----
+     *
+     * A press every other tick is faster than the window is long, so a
+     * window that restarted on each press would never let the shot go.
+     */
+    start_duel(&world, iCar, iCar, 0, 0x2B73u, 1);
+    memset(aInputs, 0, sizeof(aInputs));
+    {
+        int iTick;
+
+        for (iTick = 0; iTick < MECHA_FIRE_PAIR_TICKS * 4; iTick++) {
+            aInputs[0].bFireLeft = (iTick & 1) == 0;
+            mecha_sim_tick(&world, aInputs, 2);
+        }
+    }
+    CHECK(world.aMechs[0].iLastFiredSlot == MECHA_SLOT_LEFT);
+
+    /*
+     * --- the computer is never paired ------------------------------------
+     *
+     * It fires one slot a tick and means each one, so nothing of its is ever
+     * held back. A whole fight without the window ever opening is the check:
+     * the pilots there shoot constantly.
+     */
+    start_duel(&world, iCar, iCar, 0, 0x2B74u, 1);
+    memset(aInputs, 0, sizeof(aInputs));
+    world.aMechs[0].byController = MECHA_CONTROL_AI;
+    {
+        int iTick;
+        int iShots = 0;
+
+        for (iTick = 0; iTick < MECHA_TICK_HZ * 20; iTick++) {
+            mecha_sim_tick(&world, NULL, 0);
+            CHECK(world.aMechs[0].iPairTicks == 0);
+            CHECK(world.aMechs[1].iPairTicks == 0);
+            if (world.aMechs[0].iRecovery == 1)
+                iShots++;
+        }
+        /* And they really were shooting, or the check above proves nothing. */
+        CHECK(iShots > 0);
+    }
+    (void)aiStart;
+    return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+/* A clear shot from one machine to the other, arena geometry only. */
+static bool line_between(const tMechaWorld *pWorld, int iA, int iB)
+{
+    const tMechaMechDef *pDef = mecha_def_get((int)pWorld->aMechs[iA].byDefIdx);
+
+    return !mecha_arena_trace_segment(
+        &pWorld->arena,
+        pWorld->aMechs[iA].fX, pWorld->aMechs[iA].fY + pDef->fHeight * 0.7f,
+        pWorld->aMechs[iA].fZ,
+        pWorld->aMechs[iB].fX, mecha_mech_centre_height(pWorld, iB),
+        pWorld->aMechs[iB].fZ, NULL, NULL, NULL);
+}
+
+/*
+ * Cover is a thing to get round, not a thing to get stuck on. Both pilots
+ * are put behind the tallest building in the city with the enemy directly
+ * on the far side of it, which is the shape of both faults: a car drives
+ * into it and parks, a walker stands against it and gives up. [TEST-12]
+ */
+static int test_pilots_get_round_what_is_in_the_way(void)
+{
+    static const struct { const char *szWho; bool bWheeled; } aCase[2] = {
+        { "car", true }, { "walker", false },
+    };
+    int iCase;
+
+    for (iCase = 0; iCase < 2; iCase++) {
+        tMechaWorld world;
+        tMechaInput aInputs[2];
+        int iDef = -1;
+        int iTick;
+        int iFound = -1;
+        int i;
+
+        for (i = 0; i < mecha_def_count(); i++)
+            if (mecha_def_get(i)->bWheeled == aCase[iCase].bWheeled) {
+                iDef = i;
+                break;
+            }
+        CHECK(iDef >= 0);
+
+        /* MERIDIAN CROSSING's middle block: 62 m across and a hundred tall,
+         * far too big to climb and far too wide to see past. */
+        start_duel(&world, 5, iDef, iDef, 0x30C0u + (uint32_t)iCase, 1);
+        memset(aInputs, 0, sizeof(aInputs));
+        world.aMechs[0].byController = MECHA_CONTROL_AI;
+        world.aMechs[0].fX = 0.0f;
+        world.aMechs[0].fZ = -MECHA_M(52.0f);
+        world.aMechs[0].iFacing = 0;              /* nose into the building */
+        world.aMechs[0].iStickYaw = 0;
+        world.aMechs[1].fX = 0.0f;
+        world.aMechs[1].fZ = MECHA_M(52.0f);
+        world.aMechs[1].iInvulnTicks = MECHA_TICK_HZ * 60;
+        CHECK(!line_between(&world, 0, 1));
+
+        for (iTick = 0; iTick < MECHA_TICK_HZ * 14; iTick++) {
+            mecha_sim_tick(&world, aInputs, 2);
+            if (line_between(&world, 0, 1)) {
+                iFound = iTick;
+                break;
+            }
+        }
+        printf("   %-6s came round the block after %.1f s (%.0f m across)\n",
+               aCase[iCase].szWho,
+               iFound < 0 ? 99.0f : (float)iFound / (float)MECHA_TICK_HZ,
+               fabsf(world.aMechs[0].fX) / MECHA_METRE);
+        CHECK(iFound >= 0);
+    }
+    return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+/*
+ * Watari-dash: a burst already under way, turned. The machine wants to see
+ * the stick let go before it will take a new direction, so the pilot has to
+ * let go -- and that is the whole trick. [TEST-13]
+ */
+static int test_the_pilot_turns_a_dash_it_is_already_in(void)
+{
+    tMechaWorld world;
+    tMechaInput aInputs[2];
+    int iLegs = -1;
+    int i;
+
+    for (i = 0; i < mecha_def_count(); i++)
+        if (!mecha_def_get(i)->bWheeled) {
+            iLegs = i;
+            break;
+        }
+    CHECK(iLegs >= 0);
+
+    start_duel(&world, 0, iLegs, iLegs, 0x7A71u, 1);
+    memset(aInputs, 0, sizeof(aInputs));
+    world.aMechs[0].byController = MECHA_CONTROL_AI;
+
+    /* Mid-burst towards +Z, with the enemy behind it. Nothing about this is
+     * unreachable in a fight -- it is what rounding a corner leaves you
+     * with -- but setting it up directly is what makes the test read. */
+    world.aMechs[0].fX = 0.0f;
+    world.aMechs[0].fZ = 0.0f;
+    world.aMechs[0].iFacing = 0;
+    world.aMechs[0].iStickYaw = 0;
+    world.aMechs[0].byMove = MECHA_MOVE_DASH;
+    world.aMechs[0].iStateTicks = 2;
+    world.aMechs[0].fDashDirX = 0.0f;
+    world.aMechs[0].fDashDirZ = 1.0f;
+    world.aMechs[0].bDashStickFree = false;
+    world.aMechs[1].fX = 0.0f;
+    world.aMechs[1].fZ = -MECHA_M(40.0f);
+    world.aMechs[1].iInvulnTicks = MECHA_TICK_HZ * 60;
+
+    /* One tick to let the stick go... */
+    mecha_sim_tick(&world, aInputs, 2);
+    CHECK(world.aMechs[0].bDashStickFree);
+
+    /*
+     * ...and the next few to put it down somewhere else. Which way it
+     * chooses is the pilot's business -- at this range a long-armed machine
+     * would rather open the distance than close it -- so what is asserted is
+     * that the burst turned a long way off what it launched with and is
+     * still the same burst.
+     */
+    for (i = 0; i < 6 && world.aMechs[0].fDashDirZ > 0.7f; i++)
+        mecha_sim_tick(&world, aInputs, 2);
+    printf("   the burst turned from +Z to (%.2f, %.2f)\n",
+           world.aMechs[0].fDashDirX, world.aMechs[0].fDashDirZ);
+    /* The dot against the launch direction, which was +Z exactly. */
+    CHECK(world.aMechs[0].fDashDirZ < 0.7f);
+    CHECK(world.aMechs[0].byMove == MECHA_MOVE_DASH);
+    return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+/*
+ * The causeway map: two inclined lanes between two keeps with a hole down
+ * the middle of the run, and a fall that is a fall rather than a deletion.
+ * [TEST-14]
+ */
+/*
+ * The way spine, which is the arena's half of the pilots being able to walk
+ * a causeway: a chain of stations down each lane, an aim point along it, and
+ * ground under every one of them. [AI-13]
+ */
+static int test_a_causeway_publishes_a_way_along_it(void)
+{
+    tMechaArena arena;
+    int iFace = arena_by_name("FACING WORLDS");
+    const float fHigh = MECHA_M(40.0f);
+    float fAimX = 0.0f;
+    float fAimZ = 0.0f;
+    float fFrom;
+    int iWay;
+    int i;
+
+    CHECK(iFace >= 0);
+    mecha_arena_init(&arena, iFace);
+    CHECK(arena.iWayCount == 2);
+
+    /* Every station of every way stands on something, end to end. */
+    for (iWay = 0; iWay < arena.iWayCount; iWay++) {
+        const tMechaWay *pWay = &arena.aWays[iWay];
+
+        CHECK(pWay->iCount >= 18);
+        for (i = 0; i < pWay->iCount; i++) {
+            const tMechaWayPoint *pAt = &pWay->aPoints[i];
+
+            CHECK(mecha_arena_ground_height(&arena, pAt->fX, pAt->fZ, fHigh)
+                  > arena.fKillY);
+            /* And is wide enough to fight along rather than file down:
+             * two machines abreast, with the soft outer cell to spare.
+             * [ARENA-19] */
+            CHECK(pAt->fHalf > MECHA_M(20.0f));
+        }
+        /* The chain runs the length of the map, base to base. */
+        CHECK(pWay->aPoints[0].fX < -MECHA_M(200.0f));
+        CHECK(pWay->aPoints[pWay->iCount - 1].fX > MECHA_M(200.0f));
+    }
+    /* The two ways are on opposite sides of the hole. */
+    CHECK(arena.aWays[0].aPoints[1].fZ < 0.0f);
+    CHECK(arena.aWays[1].aPoints[1].fZ > 0.0f);
+
+    /*
+     * And the aim a pilot reads off it: from one base towards the other, a
+     * point ahead along a lane, on ground, and further on than the machine
+     * asking. Walked in steps the way a machine would walk it, the whole
+     * line stays out of the hole -- which is the entire point of it.
+     */
+    for (fFrom = -MECHA_M(240.0f); fFrom < MECHA_M(200.0f);
+         fFrom += MECHA_M(20.0f)) {
+        float fZ = fFrom < -MECHA_M(150.0f) ? 0.0f : -MECHA_M(40.0f);
+        float fWasX = fAimX;
+
+        CHECK(mecha_arena_way_aim(&arena, fFrom, fZ, MECHA_M(252.0f), 0.0f,
+                                  MECHA_M(64.0f), 1, &fAimX, &fAimZ));
+        CHECK(fAimX > fFrom);
+        CHECK(mecha_arena_ground_height(&arena, fAimX, fAimZ, fHigh)
+              > arena.fKillY);
+        (void)fWasX;
+    }
+
+    /* An arena whose floor is one piece publishes none, and its pilots go on
+     * walking straight at each other. */
+    for (i = 0; i < mecha_arena_count(); i++) {
+        tMechaArena other;
+
+        if (i == iFace)
+            continue;
+        mecha_arena_init(&other, i);
+        CHECK(other.iWayCount == 0);
+        CHECK(!mecha_arena_way_aim(&other, 0.0f, 0.0f, MECHA_M(100.0f),
+                                   0.0f, MECHA_M(64.0f), 0, &fAimX,
+                                   &fAimZ));
+    }
+    return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+/*
+ * And the pilots' half of it: on a map that is two causeways and a hole,
+ * both sides leave home and close on each other. Before the way spine they
+ * paced their own bases for the whole round, four hundred metres apart, and
+ * a fight between them was two machines shooting at a skyline. [AI-13]
+ */
+static int test_pilots_walk_a_causeway_to_close(void)
+{
+    tMechaWorld world;
+    tMechaInput aInputs[MECHA_MAX_MECHS];
+    int iFace = arena_by_name("FACING WORLDS");
+    float fFar0 = -MECHA_M(400.0f);
+    float fFar1 = MECHA_M(400.0f);
+    float fNearest = MECHA_M(9999.0f);
+    int i;
+    int t;
+
+    CHECK(iFace >= 0);
+    mecha_sim_init(&world, iFace, 0x0FACEu, 1);
+    /* No clock, so nothing ends the round but machines finding each other. */
+    mecha_sim_set_round_seconds(&world, 0);
+    for (i = 0; i < MECHA_MAX_MECHS; i++)
+        CHECK(mecha_sim_add_mech(&world, i % mecha_def_count(),
+                                 MECHA_CONTROL_AI, (uint8_t)(i & 1)) >= 0);
+    mecha_sim_begin_match(&world);
+
+    memset(aInputs, 0, sizeof(aInputs));
+    for (t = 0; t < MECHA_TICK_HZ * 180; t++) {
+        mecha_sim_tick(&world, aInputs, MECHA_MAX_MECHS);
+        for (i = 0; i < MECHA_MAX_MECHS; i++) {
+            const tMechaMech *pMech = &world.aMechs[i];
+            int j;
+
+            if (!mecha_mech_alive(pMech))
+                continue;
+            if (pMech->byTeam == 0 && pMech->fX > fFar0)
+                fFar0 = pMech->fX;
+            if (pMech->byTeam == 1 && pMech->fX < fFar1)
+                fFar1 = pMech->fX;
+            for (j = 0; j < MECHA_MAX_MECHS; j++) {
+                const tMechaMech *pFoe = &world.aMechs[j];
+                float fGap;
+
+                if (!mecha_mech_alive(pFoe) || pFoe->byTeam == pMech->byTeam)
+                    continue;
+                fGap = mecha_length2(pFoe->fX - pMech->fX,
+                                     pFoe->fZ - pMech->fZ);
+                if (fGap < fNearest)
+                    fNearest = fGap;
+            }
+        }
+        if (world.match.byPhase == MECHA_PHASE_MATCH_OVER)
+            break;
+    }
+    printf("   sides advanced to %.0f m and %.0f m, closing to %.0f m\n",
+           fFar0 / MECHA_METRE, fFar1 / MECHA_METRE,
+           fNearest / MECHA_METRE);
+    /* Both sides are out of their keeps and well down a causeway -- the
+     * lanes start at 144 m and the bases sit behind that. */
+    CHECK(fFar0 > -MECHA_M(140.0f));
+    CHECK(fFar1 < MECHA_M(140.0f));
+    /* And they are fighting at a range a weapon can do something about,
+     * rather than across the whole map. */
+    CHECK(fNearest < MECHA_M(260.0f));
+    return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int test_the_causeway_map_is_a_causeway(void)
+{
+    tMechaArena arena;
+    int iIdx = mecha_arena_count() - 1;
+    const float fHigh = MECHA_M(40.0f);   /* feet well above any of it */
+    float fX;
+    float fZ;
+    int iSlot;
+
+    mecha_arena_init(&arena, iIdx);
+    CHECK(strcmp(arena.szName, "FACING WORLDS") == 0);
+    CHECK(arena.byShape == MECHA_ARENA_OPEN);
+
+    /*
+     * Both lanes run the length of the map and both of them climb: the
+     * middle stands above the bases, so leaving a base is uphill and falling
+     * back to it is downhill. The lanes bow, so they are followed by the
+     * same stations they were built from. [ARENA-17]
+     */
+    {
+        static const float afLaneZ[9] = {
+            -33.0f, -43.2f, -42.6f, -31.8f, -26.4f,
+            -34.8f, -43.2f, -38.4f, -31.8f
+        };
+        float fLow = 0.0f;
+        float fTop = 0.0f;
+        int i;
+
+        for (i = 0; i < 9; i++) {
+            float fAt = MECHA_M(-120.0f + 30.0f * (float)i);
+            float fGround = mecha_arena_ground_height(&arena, fAt,
+                                                      MECHA_M(afLaneZ[i]),
+                                                      fHigh);
+
+            CHECK(fGround > -MECHA_M(1.0f));
+            if (i == 0)
+                fLow = fGround;
+            if (i == 4)
+                fTop = fGround;
+        }
+        printf("   the lane climbs %.0f m from the base to the crest\n",
+               (fTop - fLow) / MECHA_METRE);
+        CHECK(fTop > fLow + MECHA_M(20.0f));
+    }
+
+    /*
+     * And there is a hole between the lanes, either side of the middle. Not
+     * a pit flag -- a pit kills a machine standing on one, which is being
+     * deleted rather than falling -- but ground far below the kill plane, so
+     * a machine that goes in falls. [ARENA-15]
+     */
+    for (fX = MECHA_M(45.0f); fX <= MECHA_M(95.0f); fX += MECHA_M(5.0f)) {
+        CHECK(mecha_arena_ground_height(&arena, fX, 0.0f, fHigh) < arena.fKillY);
+        CHECK(mecha_arena_ground_height(&arena, -fX, 0.0f, fHigh) < arena.fKillY);
+        CHECK((mecha_arena_surface(&arena, fX, 0.0f) & MECHA_SURF_PIT) == 0);
+    }
+    /* The lanes pinch together at the top of the climb, and that crossing is
+     * the only way between them. [ARENA-17] */
+    CHECK(mecha_arena_ground_height(&arena, 0.0f, -MECHA_M(7.0f), fHigh)
+          > MECHA_M(25.0f));
+    /* Nor is there anything off the outer side of either lane. */
+    for (fZ = MECHA_M(80.0f); fZ <= MECHA_M(140.0f); fZ += MECHA_M(10.0f)) {
+        CHECK(mecha_arena_ground_height(&arena, 0.0f, fZ, fHigh) < arena.fKillY);
+        CHECK(mecha_arena_ground_height(&arena, 0.0f, -fZ, fHigh) < arena.fKillY);
+    }
+
+    /*
+     * The keeps are hollow: floor in the courtyard, a doorway through the
+     * wall facing the causeway, and solid wall everywhere else.
+     */
+    {
+        const float fKeep = MECHA_M(252.0f);
+        const float fEye = MECHA_M(8.0f);    /* head height in the courtyard */
+
+        CHECK(mecha_arena_ground_height(&arena, -fKeep, 0.0f, fHigh)
+              > -MECHA_M(1.0f));
+        CHECK(mecha_arena_ground_height(&arena, fKeep, 0.0f, fHigh)
+              > -MECHA_M(1.0f));
+        /* In through a doorway, which is where a lane arrives... */
+        CHECK(!mecha_arena_trace_segment(&arena, -MECHA_M(190.0f), fEye,
+                                         -MECHA_M(33.0f), -fKeep, fEye,
+                                         -MECHA_M(33.0f), NULL, NULL, NULL));
+        CHECK(!mecha_arena_trace_segment(&arena, MECHA_M(190.0f), fEye,
+                                         MECHA_M(33.0f), fKeep, fEye,
+                                         MECHA_M(33.0f), NULL, NULL, NULL));
+        /* ...and not through the pier between them, which is what stops a
+         * machine walking out of the gate into the hole. [ARENA-16] */
+        CHECK(mecha_arena_trace_segment(&arena, -MECHA_M(190.0f), fEye, 0.0f,
+                                        -fKeep, fEye, 0.0f, NULL, NULL, NULL));
+        CHECK(mecha_arena_trace_segment(&arena, -fKeep, fEye, MECHA_M(80.0f),
+                                        -fKeep, fEye, 0.0f, NULL, NULL, NULL));
+        CHECK(mecha_arena_trace_segment(&arena, fKeep, fEye, -MECHA_M(80.0f),
+                                        fKeep, fEye, 0.0f, NULL, NULL, NULL));
+    }
+
+    /* Nobody starts over the hole, however many are playing. [ARENA-14] */
+    for (iSlot = 0; iSlot < MECHA_MAX_MECHS; iSlot++) {
+        int iFacing;
+
+        mecha_arena_spawn_point(&arena, iSlot, MECHA_MAX_MECHS, &fX, &fZ,
+                                &iFacing);
+        CHECK(mecha_arena_ground_height(&arena, fX, fZ, fHigh) > -MECHA_M(1.0f));
+    }
+
+    /* A duel opens at opposite ends, on opposite lanes. */
+    {
+        float fX0;
+        float fZ0;
+        float fX1;
+        float fZ1;
+        int iFacing;
+
+        mecha_arena_spawn_point(&arena, 0, 2, &fX0, &fZ0, &iFacing);
+        mecha_arena_spawn_point(&arena, 1, 2, &fX1, &fZ1, &iFacing);
+        printf("   duel starts %.0f m apart, at (%.0f, %.0f) and (%.0f, %.0f)\n",
+               mecha_length2(fX1 - fX0, fZ1 - fZ0) / MECHA_METRE,
+               fX0 / MECHA_METRE, fZ0 / MECHA_METRE,
+               fX1 / MECHA_METRE, fZ1 / MECHA_METRE);
+        /* One in each keep. */
+        CHECK(mecha_length2(fX1 - fX0, fZ1 - fZ0) > MECHA_M(450.0f));
+        CHECK(fX0 * fX1 < 0.0f);
+    }
+
+    /*
+     * A machine that goes over the edge falls, and keeps falling, and is
+     * only then gone. This is the whole difference from a pit. [ARENA-15]
+     */
+    {
+        tMechaWorld world;
+        tMechaInput aInputs[2];
+        float fWas;
+        int iTick;
+        int iFalling = 0;
+
+        start_duel(&world, iIdx, 0, 0, 0x5A1Du, 1);
+        memset(aInputs, 0, sizeof(aInputs));
+        world.aMechs[0].fX = MECHA_M(70.0f);      /* straight over a hole */
+        world.aMechs[0].fZ = 0.0f;
+        world.aMechs[0].fY = MECHA_M(2.0f);
+        world.aMechs[0].fVelY = 0.0f;
+        fWas = world.aMechs[0].fY;
+        for (iTick = 0; iTick < MECHA_TICK_HZ * 3; iTick++) {
+            mecha_sim_tick(&world, aInputs, 2);
+            if (world.aMechs[0].fY < fWas - MECHA_M(0.5f))
+                iFalling++;
+            fWas = world.aMechs[0].fY;
+            if (!mecha_mech_alive(&world.aMechs[0]))
+                break;
+        }
+        printf("   dropped into the hole: fell for %d ticks before it was "
+               "gone\n", iFalling);
+        CHECK(iFalling > 10);
+        CHECK(!mecha_mech_alive(&world.aMechs[0]));
+    }
+
+    /*
+     * And a fight on it is decided by shooting rather than by everybody
+     * walking off. Some of them will go over -- that is the map -- but they
+     * have to last the opening while they do.
+     */
+    {
+        tMechaWorld world;
+        tMechaInput aInputs[MECHA_MAX_MECHS];
+        int iAlive = 0;
+        int iTick;
+        int i;
+
+        mecha_sim_init(&world, iIdx, 0xFACEu, 1);
+        for (i = 0; i < MECHA_MAX_MECHS; i++)
+            mecha_sim_add_mech(&world, i % mecha_def_count(),
+                               MECHA_CONTROL_AI, (uint8_t)(i + 1));
+        mecha_sim_begin_match(&world);
+        memset(aInputs, 0, sizeof(aInputs));
+        /* Everyone is placed on solid ground, not in the hole. */
+        for (i = 0; i < MECHA_MAX_MECHS; i++)
+            CHECK(world.aMechs[i].fY > -MECHA_M(1.0f));
+        for (iTick = 0; iTick < MECHA_TICK_HZ * 10; iTick++)
+            mecha_sim_tick(&world, aInputs, MECHA_MAX_MECHS);
+        for (i = 0; i < MECHA_MAX_MECHS; i++)
+            if (mecha_mech_alive(&world.aMechs[i]))
+                iAlive++;
+        printf("   %d of %d still up after the first ten seconds\n", iAlive,
+               MECHA_MAX_MECHS);
+        CHECK(iAlive > MECHA_MAX_MECHS / 2);
+    }
+    return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static int test_machines_carry_their_weight(void)
 {
     float afSkid[3];
@@ -6723,6 +7403,8 @@ int main(void)
           test_a_cambered_launch_rolls_the_car },
         { "a full arena fights itself out",
           test_a_full_arena_fights_itself_out },
+        { "eight a side is won by a side",
+          test_eight_a_side_is_won_by_a_side },
         { "paint schemes repaint the machine",
           test_paint_schemes_repaint_the_machine },
         { "machines are solid to each other",
@@ -6761,6 +7443,18 @@ int main(void)
         { "shots carry plasma frames", test_shots_carry_plasma_frames },
         { "death throws debris", test_death_throws_debris },
         { "machines carry their weight", test_machines_carry_their_weight },
+        { "both triggers make the centre shot",
+          test_both_triggers_make_the_centre_shot },
+        { "pilots get round what is in the way",
+          test_pilots_get_round_what_is_in_the_way },
+        { "the pilot turns a dash it is already in",
+          test_the_pilot_turns_a_dash_it_is_already_in },
+        { "the causeway map is a causeway",
+          test_the_causeway_map_is_a_causeway },
+        { "a causeway publishes a way along it",
+          test_a_causeway_publishes_a_way_along_it },
+        { "pilots walk a causeway to close",
+          test_pilots_walk_a_causeway_to_close },
     };
     size_t i;
 

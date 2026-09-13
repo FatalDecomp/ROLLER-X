@@ -1609,3 +1609,454 @@ player's slot empty, so a spectated duel had one machine in it — and
 so that match could never finish. The seat is now filled with the player's
 chosen machine under a computer pilot, which is also what makes the COLOURS row
 still mean something from the free camera.
+
+## SIM-22 — computer pilots paint themselves off the match seed
+
+Sixteen machines in one paint is unreadable, so every machine that is not under
+a player's hands takes a scheme of its own in `mecha_sim_add_mech`.
+
+The draw uses a `tMechaRng` seeded on `uiSeed ^ (slot + 1) * 0x9E3779B9` rather
+than `pWorld->rng`. The world's stream decides how the fight goes, and a match
+has to replay exactly from its seed: taking paint draws out of it would mean
+adding a machine — or changing how many colours exist — silently changed the
+fight. A private RNG keyed on the same seed gives colours that are stable for a
+given match and independent of everything else.
+
+Scheme 0 is the machine's own palette (`mecha_scheme_get(0)` is NULL), so it is
+one of the outcomes rather than a special case. The briefing's own choice still
+wins for the player's seat: the mode writes `byScheme` after adding.
+
+## SIM-23 — both triggers together, within a window
+
+Left and right together is the centre weapon. On a pad those are analogue
+triggers and they never break their thresholds on the same tick, so the
+same-tick test made the centre weapon effectively unreachable.
+
+An outer press now waits `MECHA_FIRE_PAIR_TICKS` (4, so 67 ms) for its partner;
+if the partner arrives the centre weapon fires and both outer presses are
+dropped, and if it does not the press fires as the outer weapon it was.
+`byPairMask` is 1 for left and 2 for right, and 3 is the pair.
+
+Three things the shape of it is protecting against:
+
+- **The window starts once and is never extended.** Pumping one trigger faster
+  than the window is long would otherwise hold its own shot forever, since each
+  press would restart the wait.
+- **It only runs when the centre weapon could actually fire.** No ammo, mid
+  reload, still recovering, or no centre weapon at all, and the outer press goes
+  off immediately — the 67 ms is only spent when it could buy something. If the
+  centre goes away mid-wait, whatever is held back fires at once.
+- **Only for a machine under a player's hands.** The computer fires one slot per
+  tick and picks each deliberately; pairing its shots turned two aimed outer
+  shots into a centre shot it never asked for, which measurably moved the skill
+  ladder.
+
+## DEF-07 — the KLR mortar, faster but still a mortar
+
+The shell was 92 m/s under 32 m/s² of its own gravity. `mecha_arc_pitch` solves
+the launch angle for whatever speed the weapon has, so raising speed alone keeps
+it on target — but it also flattens the arc, and the arc is the entire point of
+a weapon that does not need line of sight.
+
+Raising both together keeps the shape and buys the speed: 140 m/s under 75 m/s².
+At 60 m the shell now flies 0.43 s instead of 0.66 s and still apexes at the
+same 1.7 m, and the maximum range works out at 261 m, which is the lock range
+(260 m) it has to cover.
+
+The sim test that read `lance > shell * 4` was asserting a ratio rather than the
+intent; it now asserts the shell stays the slowest of the car's three weapons,
+which is the thing that must never stop being true.
+
+## SND-01 — the arena's sound reads the world, it is not told about it
+
+`mecha_sim.c` has no idea sound exists, and that is deliberate: the sim is the
+SDL-free half and `tests/mecha_sim_test.c` links it on its own. So
+`mecha_sound.c` works out what to play by looking at the world each frame rather
+than by the sim calling it.
+
+What it watches:
+
+- **Engine and skid** are loops, retuned every frame. There is nothing to
+  detect: a machine that is active has an engine.
+- **Blasts** are effect slots going from empty to full. `bActive` shadowed per
+  slot catches every explosion born since the last frame, however many ticks the
+  frame ran — which matters, because the mode runs catch-up ticks and an event
+  flag set during one of them would otherwise be missed.
+- **Collisions** are `iRamCooldown` going up, which is the sim saying a machine
+  just ran into something.
+- **Landings** are the airborne flag falling. The fall speed is read a frame
+  early: by the time the wheels are down it has already been spent.
+
+The alternative was an event mask on the mech that the sim sets and the sound
+layer clears. It would be exact, but it puts a field that only exists for sound
+into the structure the simulation is built on, and it has to survive being
+consumed by nobody when sound is off. Shadow state in the sound layer costs one
+array and nothing anywhere else.
+
+Nothing here needs a sound card: `loopsample`, `pannedsample` and `loadasample`
+all check `soundon` and `SamplePtr[]`, so with no device and no FATDATA every
+call is a no-op.
+
+## SND-02 — pan is the mixer's convention, not a guess
+
+`DIGISetPanLocation` computes `iPan / 0x8000 - 1` and hands that to the mixer,
+where `digi_pan` is documented as -1.0 full left to +1.0 full right. So 0 is
+hard left, 0x8000 is centre, 0xFFFF is hard right.
+
+That sign is worth the trouble of checking: getting it backwards puts every
+machine on the wrong side of the player, and it sounds plausible either way.
+Whiplash's own expression is `(1 - sin(getangle(...))) * 32768`, but
+`getangle(x, y)` is `atan2(y, x)` — the second argument drives the sine — while
+`mecha_atan2_angle(x, z)` is `atan2(x, z)`, where the first does. The two
+conventions cancel the minus sign, so the arena's version is
+`(1 + sin(...)) * 32768` and a machine off the camera's right pans right.
+Measured, not reasoned: a probe walked a source around the camera and read the
+numbers back.
+
+Distance attenuation is Whiplash's constant unchanged,
+`65536000 / (d^2 + 65536000)`. In arena units that is half volume at 32 m, which
+suits an arena about as well as it suited a track.
+
+## SND-03 — an engine is a pitched loop, and that is what makes a servo too
+
+Whiplash does not synthesise an engine. `enginesound()` plays one looped sample
+and rewrites its pitch and volume every frame:
+
+- pitch is `fRPMRatio * 100000 + 8192`, plus a wheelspin term, plus
+  `tsin[iEngineVibrateOffset] * (1 - health) * 10000` — which is why a damaged
+  car sounds rough, the vibration is a pitch wobble
+- volume is `258 * EngineVolume` scaled by engine state, then by distance
+- the whole thing is multiplied by a doppler factor of
+  `(listener + c) / (c - source)`
+
+The arena uses the same machinery: `MECHA_SND_PITCH_BASE` is Whiplash's 8192,
+and the span a machine rides up is its own speed over its walk speed. A walker
+gets a narrower span (`MECHA_SND_SERVO_SPAN`) than a car, which is the whole
+difference between a servo humming and an engine revving — the same sample, a
+different slice of pitch.
+
+That is the lever for weapon and servo sounds later: one sample, and the pitch
+says what it is. Nothing here needs a new asset.
+
+Skid follows the same idea. Whiplash decides a car is sliding by comparing the
+steered yaw against the one the car ended up with; the arena compares the
+machine's facing against the direction it is actually travelling, and folds the
+backwards half of the circle away so that reversing is not sliding.
+
+## AI-09 — going round what is in the way
+
+Neither pilot could see an obstacle. The footing checks knew about pits and
+about the edge of an open arena, and nothing else, so a car drove into the side
+of a building and parked there for the rest of the round, and a walker stood
+against it pressing forward. Measured on MERIDIAN CROSSING's middle block, with
+the enemy directly behind it: the car travelled 0 m sideways in fourteen
+seconds, the walker 24 m and never round.
+
+The fix is a fan. `mecha_ai_detour` traces along the direction the pilot wanted,
+and if that is blocked it tries bearings either side -- 17 degrees apart, up to
+seven of them, nearest side first -- and takes the first that is clear. The car
+steers for that bearing instead of for the enemy; the walker puts it in as its
+stick and spends gauge on it. Both come round the same block in under seven
+seconds now.
+
+Two things that had to be right:
+
+- **A wall is not a step.** `mecha_arena_ground_height` hides any box whose roof
+  is more than `MECHA_ARENA_STEP_UP` above the feet, which is exactly the tall
+  ones, so a hundred-metre building reads through it as flat ground. A pilot
+  asking the ground query whether it could climb the thing in front of it was
+  told yes about a tower block. Two traces at two heights -- the body, and a
+  jump higher -- is what actually separates a crate from a building.
+- **The detour is decided before the guard.** The pilot used to sit down and
+  refill when it had no line and no gauge, which on the far side of a building
+  is most of the time. Finding a way round is now a reason not to.
+
+## AI-10 — the pilot takes the crossing step
+
+Watari-dashing is already in the simulation: let the stick go mid-burst and put
+it down somewhere else, and the burst starts again the new way rather than
+limping out the old one [SIM-08]. The pilot never used it, because it held one
+direction for the whole burst.
+
+It now checks, last of all, whether what it wants is far enough off what it
+launched with to be worth turning -- and if it is, it lets the stick go for one
+tick, because that is what the machine is waiting to see, then puts it down the
+new way. Last, because the detour, the evasion and the lock may all still change
+its mind about where it is going.
+
+What this buys is the thing it is for: leaving cover on one heading and arriving
+on another. The detour above takes the pilot round the corner of a building; the
+crossing step is what lets it cut back at the enemy without stopping first.
+
+## AI-11 — a drop is a drop however the arena makes one
+
+`mecha_ai_footing_clear` tested two things: a pit flag, and whether the point is
+inside an open arena's boundary. Ground that simply falls away is neither -- the
+sides of a causeway are inside the boundary and carry no flag -- so the pilots
+walked off them. It also explains the rooftop walk-off in the city arena: the
+roof of a building is inside the boundary too.
+
+It now also refuses ground more than `MECHA_AI_FOOTING_DROP` (25 m) below where
+the machine is standing. Hills and kerbs are well inside that; a causeway edge,
+a roof and a hole are not. On the causeway map it cut the machines lost over the
+side in the first minute of a sixteen-way from ten to four.
+
+## ARENA-14 — where machines start when the ground is not a square
+
+The spawn ring is a circle of `fHalfExtent * 0.62`, which is right for every
+arena whose floor fills its own boundary. Two lanes with a hole down the middle
+is not one of those: half the ring is over the hole.
+
+`bySpawnShape` picks the rule. `MECHA_SPAWN_LANES` spreads the slots along the
+long axis and alternates which lane each one is on, so a duel opens at opposite
+ends on opposite sides and a sixteen-way fills both lanes rather than the drop
+between them. The facing is worked out from where the machine actually ended up
+rather than from the ring angle, which is only the same thing on a circle.
+
+The spawn line also has to clear the buildings: at 120 m it put machines inside
+the keep's flank wall, which the mesh test caught as quads facing into a box.
+104 m stands them on the approach instead.
+
+## ARENA-15 — a hole you fall into, not a hole that deletes you
+
+Whiplash makes a hole in a track by flagging the surface, and the arena
+inherited it: `MECHA_SURF_PIT` kills a machine the moment its feet are on a pit
+cell. That reads as being deleted. It is also why a hole made that way felt
+wrong -- there is no fall, no tumble, and no moment of knowing it has happened.
+
+The causeway map makes holes out of ground instead. `mecha_arena_void` drops
+every node far below the arena, and the ground it actually has is painted back
+over that a piece at a time with `mecha_arena_lane` and `mecha_arena_pad`.
+Anything not painted is a hole, and a machine that goes into one falls --
+measured at 35 ticks of falling before the kill plane takes it, against zero for
+a pit.
+
+The nodes either side of an edge are one cell apart, so with 40 cells over 400 m
+the drop is 260 m over 10 m of ground: a cliff, not a slope.
+
+## ARENA-16 — FACING WORLDS
+
+After the Unreal Tournament map, built from a model of it the player supplied.
+Two keeps at the ends of two causeways, with a hole between the causeways on
+each side of the middle.
+
+- Seven hundred metres of arena, the keeps 504 m apart, at 6 cm to the unit.
+- The lanes are about 30 m wide and they bow: out to 47 m off the axis a quarter
+  of the way along, back in to 26 m at the middle, where they all but touch.
+  That pinch is the one crossing between them.
+- The bases sit at the low ends and the lanes climb 32 m to the middle, so
+  leaving a base is uphill and falling back to it is downhill.
+- A keep on each base, 90 m square, walls 34 m high. Four walls with a pier in
+  the middle of the one facing the causeway, so there are two doorways and each
+  opens onto a lane. A single gate on the centreline opened onto the hole
+  between them and half the field walked into it inside ten seconds. Open to the
+  sky, because a box here is solid from the ground up and a roof would be a lid
+  with nothing able to get under it.
+- Nothing out on the run. The original has no cover there either -- what it has
+  is a crest you cannot see over -- and a block standing near a lane's edge puts
+  a wall of terrain quads inside its own footprint, which is a mesh with no
+  right answer.
+
+Machines start inside the keeps, which is how the original starts a match.
+
+## ARENA-17 — reading the model, and what it says
+
+The model is Z-up, and the first reading took Y for up. Everything followed from
+that: the causeway came out as one bowed strip rather than two, the climb came
+out as a W, and the plan was measured across the map's height instead of its
+width.
+
+What settles it is the area of the flat faces. Sorting every triangle by which
+axis its normal points along and totalling the area, +Z has the most and -Z the
+least -- floors facing up, underside cut away. Y-up would have put nearly equal
+area on +Y and -Y, which is what walls do, not floors.
+
+Read the right way up, the arena is built from a station every 15 m along the
+run. Each station carries where the centre of each lane sits, how wide it is
+there, and how high, straight off the model; `mecha_arena_lane` interpolates all
+three between stations, so a run of them follows the curve instead of stepping
+along it. The table is in `mecha_arena.c` beside the arena it builds.
+
+Two things the measurements do not give and the arena has to:
+
+- **The crossing.** Where the lanes pinch, the model leaves six metres between
+  them, which is narrower than the machines that have to use it. It is widened
+  to something two of them can pass on: the crossing is the only way from one
+  lane to the other, and one nobody can take is a hole with extra steps.
+- **The last stretch.** The measurements stop 24 m short of the bases, because
+  that is where the lanes merge into them and the sampling can no longer tell
+  one from the other. The arena runs the end station out to the base itself.
+
+## ARENA-18 — a box knows what it is standing on
+
+`mecha_mesh_arena` has always drawn a box up from the terrain under its centre.
+`mecha_arena_ground_height` read the same `fHeight` as an absolute Y. On level
+ground those agree, which is why it never mattered; on a slope the drawn box and
+the solid box are in different places.
+
+It showed up as soon as cover stood on a climbing causeway: passing the
+collision an absolute height made the mesh draw the box at the terrain height
+twice over.
+
+`tMechaObstacle` now carries `fBaseY`, filled in at the end of
+`mecha_arena_init` where the ground is finished, and the mesh, the ground query,
+the cylinder push and the segment trace all read it. Box heights are plain
+heights above their own ground again, everywhere.
+
+## SIM-24 — a spawn stands on the ground, not under it
+
+`mecha_reset_round` asked `mecha_arena_ground_height` for the spawn height with
+the feet at zero. On an open arena that is the query for "am I under this
+platform", and any ground above zero answers void -- so on the first arena with
+raised ground, every machine was placed at -4000 m and fell out of the world
+before the round started. It asks `mecha_arena_terrain_height` now, which is the
+ground itself with nothing standing on it.
+
+## SIM-25 — a round goes to a side, not to a machine
+
+`mecha_end_round` credited `iRoundsWon` to the one machine it named the winner.
+With one machine a side that is the same thing; with eight it is not, because
+the machine left standing at the end of one round is rarely the one left
+standing at the end of the next, so a match of sixteen could run for ever
+without anyone reaching the rounds it takes to win.
+
+The round is credited to every active machine on the winner's team instead, and
+`mecha_mech_allied` is the one place that answers "are these two on the same
+side" for everything outside the simulation — the banner and the mode's result
+line both ask it rather than comparing indices. Out-of-range indices are on
+nobody's side, which is what makes it safe to ask about a spectator's `-1`.
+
+## MODE-08 — team deathmatch is a duel with sixteen machines in it
+
+Survival's sixteen machines with survival's sixteen teams collapsed to two: the
+MECH row flies one side, the OPPONENT row the other, eight each.
+
+The seats alternate sides, and that is not cosmetic. `mecha_reset_round` hands
+out spawn points in seat order, and both arena spawn shapes split a duel by that
+order — `MECHA_SPAWN_BASES` puts even slots in one keep and odd slots in the
+other [ARENA-14], the ring puts consecutive slots opposite each other. Filling
+one side's seats first would therefore start half of each team inside the
+enemy's base.
+
+Paint is a side's, not a machine's, so `mecha_mode_paint_teams` overwrites what
+`mecha_sim_add_mech` drew per machine \[SIM-22\]: the player's side wears the
+scheme the briefing chose and the other side takes one draw of its own, stepped
+on by one if it lands on the player's, because two sides in one colour is the
+one thing this mode cannot have. The draw runs on a `tMechaRng` of its own
+seeded off the match seed — the world's stream decides how the fight goes, and
+paint must not move it.
+
+Measured with computer pilots on both sides and no round clock: MERIDIAN
+CROSSING wipes a side out in about 45 s, the small arenas in 20-25 s. FACING
+WORLDS does not finish at all — the last few machines sit in their own halves
+trading long-range shots, which a free-for-all on that map does too, so it is
+the map's size rather than the mode. With the round clock on (the briefing's
+default) it is decided on armour like any other round.
+
+## AI-12 — three things that stopped a pilot leaving its own half
+
+Measured on FACING WORLDS with computer pilots on both sides and no round clock:
+sixteen machines, ten minutes, nobody past their own base. Three separate
+faults, none of them the one it looked like.
+
+**A burst that cannot be taken is not a reason to walk home.** The footing rules
+checked the whole length of a boost burst along the wanted heading and, when it
+failed, cancelled the boost *and reversed the stick*. With an enemy a
+burst-and-a-bit away across a hole that fails every tick, so the pilot walked
+backwards out of every approach it started. The burst check now only refuses the
+burst; backing off is what the walking check is for.
+
+**A gap narrower than a stride read as solid ground.** `mecha_ai_footing_clear`
+sampled one point at the far end of the look-ahead. The far lip of a hole is
+ground, so the hole was invisible. It samples the whole way now, a step of
+`MECHA_AI_FOOTING_STEP` at a time, and `mecha_ai_footing_run` returns how far it
+got — which is what the fan below needs anyway.
+
+**Standing still, a machine has no heading.** The carry check looks along the
+machine's own velocity. At a standstill that is a couple of centimetres a second
+of noise pointing anywhere, so a pilot loitering near an edge threw itself into
+an escape sixty times a second and never went anywhere. `MECHA_AI_CARRY_MIN` is
+the floor below which there is nothing being carried.
+
+With those three fixed a pilot gets round a gap rather than backing away from
+one: the fan in `mecha_ai_skirt` turns off the wanted heading a step at a time
+and takes the bearing that gets *furthest* before the ground runs out — not the
+first that is clear, because every bearing over a hole is clear somewhere past
+the far lip. The choice is held for `MECHA_AI_SKIRT_HOLD` ticks, the way the
+strafe direction is held: re-picking on a causeway barely wider than the
+look-ahead gives a different answer every tick, and a machine that changes its
+mind sixty times a second walks on the spot.
+
+That was worth going from nought fights in five finishing to three, and it is as
+far as looking at the ground in front of you can get: the rest is AI-13.
+
+## AI-13 — the way spine, which is Whiplash's racing line
+
+The race game's computer drivers do not look at the road in front of them. Each
+track chunk carries four AI lines (`localdata[].fAILine1..4`), the driver holds
+an index into them (`iAICurrentLine`, swapped by `changeline` when `linevalid`
+says the one it is on has run out), and `findnearcarsforce` walks the chunks
+ahead by a strategy distance scaled by speed, interpolates the line offset
+between two chunks, and hands back a world-space point. The whole of the
+steering is then `atan2` to that point, clamped by the engine's steering
+sensitivity.
+
+The arena has no track, so the arena publishes the line: `tMechaWay` is a chain
+of stations, each a centre and how far either side of it there is still ground,
+and an arena that needs one fills it in as it builds itself. FACING WORLDS
+publishes two, one per causeway, straight out of the same measured table the
+lanes are painted from [ARENA-17], with an end on each base so a machine in a
+keep is led out of a doorway rather than at the hole. Every other arena
+publishes none and nothing about them changes.
+
+`mecha_arena_way_aim` is `findnearcarsforce`: the way the machine is nearest,
+the station it is nearest on it, the station to head for, then walk the chain by
+the look-ahead and interpolate where that lands. Four lines across the way,
+picked per machine at spawn as Whiplash picks its driver's, so eight a side do
+not file down the middle of one. Two details the race game does not need:
+
+- **The link.** Where the enemy is on the *other* way, the goal is not the
+  station beside them -- that is straight across the hole -- but the station
+  where the two ways come closest, which on this map is the crossing at the
+  pinch. Each way stores that index per other way, worked out once when the
+  arena finishes building.
+- **The soft edge.** The ground is a grid of cells with heights interpolated
+  between them, so the outermost cell of any edge is a ramp into the void rather
+  than floor. The lines are laid out on the station's width less one cell, or a
+  machine on the outside line is already sliding.
+
+A pilot follows a way only while the straight line to the enemy has nothing to
+walk on, and only as far as its own feet can see: the way is the arena's own
+ground, but getting onto one from wherever the machine is standing is not, and a
+walker that trusted the line from the far side of the hole walked into it. What
+cannot be walked goes to the fan in AI-12, which now has the way to aim off
+instead of the enemy.
+
+The car gets it too, and needed it most -- it cannot step sideways off a
+causeway it has driven onto the edge of. Its one extra rule is the moment of
+committing: nose already on the way, way clear ahead, wheels still carrying the
+turn that put it there. A driver that lifted through that moment never joined a
+lane at all and sat at the mouth of one for the whole round.
+
+Measured over twelve sixteen-machine fights, no clock, ten-minute cap:
+
+|                               | before  | with the spine |
+| ----------------------------- | ------- | -------------- |
+| fights decided                | 0 of 12 | 9 of 12        |
+| both sides out of their bases | never   | every fight    |
+| closest the two sides come    | 400 m+  | 175 m          |
+| machines lost to the hole     | —       | 1.2 a fight    |
+
+## ARENA-19 — the causeways are built wider than they were measured
+
+CTF-Face is walked by a man. This is driven by something eight metres across, on
+ground whose cells are eight and three quarter metres and whose outermost cell
+at any edge is a ramp rather than floor. At the measured width that leaves about
+a machine and a half of usable lane -- a tightrope, not a causeway to fight
+along, and it showed: pilots spent more of a fight falling off the map than
+fighting on it.
+
+The station table keeps the measurements. The builder scales their half-widths
+by `fWide` (1.6) and nothing else: the bow, the pinch, the climb and the hole
+between the lanes are all the map's own. Falls on FACING WORLDS went from 3.4
+machines a fight to 1.0.

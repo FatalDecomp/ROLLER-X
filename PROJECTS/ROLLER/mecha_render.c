@@ -529,9 +529,9 @@ void mecha_camera_update(tMechaCamera *pCamera, const tMechaWorld *pWorld,
 
 /* The camera's basis in world space. Column order matches what the software
  * renderer expects in GameRenderProjection::view: right, up, forward. */
-static void mecha_camera_basis(const tMechaCamera *pCamera,
-                               float afRight[3], float afUp[3],
-                               float afForward[3])
+void mecha_camera_basis(const tMechaCamera *pCamera,
+                        float afRight[3], float afUp[3],
+                        float afForward[3])
 {
   float fCosYaw = mecha_cos(pCamera->iYaw);
   float fSinYaw = mecha_sin(pCamera->iYaw);
@@ -1062,11 +1062,13 @@ static const char *mecha_phase_banner(const tMechaWorld *pWorld,
   case MECHA_PHASE_ROUND_OVER:
     if (pWorld->match.iWinnerIdx < 0)
       return "DRAW";
-    return pWorld->match.iWinnerIdx == iViewMech ? "ROUND WIN" : "ROUND LOST";
+    return mecha_mech_allied(pWorld, iViewMech, pWorld->match.iWinnerIdx)
+             ? "ROUND WIN" : "ROUND LOST";
   case MECHA_PHASE_MATCH_OVER:
     if (pWorld->match.iWinnerIdx < 0)
       return "DRAW";
-    return pWorld->match.iWinnerIdx == iViewMech ? "VICTORY" : "DEFEAT";
+    return mecha_mech_allied(pWorld, iViewMech, pWorld->match.iWinnerIdx)
+             ? "VICTORY" : "DEFEAT";
   default:
     /*
      * "FIGHT" only for the first moments of the round, then out of the way.

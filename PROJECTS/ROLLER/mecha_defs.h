@@ -166,6 +166,71 @@
 #define MECHA_AI_CLIMB_LOOK  MECHA_M(7.0f)
 #define MECHA_AI_CLIMB_MIN   MECHA_M(4.0f)
 
+/*
+ * Looking past what is in the way. The pilot probes along a fan of bearings
+ * either side of where it wants to go and takes the first that is not
+ * blocked; the step is how far apart those bearings are and the count is
+ * how far round it is willing to look before giving up and going anyway.
+ * A machine the width of a car needs a couple of its own lengths of warning
+ * at walking pace, and more of them the faster it is going. [AI-09]
+ */
+#define MECHA_AI_DETOUR_STEP    MECHA_DEG(17)
+#define MECHA_AI_DETOUR_FANS    7
+#define MECHA_AI_DETOUR_LOOK    MECHA_M(26.0f)
+#define MECHA_AI_DETOUR_LEAD    0.70f
+/* Cover taller than this above the pilot's own head is not something to be
+ * climbed, however much gauge it has: it is something to be gone round.
+ * [AI-09] */
+#define MECHA_AI_DETOUR_WALL    1.7f
+
+/*
+ * The crossing step -- watari-dash. A burst already under way is worth
+ * turning when what the pilot wants now is this far off what it launched
+ * with, and turning it means letting the stick go for a tick first, which
+ * is what the machine is waiting to see. [AI-10]
+ */
+#define MECHA_AI_WATARI_DOT     0.72f
+
+/* How far apart the footing samples are along the way ahead. One look at
+ * the far end says nothing about the hole in between, which is how a pilot
+ * walked over a gap narrower than its own stride. [AI-12] */
+#define MECHA_AI_FOOTING_STEP   MECHA_M(6.0f)
+
+/* A step down worth refusing to take. Below this a pilot treats the ground
+ * ahead as somewhere it would arrive badly rather than somewhere it is
+ * going; above it, hills and kerbs are still just ground. [AI-11] */
+#define MECHA_AI_FOOTING_DROP   MECHA_M(25.0f)
+
+/*
+ * Getting round a gap rather than backing away from one. The pilot turns
+ * off the heading it wanted a step at a time, each side in turn, and takes
+ * the first bearing with ground under it. The fan stops short of a right
+ * angle on purpose: past that it is no longer going anywhere near where it
+ * meant to, and backing off is the honest answer. [AI-12]
+ */
+/*
+ * Following a way across. Whiplash aims its drivers at a point on their AI
+ * line a strategy distance ahead, scaled by how fast they are going; this is
+ * that distance, and how much of its own speed a pilot adds to it. A machine
+ * too far off every way to be on one is not following anything. [AI-13]
+ */
+#define MECHA_AI_WAY_LOOK       MECHA_M(64.0f)
+#define MECHA_AI_WAY_LEAD       0.55f
+#define MECHA_AI_WAY_JOIN       MECHA_M(60.0f)
+
+#define MECHA_AI_SKIRT_STEP     MECHA_DEG(15)
+#define MECHA_AI_SKIRT_FANS     5
+/* And it sticks with the way it picked for this long, the way it commits to
+ * a strafe: picking again every tick on a narrow causeway is how a pilot
+ * ends up walking on the spot at the mouth of one. [AI-12] */
+#define MECHA_AI_SKIRT_HOLD     45
+
+/* Below this there is nothing being carried: the machine is standing about,
+ * and the direction of what little velocity it has is noise. Checking the
+ * ground along it anyway is how a pilot standing near an edge threw itself
+ * into a random escape sixty times a second. [AI-12] */
+#define MECHA_AI_CARRY_MIN      MECHA_MPS(1.0f)
+
 #define MECHA_AI_FOOTING_WALK   MECHA_M(16.0f)
 #define MECHA_AI_FOOTING_LEAD   0.35f
 #define MECHA_AI_FOOTING_CANCEL 0.60f
@@ -465,6 +530,11 @@
 /* The golden angle in radians, which is what spaces a packed cone of shot
  * evenly instead of in arms. [SIM-20] */
 #define MECHA_SPREAD_GOLDEN 2.39996323f
+
+/* How long an outer trigger waits for the other one before it gives up and
+ * fires on its own. Both together are the centre weapon, and a pad's
+ * triggers are never pulled on the same tick. [SIM-23] */
+#define MECHA_FIRE_PAIR_TICKS 4
 
 #define MECHA_CAMBER_SPIN_GAIN 0.30f
 #define MECHA_CAMBER_UPRIGHT   MECHA_ANGLE_QUARTER

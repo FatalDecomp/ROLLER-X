@@ -46,7 +46,7 @@
 
 //-------------------------------------------------------------------------------------------------
 
-#define MECHA_ARENA_COUNT 6
+#define MECHA_ARENA_COUNT 7
 
 /* Nothing may be pushed further than this in one resolve pass. A mech that
  * somehow ends up deep inside geometry crawls out over a few ticks instead of
@@ -114,6 +114,133 @@ static void mecha_arena_raise(tMechaArena *pArena, float fX, float fZ,
 
 /* Marks every cell whose middle falls inside the reach. Cells, not corners:
  * a surface belongs to a piece of ground, the way a track's does. */
+/*
+ * Everything falls away. The ground an arena actually has is then painted
+ * back over it a piece at a time, which is how ground that is not a filled
+ * square gets built at all.
+ *
+ * The drop is not a pit flag, deliberately. A pit kills a machine the moment
+ * its feet are on one, which reads as being deleted rather than as falling.
+ * Ground far enough below the kill plane makes the machine fall, tumble and
+ * expire on the way down, which is what happens off the side of any open
+ * arena and is what a hole should feel like. [ARENA-15]
+ */
+static void mecha_arena_void(tMechaArena *pArena, float fDepth)
+{
+  int iCells = mecha_arena_cells(pArena);
+  int iRow;
+  int iCol;
+
+  for (iRow = 0; iRow <= iCells; iRow++)
+    for (iCol = 0; iCol <= iCells; iCol++)
+      pArena->afNode[iRow][iCol] = -fDepth;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+/*
+ * A length of lane. The centre, the width and the height are all given at
+ * both ends and interpolated between, so a run of these follows a curve
+ * instead of stepping along it -- which is what a causeway measured off a
+ * real map needs. Anything off the lane is left as it was, so two lanes
+ * painted apart from each other leave a hole between them without anybody
+ * carving one. [ARENA-15]
+ */
+static void mecha_arena_lane(tMechaArena *pArena, float fX0, float fX1,
+                             float fZ0, float fHalf0, float fY0,
+                             float fZ1, float fHalf1, float fY1)
+{
+  int iCells = mecha_arena_cells(pArena);
+  float fCell = pArena->fHalfExtent * 2.0f / (float)iCells;
+  float fSpan = fX1 - fX0;
+  int iRow;
+  int iCol;
+
+  if (fCell <= 0.0f || fabsf(fSpan) < 1e-3f)
+    return;
+  for (iCol = 0; iCol <= iCells; iCol++) {
+    float fNodeX = -pArena->fHalfExtent + fCell * (float)iCol;
+    float fT = (fNodeX - fX0) / fSpan;
+    float fZ;
+    float fHalf;
+    float fY;
+
+    if (fT < 0.0f || fT > 1.0f)
+      continue;
+    fZ = fZ0 + (fZ1 - fZ0) * fT;
+    fHalf = fHalf0 + (fHalf1 - fHalf0) * fT;
+    fY = fY0 + (fY1 - fY0) * fT;
+    for (iRow = 0; iRow <= iCells; iRow++) {
+      float fNodeZ = -pArena->fHalfExtent + fCell * (float)iRow;
+
+      if (fabsf(fNodeZ - fZ) <= fHalf)
+        pArena->afNode[iRow][iCol] = fY;
+    }
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+/* One more station on the way being built. Silently full is better than
+ * half a way: a chain that stops in the middle of a causeway leads pilots
+ * to the edge of it. [AI-13] */
+static void mecha_arena_way_point(tMechaWay *pWay, float fX, float fZ,
+                                  float fHalf)
+{
+  if (!pWay || pWay->iCount >= MECHA_WAY_POINTS)
+    return;
+  pWay->aPoints[pWay->iCount].fX = fX;
+  pWay->aPoints[pWay->iCount].fZ = fZ;
+  pWay->aPoints[pWay->iCount].fHalf = fHalf;
+  pWay->iCount++;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+/*
+ * The last box added is masonry rather than a glazed facade. Cover defaults
+ * to the retail building art, which is right for a city and wrong for a
+ * keep -- and MECHA_TILE_CONCRETE is no help, because that index is one of
+ * the facades. Brick is the one masonry face the bank has.
+ */
+static void mecha_arena_face_stone(tMechaArena *pArena)
+{
+  tMechaObstacle *pBox;
+
+  if (pArena->iObstacleCount <= 0)
+    return;
+  pBox = &pArena->aObstacles[pArena->iObstacleCount - 1];
+  pBox->byTile = MECHA_TILE_RUST;
+  pBox->byTopTile = MECHA_TILE_PLATE_B;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+/* A flat square of ground, for what stands at the ends of a causeway. */
+static void mecha_arena_pad(tMechaArena *pArena, float fX, float fZ,
+                            float fHalfX, float fHalfZ, float fY)
+{
+  int iCells = mecha_arena_cells(pArena);
+  float fCell = pArena->fHalfExtent * 2.0f / (float)iCells;
+  int iRow;
+  int iCol;
+
+  if (fCell <= 0.0f)
+    return;
+  for (iRow = 0; iRow <= iCells; iRow++) {
+    for (iCol = 0; iCol <= iCells; iCol++) {
+      float fNodeX = -pArena->fHalfExtent + fCell * (float)iCol;
+      float fNodeZ = -pArena->fHalfExtent + fCell * (float)iRow;
+
+      if (fabsf(fNodeX - fX) > fHalfX || fabsf(fNodeZ - fZ) > fHalfZ)
+        continue;
+      pArena->afNode[iRow][iCol] = fY;
+    }
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static void mecha_arena_mark(tMechaArena *pArena, float fX, float fZ,
                              float fReach, uint32_t uiFlags)
 {
@@ -223,6 +350,7 @@ const char *mecha_arena_name(int iArenaIdx)
     "COLDWATER MEADOW",
     "TOWER SEVEN ROOF",
     "MERIDIAN CROSSING",
+    "FACING WORLDS",
   };
 
   if (iArenaIdx < 0)
@@ -468,6 +596,218 @@ void mecha_arena_init(tMechaArena *pArena, int iArenaIdx)
     break;
   }
 
+  case 6: {
+    /*
+     * Two keeps at the ends of a causeway with nothing either side of it,
+     * after the Unreal Tournament map. The shape is the whole of it: one
+     * long run between two strongholds, no way round, and a fall that kills
+     * anywhere off the line. [ARENA-16]
+     *
+     * Everything is measured off the original at four centimetres to the
+     * unit, which puts three hundred metres between the keeps and makes
+     * each of them sixty-odd metres square -- a building our machines can
+     * drive into rather than one they would wear.
+     */
+    /*
+     * Measured off the model the player supplied, at 6 cm to the unit: one
+     * station every 15 m along the run, each giving where the centre of each
+     * lane sits, how wide it is there, and how high. The lanes bulge out to
+     * either side a quarter of the way along and pinch back in at the
+     * middle, where they all but touch -- that pinch is the one crossing
+     * between them, and everywhere else what lies between is the hole.
+     * [ARENA-17]
+     */
+    static const float aafLane[17][5] = {
+      /*  A centre  A half   B centre  B half   height */
+      { -33.0f, 15.0f,  35.4f, 15.0f,  3.2f },   /* -120 m, off the base */
+      { -37.8f, 15.0f,  40.2f, 15.0f,  9.4f },
+      { -43.2f, 15.6f,  45.0f, 15.0f, 15.3f },
+      { -47.4f, 15.0f,  48.0f, 15.6f, 21.2f },
+      { -42.6f, 15.0f,  41.4f, 17.4f, 25.0f },
+      { -37.2f, 15.6f,  34.8f, 19.2f, 28.6f },
+      { -31.8f, 16.2f,  28.8f, 21.6f, 32.1f },
+      { -26.4f, 16.8f,  22.2f, 23.4f, 35.5f },
+      { -26.4f, 16.8f,  21.0f, 24.6f, 35.3f },   /* the middle */
+      { -30.6f, 16.2f,  28.2f, 22.2f, 31.1f },
+      { -34.8f, 15.6f,  36.0f, 20.4f, 26.8f },
+      { -39.0f, 15.0f,  43.2f, 18.0f, 22.4f },
+      { -43.2f, 14.4f,  49.8f, 15.0f, 18.0f },
+      { -41.4f, 13.8f,  46.2f, 13.8f, 13.6f },
+      { -38.4f, 14.4f,  40.2f, 13.8f,  9.2f },
+      { -34.8f, 14.4f,  33.6f, 14.4f,  4.8f },
+      { -31.8f, 15.0f,  36.6f, 24.6f,  2.1f },   /* +120 m, onto the base */
+    };
+    /*
+     * How much wider the causeways are built than they were measured. The
+     * original is walked by a man; this is driven by something eight metres
+     * across, on ground made of eight-metre cells whose outermost one is a
+     * ramp into the void rather than floor. At the measured width there is
+     * about a machine and a half of usable lane, which is not a causeway to
+     * fight along -- it is a tightrope. The shape, the bow and the pinch are
+     * the measurements' own; only the width is ours. [ARENA-19]
+     */
+    const float fWide = 1.6f;
+    const float fStation = 15.0f * m;   /* how far apart those stations are */
+    const float fRun = 252.0f * m;      /* base centre to the middle */
+    const float fBaseX = 108.0f * m;    /* and half a base, each way */
+    const float fBaseZ = 95.0f * m;
+    const float fKeep = 45.0f * m;      /* half a keep, wall to wall */
+    const float fSkin = 3.0f * m;       /* half the thickness of a wall */
+    const float fTall = 34.0f * m;      /* how high the walls stand */
+    const float fPier = 20.0f * m;      /* half the pier the doorways flank */
+    /* Walls meet at the corners without touching: two quads in one place
+     * have nothing to decide which is in front. [MESH-11] */
+    const float fJoint = 0.5f * m;
+    int iEnd;
+    int iStep;
+
+    pArena->byShape = MECHA_ARENA_OPEN;
+    pArena->fHalfExtent = 350.0f * m;
+    pArena->fWallHeight = 0.0f;
+    pArena->iTerrainCells = 80;
+    pArena->iFloorTiles = 56;
+    pArena->fSkirt = 260.0f * m;
+    pArena->fKillY = -30.0f * m;
+    pArena->byFloorPalette = MECHA_PAL_FLOOR_B;
+    pArena->byGridPalette = MECHA_PAL_GRID;
+    pArena->byFloorTile = MECHA_TILE_PLATE_A;
+    pArena->byGridTile = MECHA_TILE_PLATE_B;
+    pArena->byWallTile = MECHA_TILE_CONCRETE;
+
+    /*
+     * Nothing, and then the map painted back onto it: a base at each end and
+     * the two lanes between them, laid a station at a time so they follow
+     * the curve they were measured on. The lanes climb the whole way in, so
+     * leaving a base is uphill and falling back to it is downhill.
+     * [ARENA-16]
+     */
+    mecha_arena_void(pArena, 300.0f * m);
+    mecha_arena_pad(pArena, -fRun, 0.0f, fBaseX, fBaseZ, 0.0f);
+    mecha_arena_pad(pArena, fRun, 0.0f, fBaseX, fBaseZ, 0.0f);
+    for (iStep = 0; iStep < 16; iStep++) {
+      const float *pA = aafLane[iStep];
+      const float *pB = aafLane[iStep + 1];
+      float fX0 = (-8.0f + (float)iStep) * fStation;
+      float fX1 = (-7.0f + (float)iStep) * fStation;
+
+      mecha_arena_lane(pArena, fX0, fX1,
+                       pA[0] * m, pA[1] * m * fWide, pA[4] * m,
+                       pB[0] * m, pB[1] * m * fWide, pB[4] * m);
+      mecha_arena_lane(pArena, fX0, fX1,
+                       pA[2] * m, pA[3] * m * fWide, pA[4] * m,
+                       pB[2] * m, pB[3] * m * fWide, pB[4] * m);
+    }
+
+    /*
+     * And the last stretch at each end, from where the measurements stop out
+     * to the base itself. Without it the causeway ends 24 m short of the
+     * ground it is supposed to arrive on.
+     */
+    {
+      const float *pIn = aafLane[0];
+      const float *pOut = aafLane[16];
+      float fEdge = fRun - fBaseX;
+
+      mecha_arena_lane(pArena, -fEdge, -8.0f * fStation,
+                       pIn[0] * m, pIn[1] * m * fWide, 0.0f,
+                       pIn[0] * m, pIn[1] * m * fWide, pIn[4] * m);
+      mecha_arena_lane(pArena, -fEdge, -8.0f * fStation,
+                       pIn[2] * m, pIn[3] * m * fWide, 0.0f,
+                       pIn[2] * m, pIn[3] * m * fWide, pIn[4] * m);
+      mecha_arena_lane(pArena, 8.0f * fStation, fEdge,
+                       pOut[0] * m, pOut[1] * m * fWide, pOut[4] * m,
+                       pOut[0] * m, pOut[1] * m * fWide, 0.0f);
+      mecha_arena_lane(pArena, 8.0f * fStation, fEdge,
+                       pOut[2] * m, pOut[3] * m * fWide, pOut[4] * m,
+                       pOut[2] * m, pOut[3] * m * fWide, 0.0f);
+    }
+
+    /*
+     * And the same two lanes published as ways, station for station, so the
+     * computer pilots have something to follow when the ground between them
+     * and the enemy is not there. The chain is the measurement table again
+     * -- centre and half-width per station -- with an end on each base so a
+     * machine in a keep is led out of a doorway rather than at the hole.
+     * [AI-13]
+     */
+    {
+      int iLane;
+
+      pArena->iWayCount = 2;
+      for (iLane = 0; iLane < 2; iLane++) {
+        tMechaWay *pWay = &pArena->aWays[iLane];
+        int iCol = iLane * 2;
+        float fEdge = fRun - fBaseX;
+
+        pWay->iCount = 0;
+        mecha_arena_way_point(pWay, -fRun, aafLane[0][iCol] * m, fBaseZ);
+        mecha_arena_way_point(pWay, -fEdge, aafLane[0][iCol] * m,
+                              aafLane[0][iCol + 1] * m * fWide);
+        for (iStep = 0; iStep <= 16; iStep++)
+          mecha_arena_way_point(pWay, (-8.0f + (float)iStep) * fStation,
+                                aafLane[iStep][iCol] * m,
+                                aafLane[iStep][iCol + 1] * m * fWide);
+        mecha_arena_way_point(pWay, fEdge, aafLane[16][iCol] * m,
+                              aafLane[16][iCol + 1] * m * fWide);
+        mecha_arena_way_point(pWay, fRun, aafLane[16][iCol] * m, fBaseZ);
+      }
+    }
+
+    /*
+     * Where the lanes pinch together the measurements leave six metres
+     * between them, which is narrower than the machines that have to use
+     * it. The crossing is widened to something two of them can pass on --
+     * it is the only way from one lane to the other, and a crossing nobody
+     * can take is a hole with extra steps. [ARENA-17]
+     */
+    mecha_arena_pad(pArena, 0.0f, -7.0f * m, 14.0f * m, 8.0f * m,
+                    aafLane[8][4] * m);
+
+    /*
+     * The keeps, one to a base. Four walls apiece, with a pier in the middle
+     * of the one facing the causeway so there is a doorway either side of it
+     * -- and the doorways come out where the lanes are. A single gate on the
+     * centreline would open onto the hole between them, which is where the
+     * machines went. Open to the sky, because a box here is solid from the
+     * ground up and a roof would be a lid with no way under it. [ARENA-16]
+     */
+    for (iEnd = 0; iEnd < 2; iEnd++) {
+      float fCentre = iEnd ? fRun : -fRun;
+      float fSign = iEnd ? 1.0f : -1.0f;
+      float fBack = fCentre + fSign * (fKeep - fSkin);
+      float fFront = fCentre - fSign * (fKeep - fSkin);
+      float fFlank = fKeep - 2.0f * fSkin - fJoint;
+      int iSide;
+
+      mecha_arena_add_box(pArena, fBack, 0.0f, fSkin, fKeep, fTall,
+                          MECHA_PAL_BLOCK, MECHA_PAL_BLOCK_TOP);
+      mecha_arena_face_stone(pArena);
+      for (iSide = 0; iSide < 2; iSide++) {
+        mecha_arena_add_box(pArena, fCentre,
+                            (iSide ? 1.0f : -1.0f) * (fKeep - fSkin),
+                            fFlank, fSkin, fTall,
+                            MECHA_PAL_BLOCK, MECHA_PAL_BLOCK_TOP);
+        mecha_arena_face_stone(pArena);
+      }
+      mecha_arena_add_box(pArena, fFront, 0.0f, fSkin, fPier, fTall,
+                          MECHA_PAL_BLOCK, MECHA_PAL_BLOCK_TOP);
+      mecha_arena_face_stone(pArena);
+    }
+
+    /*
+     * No cover out on the run. The original has none either -- what it has
+     * is a crest you cannot see over and two lanes that only meet at it --
+     * and a block sitting near a lane's edge puts a wall of terrain quads
+     * inside its own footprint, which is a mesh nobody can sort. [ARENA-17]
+     */
+
+    /* Inside the keeps, which is where this map starts a match. */
+    pArena->bySpawnShape = MECHA_SPAWN_BASES;
+    pArena->fSpawnHalfX = fRun;
+    pArena->fSpawnHalfZ = 30.0f * m;
+    break;
+  }
+
   case 4:
     /*
      * A roof: no walls, a sloped hexagonal tabletop in the middle and a
@@ -515,6 +855,65 @@ void mecha_arena_init(tMechaArena *pArena, int iArenaIdx)
     mecha_arena_add_box(pArena, 68.4f * m, 68.4f * m, 8.0f * m, 8.0f * m,
                         16.0f * m, MECHA_PAL_BLOCK, MECHA_PAL_BLOCK_TOP);
     break;
+  }
+
+  /*
+   * Every box now learns what it is standing on, here where the ground is
+   * finished. The mesh has always drawn a box up from the terrain under its
+   * centre while the collision read the same height as absolute: the two
+   * agree on level ground and part company on a slope. One value, read by
+   * both. [ARENA-18]
+   */
+  {
+    int iBox;
+
+    for (iBox = 0; iBox < pArena->iObstacleCount; iBox++) {
+      tMechaObstacle *pBox = &pArena->aObstacles[iBox];
+
+      pBox->fBaseY = mecha_arena_terrain_height(pArena, pBox->fX, pBox->fZ);
+    }
+  }
+
+  /*
+   * And every way learns where it comes closest to each of the others. Two
+   * lanes either side of a hole are one route only at the crossing, and a
+   * pilot chasing someone on the far lane has to be told where that is --
+   * otherwise it walks its own lane abreast of the enemy for the whole
+   * round, which is what it did. Once, here, rather than every tick.
+   * [AI-13]
+   */
+  {
+    int iWay;
+    int iOther;
+
+    for (iWay = 0; iWay < pArena->iWayCount; iWay++) {
+      for (iOther = 0; iOther < MECHA_MAX_WAYS; iOther++) {
+        const tMechaWay *pThem;
+        float fBest = 0.0f;
+        int iBest = 0;
+        int i;
+        int j;
+
+        pArena->aWays[iWay].aiLink[iOther] = 0;
+        if (iOther == iWay || iOther >= pArena->iWayCount)
+          continue;
+        pThem = &pArena->aWays[iOther];
+        for (i = 0; i < pArena->aWays[iWay].iCount; i++) {
+          const tMechaWayPoint *pAt = &pArena->aWays[iWay].aPoints[i];
+
+          for (j = 0; j < pThem->iCount; j++) {
+            float fGap = mecha_length2(pThem->aPoints[j].fX - pAt->fX,
+                                       pThem->aPoints[j].fZ - pAt->fZ);
+
+            if (i == 0 || fGap < fBest) {
+              fBest = fGap;
+              iBest = i;
+            }
+          }
+        }
+        pArena->aWays[iWay].aiLink[iOther] = iBest;
+      }
+    }
   }
 }
 
@@ -739,10 +1138,10 @@ float mecha_arena_ground_height(const tMechaArena *pArena,
       continue;
     /* Below the lip means the box is a wall from here, not a floor. Letting
      * it read as floor is what would teleport a walking mech onto the roof. */
-    if (fFeetY < pBox->fHeight - MECHA_ARENA_STEP_UP)
+    if (fFeetY < pBox->fBaseY + pBox->fHeight - MECHA_ARENA_STEP_UP)
       continue;
-    if (pBox->fHeight > fBest)
-      fBest = pBox->fHeight;
+    if (pBox->fBaseY + pBox->fHeight > fBest)
+      fBest = pBox->fBaseY + pBox->fHeight;
   }
   return fBest;
 }
@@ -1032,6 +1431,152 @@ bool mecha_arena_trace_segment(const tMechaArena *pArena,
 
 //-------------------------------------------------------------------------------------------------
 
+/* Which station of a way is nearest a point, and how far off it that is. */
+static int mecha_arena_way_nearest(const tMechaWay *pWay, float fX, float fZ,
+                                   float *pfDist)
+{
+  float fBest = 0.0f;
+  int iBest = -1;
+  int i;
+
+  for (i = 0; i < pWay->iCount; i++) {
+    float fDx = pWay->aPoints[i].fX - fX;
+    float fDz = pWay->aPoints[i].fZ - fZ;
+    float fDist = mecha_length2(fDx, fDz);
+
+    if (iBest < 0 || fDist < fBest) {
+      fBest = fDist;
+      iBest = i;
+    }
+  }
+  if (pfDist)
+    *pfDist = fBest;
+  return iBest;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+bool mecha_arena_way_aim(const tMechaArena *pArena, float fX, float fZ,
+                         float fToX, float fToZ, float fLook, int iLine,
+                         float *pfAimX, float *pfAimZ)
+{
+  /* Four lines across the way, the way a Whiplash chunk carries four.
+   * Sixteen machines walking one line is a queue. [AI-13] */
+  static const float afLine[4] = { -0.75f, -0.25f, 0.25f, 0.75f };
+  const tMechaWay *pWay = NULL;
+  float fBest = 0.0f;
+  float fWalked = 0.0f;
+  float fAtX = fX;
+  float fAtZ = fZ;
+  float fDirX = 0.0f;
+  float fDirZ = 0.0f;
+  float fHalf = 0.0f;
+  float fOff;
+  int iNear = -1;
+  int iGoal = -1;
+  int iStep;
+  int i;
+
+  if (!pArena || pArena->iWayCount <= 0 || fLook <= 0.0f)
+    return false;
+
+  /*
+   * The way this machine is on, and the way the enemy is on. Where they are
+   * the same, the goal is the station by the enemy; where they differ, it is
+   * the crossing between the two -- walking abreast of someone on the far
+   * side of a hole gets nobody anywhere. [AI-13]
+   */
+  {
+    const tMechaWay *pTheirs = NULL;
+    float fTheirs = 0.0f;
+    int iMine = -1;
+    int iTheirs = -1;
+
+    for (i = 0; i < pArena->iWayCount; i++) {
+      const tMechaWay *pTry = &pArena->aWays[i];
+      float fHere = 0.0f;
+      float fThere = 0.0f;
+      int iHere = mecha_arena_way_nearest(pTry, fX, fZ, &fHere);
+      int iThere = mecha_arena_way_nearest(pTry, fToX, fToZ, &fThere);
+
+      if (iHere < 0 || iThere < 0)
+        continue;
+      if (!pWay || fHere < fBest) {
+        fBest = fHere;
+        pWay = pTry;
+        iNear = iHere;
+        iMine = i;
+      }
+      if (!pTheirs || fThere < fTheirs) {
+        fTheirs = fThere;
+        pTheirs = pTry;
+        iTheirs = i;
+      }
+    }
+    if (!pWay || iMine < 0 || iTheirs < 0)
+      return false;
+    iGoal = iMine == iTheirs
+              ? mecha_arena_way_nearest(pWay, fToX, fToZ, NULL)
+              : pWay->aiLink[iTheirs];
+  }
+  if (iNear == iGoal)
+    return false;
+
+  iStep = iGoal > iNear ? 1 : -1;
+
+  /*
+   * Then the aim point, which is Whiplash's: walk the chain from here by the
+   * look-ahead and interpolate where that lands, rather than pointing at a
+   * station and turning on the spot when it arrives.
+   */
+  for (i = iNear; i != iGoal; i += iStep) {
+    const tMechaWayPoint *pNext = &pWay->aPoints[i + iStep];
+    float fDx = pNext->fX - fAtX;
+    float fDz = pNext->fZ - fAtZ;
+    float fLeg = mecha_length2(fDx, fDz);
+
+    if (fLeg < 0.01f)
+      continue;
+    fDirX = fDx / fLeg;
+    fDirZ = fDz / fLeg;
+    fHalf = pNext->fHalf;
+    if (fWalked + fLeg >= fLook) {
+      float fRest = fLook - fWalked;
+
+      fAtX += fDirX * fRest;
+      fAtZ += fDirZ * fRest;
+      fWalked = fLook;
+      break;
+    }
+    fWalked += fLeg;
+    fAtX = pNext->fX;
+    fAtZ = pNext->fZ;
+  }
+  if (fWalked <= 0.0f)
+    return false;
+
+  /*
+   * And the line across it. The station says how wide the way was measured,
+   * but the ground is a grid of cells with the heights interpolated between
+   * them, so the outermost cell of any edge is a ramp into the void rather
+   * than floor: a machine standing on it is already on its way down. The
+   * line is laid out on what is left after that. [AI-13]
+   */
+  if (iLine < 0 || iLine > 3)
+    iLine = 0;
+  fHalf -= pArena->fHalfExtent * 2.0f / (float)mecha_arena_cells(pArena);
+  if (fHalf < 0.0f)
+    fHalf = 0.0f;
+  fOff = afLine[iLine] * fHalf;
+  if (pfAimX)
+    *pfAimX = fAtX + fDirZ * fOff;
+  if (pfAimZ)
+    *pfAimZ = fAtZ - fDirX * fOff;
+  return true;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 void mecha_arena_spawn_point(const tMechaArena *pArena, int iSlot, int iCount,
                              float *pfX, float *pfZ, int *piFacing)
 {
@@ -1049,6 +1594,31 @@ void mecha_arena_spawn_point(const tMechaArena *pArena, int iSlot, int iCount,
    * usually stands. */
   fRing = pArena->fHalfExtent * 0.62f;
   iAngle = mecha_angle_wrap((MECHA_ANGLE_FULL * (iSlot % iCount)) / iCount);
+
+  /*
+   * A stronghold at each end: the machines start inside them, alternating
+   * ends and spread across the width of a base, so a duel opens with one in
+   * each keep and a free-for-all fills both courtyards. Which is also how
+   * the map it is taken from starts a match. [ARENA-14]
+   */
+  if (pArena->bySpawnShape == MECHA_SPAWN_BASES) {
+    int iPerEnd = (iCount + 1) / 2;
+    int iPair = (iSlot % iCount) / 2;
+    /* One a side stands off the middle rather than on it, or it starts
+     * facing the pier between the two doorways instead of a way out. */
+    float fSpread = iPerEnd > 1
+                      ? 2.0f * (float)iPair / (float)(iPerEnd - 1) - 1.0f
+                      : ((iSlot & 1) ? 1.0f : -1.0f);
+    float fX = (iSlot & 1) ? pArena->fSpawnHalfX : -pArena->fSpawnHalfX;
+    float fZ = fSpread * pArena->fSpawnHalfZ;
+
+    if (pfX) *pfX = fX;
+    if (pfZ) *pfZ = fZ;
+    /* Facing out of the gate, down the causeway. */
+    if (piFacing)
+      *piFacing = fX > 0.0f ? MECHA_ANGLE_QUARTER * 3 : MECHA_ANGLE_QUARTER;
+    return;
+  }
 
   if (pfX) *pfX = mecha_sin(iAngle) * fRing;
   if (pfZ) *pfZ = mecha_cos(iAngle) * fRing;

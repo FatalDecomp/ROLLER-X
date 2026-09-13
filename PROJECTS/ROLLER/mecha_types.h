@@ -24,13 +24,18 @@
 #define MECHA_MAX_MECHS         16
 #define MECHA_MAX_PROJECTILES 192
 #define MECHA_MAX_EFFECTS      96
-#define MECHA_MAX_OBSTACLES    24
+#define MECHA_MAX_OBSTACLES    32
+/* Ways across an arena, and stations on one. Two is a causeway apiece; the
+ * stations are the ones the map was measured at, with an end on each base.
+ * [AI-13] */
+#define MECHA_MAX_WAYS         2
+#define MECHA_WAY_POINTS       24
 
 /* Terrain: a grid of square cells, a height per corner and a surface word
  * per cell. Coarse on purpose. [ARENA-04] */
 /* The array size, not any arena's own division -- each carries its own
  * count in iTerrainCells, and a bigger arena needs more. */
-#define MECHA_TERRAIN_CELLS 28
+#define MECHA_TERRAIN_CELLS 80
 #define MECHA_TERRAIN_NODES (MECHA_TERRAIN_CELLS + 1)
 /* What an arena gets when it does not ask for anything else. */
 #define MECHA_TERRAIN_CELLS_DEFAULT 12
@@ -419,6 +424,11 @@ typedef struct
    * on the hold, and the AI produces the same held-button struct a pad does,
    * so the previous frame's state has to live with the mech. */
   bool  abFireHeld[MECHA_WEAPON_SLOTS];
+  /* An outer trigger waiting to see whether the other one is coming: the
+   * two together are the centre weapon. byPairMask is 1 for left, 2 for
+   * right. [SIM-23] */
+  int   iPairTicks;
+  uint8_t byPairMask;
   bool  bJumpHeld;
   bool  bDashHeld;
   bool  bGuardHeld;
@@ -450,6 +460,18 @@ typedef struct
    * only thing separating a pilot who can shoot from one who cannot; the
    * computer pilot rolls it per shot and the player leaves it at zero. */
   int   iAimError;
+
+  /* The way round a gap the computer pilot has settled on, as a heading in
+   * the shared circle, and how long it holds it for. Without the hold it
+   * re-picks every tick and walks on the spot; the player never sets
+   * either. [AI-12] */
+  int   iSkirtYaw;
+  int   iSkirtTicks;
+
+  /* Which of the four lines across a way this pilot walks, the way a
+   * Whiplash driver picks one of its four AI lines: sixteen machines down
+   * one line is a queue rather than a fight. [AI-13] */
+  uint8_t byAiLine;
 
   /* The tick the machine went down on: the grace is the tick rather than
    * the hit, so a whole volley still counts. [SIM-04] */
@@ -556,7 +578,13 @@ typedef struct
 {
   float fX, fZ;             /* centre on the ground plane */
   float fHalfX, fHalfZ;
+  /* How tall it stands above the ground it is on, and where that ground is.
+   * The mesh always drew a box from the terrain under it while the collision
+   * read the height as absolute; on level ground those agree and on a slope
+   * they do not. fBaseY is filled in once the arena's ground is finished, and
+   * both sides use it. [ARENA-18] */
   float fHeight;
+  float fBaseY;
   uint8_t byKind;           /* eMechaPropKind */
   uint8_t byPalette;
   uint8_t byTrimPalette;
@@ -568,11 +596,40 @@ typedef struct
 
 //-------------------------------------------------------------------------------------------------
 
+/* One station on a way across the arena: where the middle of it is, and how
+ * far either side of that there is still ground. [AI-13] */
+typedef struct
+{
+  float fX;
+  float fZ;
+  float fHalf;
+} tMechaWayPoint;
+
+typedef struct
+{
+  int             iCount;
+  tMechaWayPoint  aPoints[MECHA_WAY_POINTS];
+  /* Where this way comes closest to each of the others: the station to walk
+   * to when the enemy is on one of them. Two lanes either side of a hole
+   * are joined by exactly one crossing, and this is how a pilot finds it.
+   * [AI-13] */
+  int             aiLink[MECHA_MAX_WAYS];
+} tMechaWay;
+
+//-------------------------------------------------------------------------------------------------
+
 /*
  * What the boundary is. A square arena is walled on four sides, an octagon
  * on eight, and an open one is not walled at all -- its floor simply stops,
  * and so does anything that walks off it.
  */
+/* How an arena lays out its starting positions. [ARENA-14] */
+typedef enum
+{
+  MECHA_SPAWN_RING  = 0,    /* a circle inside the boundary */
+  MECHA_SPAWN_BASES = 1     /* in the two strongholds, alternating ends */
+} eMechaSpawnShape;
+
 typedef enum
 {
   MECHA_ARENA_SQUARE  = 0,
@@ -598,6 +655,18 @@ typedef struct
   tMechaObstacle aObstacles[MECHA_MAX_OBSTACLES];
 
   /*
+   * The ways across, for arenas whose ground does not join up. Whiplash
+   * gives its computer drivers four AI lines a chunk and has them aim at a
+   * point interpolated along the one they are on; a causeway is the same
+   * thing with the track taken away, so an arena that has one publishes it
+   * as a chain of stations and the pilots read it the same way. An arena
+   * whose floor is one piece publishes none, and nothing changes for it.
+   * [AI-13]
+   */
+  int       iWayCount;
+  tMechaWay aWays[MECHA_MAX_WAYS];
+
+  /*
    * The ground itself. afNode holds a height per grid corner and auiSurface
    * a surface word per cell; a level arena leaves both at zero and behaves
    * exactly as it did before either existed.
@@ -621,6 +690,16 @@ typedef struct
    * a platform; two hundred reads as the top of a tower.
    */
   float    fSkirt;
+
+  /*
+   * Where machines start. A ring inside the boundary is right for every
+   * arena whose floor fills its own square; an arena that is two lanes with
+   * a hole down the middle has to place them along the lanes instead, or
+   * half of them start over the hole. [ARENA-14]
+   */
+  uint8_t  bySpawnShape;    /* eMechaSpawnShape */
+  float    fSpawnHalfX;
+  float    fSpawnHalfZ;
 
   /* Ground drawn past the boundary, and scenery for it. Not walkable; zero
    * reach draws none of it. [ARENA-07] */
