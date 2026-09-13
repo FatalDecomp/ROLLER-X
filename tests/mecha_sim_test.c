@@ -11,6 +11,9 @@
 #include "mecha_mesh.h"
 #include "mecha_sim.h"
 
+/* The simulation's own mine arming time, which is private to it. */
+#define MECHA_MINE_ARM_TICKS_TEST 24
+
 #include <stdlib.h>
 #include <math.h>
 #include <stdio.h>
@@ -5650,6 +5653,109 @@ static int test_a_boost_up_a_slope_leaves_the_ground(void)
  * until now, so "one arm up and one at the hip" was not a shape this rig
  * could make at all. [MESH-41]
  */
+/*
+ * A mine with no gravity in it. It has to settle -- otherwise it is not a
+ * mine that hangs, it is a very slow bullet that flies until its life runs
+ * out, which is what the first version of this actually did -- and then it
+ * has to go after whoever it was laid against. [SIM-26]
+ */
+static int test_a_floating_mine_settles_then_hunts(void)
+{
+    tMechaWorld world;
+    tMechaInput aInputs[2];
+    const tMechaProjectile *pMine = NULL;
+    int iCarrier = -1;
+    int iDef;
+    int i;
+    int t;
+
+    for (iDef = 0; iDef < mecha_def_count(); iDef++) {
+        if (mecha_def_get(iDef)->byProfile == MECHA_PROFILE_CARRIER) {
+            iCarrier = iDef;
+            break;
+        }
+    }
+    CHECK(iCarrier >= 0);
+    start_duel(&world, 0, iCarrier, 0, 0x11E5u, 1);
+    CHECK(clear_runway(&world, 0));
+    memset(aInputs, 0, sizeof(aInputs));
+
+    /* Well apart, so the mine has somewhere to travel. */
+    world.aMechs[1].fX = world.aMechs[0].fX;
+    world.aMechs[1].fZ = world.aMechs[0].fZ + MECHA_M(70.0f);
+    world.aMechs[0].byLock = MECHA_LOCK_HELD;
+    world.aMechs[0].iTargetIdx = 1;
+    world.aMechs[0].byMove = MECHA_MOVE_STAND;
+
+    /* An outer trigger waits out the pairing window before it fires on its
+     * own, so the press has to be held through it. [SIM-23] */
+    aInputs[0].bFireRight = true;
+    run_ticks(&world, aInputs, 2, MECHA_FIRE_PAIR_TICKS + 1);
+    aInputs[0].bFireRight = false;
+    for (i = 0; i < MECHA_MAX_PROJECTILES; i++) {
+        if (world.aProjectiles[i].bActive
+            && world.aProjectiles[i].byKind == MECHA_PROJ_MINE) {
+            pMine = &world.aProjectiles[i];
+            break;
+        }
+    }
+    CHECK(pMine != NULL);
+    CHECK(pMine->fArcGravity == 0.0f);
+    CHECK(pMine->iHomingRate > 0);
+
+    /*
+     * Watched rather than timed. How long a mine takes to arm is the
+     * simulation's own business, so what this asserts is the shape: the
+     * throw is spent to near enough nothing at some point, and afterwards
+     * the mine is moving again and moving towards somebody.
+     */
+    {
+        float fLaunch = mecha_length3(pMine->fVelX, pMine->fVelY,
+                                      pMine->fVelZ);
+        float fSlowest = fLaunch;
+        float fStartGap;
+        float fBestGap;
+
+        CHECK(fLaunch > MECHA_MPS(10.0f));
+        fStartGap = mecha_length2(world.aMechs[1].fX - pMine->fX,
+                                  world.aMechs[1].fZ - pMine->fZ);
+        fBestGap = fStartGap;
+
+        for (t = 0; t < MECHA_TICK_HZ * 3 && pMine->bActive; t++) {
+            float fSpeed;
+            float fGap;
+
+            mecha_sim_tick(&world, aInputs, 2);
+            if (!pMine->bActive)
+                break;
+            fSpeed = mecha_length3(pMine->fVelX, pMine->fVelY,
+                                   pMine->fVelZ);
+            fGap = mecha_length2(world.aMechs[1].fX - pMine->fX,
+                                 world.aMechs[1].fZ - pMine->fZ);
+            if (fSpeed < fSlowest)
+                fSlowest = fSpeed;
+            if (fGap < fBestGap)
+                fBestGap = fGap;
+            /* It must never reach the floor: that is the whole of what
+             * makes this a field at chest height. */
+            if (pMine->bActive)
+                CHECK(pMine->fY > MECHA_M(1.0f));
+        }
+
+        printf("   mine thrown at %.1f m/s, settled to %.1f, closed"
+               " %.1f m to %.1f m\n",
+               fLaunch / MECHA_METRE, fSlowest / MECHA_METRE,
+               fStartGap / MECHA_METRE, fBestGap / MECHA_METRE);
+        /* It stopped. */
+        CHECK(fSlowest < fLaunch * 0.2f);
+        /* And then it went after somebody. */
+        CHECK(fBestGap < fStartGap - MECHA_M(10.0f));
+    }
+    return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static int test_a_winner_holds_a_pose(void)
 {
     static tMechaQuad aStorage[MECHA_QUAD_CAPACITY];
@@ -7572,6 +7678,8 @@ int main(void)
         { "roster", test_roster },
         { "the worst scene fits", test_the_worst_scene_fits },
         { "a winner holds a pose", test_a_winner_holds_a_pose },
+        { "a floating mine settles then hunts",
+          test_a_floating_mine_settles_then_hunts },
         { "movement and boost", test_movement_and_boost },
         { "arena confines mechs", test_arena_confines_mechs },
         { "stance selects weapon", test_stance_selects_weapon },

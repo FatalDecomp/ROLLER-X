@@ -288,6 +288,19 @@ typedef struct
   float fBuildLimb;
   float fBuildHead;
   float fBuildGun;
+  /*
+   * Where the hips sit, as a fraction of the machine's height, and how long
+   * the arms are against the frame they hang off. Zero means the classic
+   * figure -- hips at 0.47 and arms at full length -- which is what every
+   * machine written before these existed still gets.
+   *
+   * Raising the hips lengthens the legs and shortens everything above them
+   * together, because the upper body is then drawn at whatever scale still
+   * puts the head where the machine's height says it goes. One number moves
+   * both halves, which is the only way they stay a figure. [TYPE-08]
+   */
+  float fBuildHip;
+  float fBuildArm;
 
   float fHeight;            /* world units, ground to head */
   float fRadius;            /* collision cylinder */
@@ -586,6 +599,13 @@ typedef struct
   int   iHomingRate;
   int   iTarget;            /* -1 for unguided */
   int   iArmTicks;          /* mines ignore everything until this reaches zero */
+  /*
+   * What a mine that has settled gets back when it goes hunting. A mine with
+   * no gravity in it never lands, so it never stops on its own; it bleeds its
+   * throw off over the arming time instead and then, if it was built to hunt,
+   * moves off at this. [SIM-26]
+   */
+  float fHuntSpeed;
   /*
    * One bit per mech, for a shell: who has already been burned by it. The
    * blast that spawns it hits everyone standing inside at the time, so those

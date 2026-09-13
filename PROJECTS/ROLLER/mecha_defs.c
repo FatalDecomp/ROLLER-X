@@ -933,9 +933,24 @@ static const tMechaMechDef s_aMechDefs[] = {
   .byProfile = MECHA_PROFILE_SLENDER,
   .fGrip = MECHA_MPS(165.0f), .fDriveAccel = MECHA_MPS(135.0f),
   .fBrake = MECHA_MPS(120.0f),
-  .fBuildShoulder = 0.76f, .fBuildTorso = 0.80f, .fBuildLimb = 0.76f,
+  /*
+   * Narrow across the shoulders and wide at the hip, which is the contrast
+   * the frame is built on and the one thing that tells it apart from the
+   * interceptor at range -- the two were written near enough as twins, and
+   * the roster's own silhouette check caught it. [DEF-10]
+   */
+  .fBuildShoulder = 0.68f, .fBuildTorso = 0.78f, .fBuildLimb = 0.76f,
   .fBuildHead = 1.00f, .fBuildGun = 0.80f,
-  .fHeight = MECHA_M(12.8f), .fRadius = MECHA_M(2.7f), .fMass = 0.72f,
+  /* Hips high and arms short: long legs under a body that is small for
+   * them, which is the figure this frame is meant to cut. [DEF-10] */
+  .fBuildHip = 0.56f, .fBuildArm = 0.86f,
+  /*
+   * And the smallest thing on two legs in the game. A hip flare is three
+   * pixels at the range machines are told apart at, so the difference
+   * between this frame and the interceptor had to be one that survives being
+   * thirty pixels tall: it is a head shorter. [DEF-10]
+   */
+  .fHeight = MECHA_M(11.4f), .fRadius = MECHA_M(2.9f), .fMass = 0.72f,
   .fArmour = 760.0f,
   .fWalkSpeed = MECHA_MPS(27.0f), .fDashSpeed = MECHA_MPS(92.0f),
   .fAirSpeed = MECHA_MPS(44.0f), .fTurnRate = (float)MECHA_DEG(280),
@@ -1112,38 +1127,40 @@ static const tMechaMechDef s_aMechDefs[] = {
     },
     [MECHA_SLOT_RIGHT] = {
       /*
-       * Mines with no gravity in them. The flight code only pulls a shot
-       * down when its arc gravity is above zero, so zero is a charge that
-       * stays exactly where it was put -- a field at chest height rather
-       * than one on the floor, which is the whole idea of this slot.
+       * Mines with no gravity in them, and every one of them a hunter. The
+       * flight code only pulls a shot down when its arc gravity is above
+       * zero, so these never reach the floor: they bleed the throw off while
+       * they arm, hang where they were put, and then go after whoever they
+       * were laid against at a third of the speed they were thrown.
+       * [SIM-26]
        */
       [MECHA_STANCE_STAND] = { .szName = "HANGING MINE", .byKind = MECHA_PROJ_MINE,
         .byCount = 2, .byPalette = PAL_TRACER_VIOLET, .iSpreadAngle = MECHA_DEG(16),
         .fSpeed = MECHA_MPS(46.0f), .fDamage = 78.0f, .fRadius = MECHA_M(1.9f),
         .fBlastRadius = MECHA_M(11.0f),
         .iLifeTicks = MECHA_SEC(11.0f), .iAmmo = 3, .iReloadTicks = MECHA_SEC(3.4f),
-        .iRecoveryTicks = 24, .fStagger = 46.0f,
+        .iHomingRate = MECHA_DEG(95), .iRecoveryTicks = 24, .fStagger = 46.0f,
         .fMuzzleHeight = 0.64f, .fMuzzleSide = 1.0f },
       [MECHA_STANCE_GUARD] = { .szName = "CURTAIN", .byKind = MECHA_PROJ_MINE,
         .byCount = 6, .byPalette = PAL_TRACER_VIOLET, .iSpreadAngle = MECHA_DEG(28),
         .fSpeed = MECHA_MPS(38.0f), .fDamage = 60.0f, .fRadius = MECHA_M(2.0f),
         .fBlastRadius = MECHA_M(9.0f),
         .iLifeTicks = MECHA_SEC(14.0f), .iAmmo = 2, .iReloadTicks = MECHA_SEC(5.0f),
-        .iRecoveryTicks = 38, .fStagger = 34.0f,
+        .iHomingRate = MECHA_DEG(70), .iRecoveryTicks = 38, .fStagger = 34.0f,
         .fMuzzleHeight = 0.56f, .fMuzzleSide = 1.0f },
       [MECHA_STANCE_DASH] = { .szName = "TRAIL CHARGE", .byKind = MECHA_PROJ_MINE,
         .byCount = 3, .byPalette = PAL_TRACER_VIOLET, .iSpreadAngle = MECHA_DEG(12),
         .fSpeed = MECHA_MPS(34.0f), .fDamage = 58.0f, .fRadius = MECHA_M(1.8f),
         .fBlastRadius = MECHA_M(9.0f),
         .iLifeTicks = MECHA_SEC(9.0f), .iAmmo = 3, .iReloadTicks = MECHA_SEC(3.6f),
-        .iRecoveryTicks = 18, .fStagger = 32.0f,
+        .iHomingRate = MECHA_DEG(85), .iRecoveryTicks = 18, .fStagger = 32.0f,
         .fMuzzleHeight = 0.64f, .fMuzzleSide = 1.0f },
       [MECHA_STANCE_JUMP] = { .szName = "CEILING FIELD", .byKind = MECHA_PROJ_MINE,
         .byCount = 5, .byPalette = PAL_TRACER_VIOLET, .iSpreadAngle = MECHA_DEG(34),
         .fSpeed = MECHA_MPS(40.0f), .fDamage = 66.0f, .fRadius = MECHA_M(1.9f),
         .fBlastRadius = MECHA_M(10.0f),
         .iLifeTicks = MECHA_SEC(12.0f), .iAmmo = 2, .iReloadTicks = MECHA_SEC(4.4f),
-        .iRecoveryTicks = 30, .fStagger = 38.0f,
+        .iHomingRate = MECHA_DEG(75), .iRecoveryTicks = 30, .fStagger = 38.0f,
         .fMuzzleHeight = 0.80f, .fMuzzleSide = 1.0f },
     },
   }

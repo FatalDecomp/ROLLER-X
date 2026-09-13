@@ -89,7 +89,7 @@ python3 tools/check_roller_core_manifest.py
 mdformat --check docs/
 ```
 
-At the time of writing that is 84 sim test groups and 300 python tests, all
+At the time of writing that is 85 sim test groups and 300 python tests, all
 passing. `zig` is not on a remote session's PATH and its package fetcher cannot
 reach GitHub through the agent proxy; the way round both is in the toolchain
 notes below.
@@ -2512,3 +2512,73 @@ dumps the recoil settling, then wins a round and dumps the pose easing in.
 None of it is asserted. The numbers that pin the rig live in the sim tests;
 these are for a human to look at, which is the only way anyone has ever found
 out whether a walk reads as a walk.
+
+## TYPE-08 — the hips move both halves of the figure
+
+`fBuildHip` says where the hips sit as a fraction of the machine's height, and
+raising it does two things at once because it has to. The legs run from the hip
+to the floor, so they get longer; every offset above the waist was written
+against the hips being at `MECHA_HIP_CLASSIC`, so the upper body is redrawn at
+`(1 - hip) / (1 - 0.47)` and gets shorter by exactly as much.
+
+Left as one number the machine simply grows taller than its own height, which
+then breaks the camera framing, the muzzle heights and the silhouette check
+together. Moving both halves off one figure is what keeps `fHeight` meaning what
+it says.
+
+Every machine that does not declare one comes out bit-identical: at the classic
+hip the upper scale is exactly one, which is how the change was checked -- the
+gun heights the arm tests measure did not move.
+
+`fBuildArm` is separate and only shortens the bones, because an arm's length and
+a torso's are not the same question: the slender frame wanted short arms on a
+short body, and the standard frame wants neither.
+
+## MESH-43 — the upper body answers the legs
+
+Every machine carried its torso and its arms as though it were standing still
+while its legs moved underneath it. That does not read as stiffness so much as
+it reads as a doll being slid along the floor, and it was true of the whole
+roster rather than of any one frame.
+
+Three things, on every chassis that has a stride:
+
+- **The arms swing against the legs.** The left arm goes forward as the left leg
+  goes back, which is the half-turn offset being on the side rather than on the
+  phase. The elbow follows at about half, because an arm swinging from a locked
+  shoulder is a pendulum and not an arm.
+- **The shoulders twist against the hips**, eight degrees of it.
+- **The body rocks fore and aft**, three degrees, at twice the stride rate --
+  once per footfall rather than once per cycle.
+
+A machine holding a lock keeps 30% of all of it. Not none: a machine with
+somebody to shoot at still walks, it just does not swing its arms like one out
+for a stroll. Dropping it to nothing meant the swing appeared and vanished as
+the lock came and went, which is worse than either.
+
+The stride reaches the arms through `tMechaBuild`, set by whichever chassis
+builder knows which gait the legs are running. A tracked machine never sets it
+and never swings: there is no stride to answer.
+
+## SIM-26 — a floating mine has to be stopped, and can be sent
+
+A mine only ever stopped by landing. That was fine while every mine fell, and
+wrong the moment one was given no gravity to fall under: it flew straight at its
+throwing speed until its life ran out. The notes for the carrier said its mines
+hung where they were put. They did not -- they were very slow bullets.
+
+A mine with no gravity now bleeds its throw off while it arms, at 0.86 a tick,
+which takes thirty-odd metres a second to near enough nothing over the arming
+time and leaves the charge hanging where the throw carried it.
+
+Then, if it has a homing rate, it goes looking. The speed has to be handed back
+before the steering runs, because `mecha_home_projectile` turns the direction of
+a velocity and a stationary mine has no direction to turn; from a dead stop it
+is pointed at whoever it was laid against and the steering takes it from there.
+A third of the throwing speed, because a mine that chases at bullet speed is a
+missile and this machine already has missiles.
+
+The test watches rather than times. How long a mine takes to arm is the
+simulation's own business, so what is asserted is the shape: the throw is spent
+to under a fifth of what it was at some point, the mine never touches the floor,
+and afterwards it is closing on somebody.

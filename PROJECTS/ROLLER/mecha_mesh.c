@@ -893,6 +893,28 @@ static int mecha_blend_angle(int iFrom, int iTo, float fAmount)
 #define MECHA_SLIM_ROLL    MECHA_DEG(5)
 
 /*
+ * What the upper body does about the walk, on every machine that has legs.
+ * Before this the torso and the arms were carried as though the machine were
+ * standing still while its legs moved underneath it, which does not read as
+ * stiff so much as it reads as a doll being slid along the floor. [MESH-43]
+ *
+ * Three things, and the arms are the one that matters: an arm swings against
+ * the leg on its own side, which is what walking is. The shoulders twisting
+ * against the hips and the small rock fore and aft are what stop the swing
+ * looking like two arms bolted to a post.
+ */
+#define MECHA_WALK_ARM_SWING   MECHA_DEG(20)
+#define MECHA_WALK_ARM_ELBOW   MECHA_DEG(11)
+#define MECHA_WALK_TWIST       MECHA_DEG(8)
+#define MECHA_WALK_ROCK        MECHA_DEG(3)
+/*
+ * How much of all that survives having something to point the guns at. Not
+ * none: a machine holding a lock still walks, it just does not swing its arms
+ * like one out for a stroll.
+ */
+#define MECHA_WALK_AIM_KEEP    0.30f
+
+/*
  * What the legs are doing, which is not the same question as what the
  * machine is doing. Walking is a cycle; a stance, a glide, the two
  * airborne shapes and the squat are poses with a little movement in them.
@@ -1521,6 +1543,23 @@ typedef struct
   /* What the profile does to the frame: limbs in, skirt out. [MESH-33] */
   float   fTaper;
   float   fFlare;
+  /*
+   * Where the hips are, and what that does to everything above them. A
+   * machine whose hips ride high has long legs and a short body, and the
+   * second half of that is not optional -- left alone, raising the hips
+   * simply makes the machine taller than its own height. [TYPE-08]
+   */
+  float   fHipY;
+  float   fUpperY;   /* fHeight, scaled for the shortened upper body */
+  float   fArmLen;   /* fHeight, scaled for the arm length */
+  /*
+   * Where in the stride the machine is, or -1 when there is no stride to be
+   * in. Everything above the waist reads this: arms that swing against the
+   * legs, shoulders that twist against the hips, a torso that rocks with
+   * the step. Set by whichever chassis builder knows, because only it knows
+   * which gait the legs are running. [MESH-43]
+   */
+  float   fWalkPhase;
   int     iProfile;
   int     iDetail;
 } tMechaBuild;
@@ -1550,7 +1589,24 @@ static void mecha_build_setup(tMechaBuild *pB, const tMechaMech *pMech,
    * rather than as a mech drawn at three quarters. [MESH-33]
    */
   pB->fTaper = pB->iProfile == MECHA_PROFILE_SLENDER ? 0.74f : 1.0f;
-  pB->fFlare = pB->iProfile == MECHA_PROFILE_SLENDER ? 1.5f : 1.0f;
+  pB->fFlare = pB->iProfile == MECHA_PROFILE_SLENDER ? 1.9f : 1.0f;
+  {
+    /*
+     * The figure. MECHA_HIP_CLASSIC is where the hips sat when there was
+     * only one build, and every offset above the waist was written against
+     * it -- so the upper body is drawn at whatever scale puts the head back
+     * where it was, and raising the hips shortens the body by exactly as
+     * much as it lengthens the legs. [TYPE-08]
+     */
+    float fHip = pDef->fBuildHip > 0.0f ? pDef->fBuildHip
+                                        : MECHA_HIP_CLASSIC;
+    float fArm = pDef->fBuildArm > 0.0f ? pDef->fBuildArm : 1.0f;
+
+    pB->fHipY = fHip * pB->fHeight;
+    pB->fUpperY = pB->fHeight * (1.0f - fHip) / (1.0f - MECHA_HIP_CLASSIC);
+    pB->fArmLen = pB->fHeight * fArm;
+  }
+  pB->fWalkPhase = -1.0f;
   pB->iDetail = iDetail;
 }
 
@@ -1581,25 +1637,25 @@ static void mecha_build_torso(tMechaQuadList *pList, const tMechaBuild *pB,
                     0.38f * pB->fRadius * pB->fTorso * pB->fTaper,
                     0.58f * pB->fRadius * pB->fTorso * pB->fTaper,
                     0.40f * pB->fRadius * pB->fTorso * pB->fTaper,
-                    0.07f * pB->fHeight, 0.0f, 0.0f, pB->byJoint, pB->byJoint, 0);
+                    0.07f * pB->fUpperY, 0.0f, 0.0f, pB->byJoint, pB->byJoint, 0);
 
   /*
    * The chest, widening from the waist to the shoulders. Everything about
    * a mecha's build is in that one taper, which is why it is a frustum and
    * the thing it replaced was a box.
    */
-  mecha_add_frustum(pList, pTorso, 0.0f, 0.17f * pB->fHeight, 0.02f * pB->fRadius,
+  mecha_add_frustum(pList, pTorso, 0.0f, 0.17f * pB->fUpperY, 0.02f * pB->fRadius,
                     0.58f * pB->fRadius * pB->fTorso * pB->fTaper,
                     0.46f * pB->fRadius * pB->fTorso,
                     0.76f * pB->fRadius * pB->fTorso, 0.50f * pB->fRadius * pB->fTorso,
-                    0.13f * pB->fHeight, 0.0f, 0.0f, pB->byBody, pB->byTrim, 0);
+                    0.13f * pB->fUpperY, 0.0f, 0.0f, pB->byBody, pB->byTrim, 0);
 
   /* The plate over the front of it, sloped back towards the collar. */
-  mecha_add_frustum(pList, pTorso, 0.0f, 0.19f * pB->fHeight,
+  mecha_add_frustum(pList, pTorso, 0.0f, 0.19f * pB->fUpperY,
                     0.50f * pB->fRadius * pB->fTorso,
                     0.52f * pB->fRadius * pB->fTorso, 0.07f * pB->fRadius,
                     0.44f * pB->fRadius * pB->fTorso, 0.05f * pB->fRadius,
-                    0.09f * pB->fHeight, 0.0f, -0.04f * pB->fRadius,
+                    0.09f * pB->fUpperY, 0.0f, -0.04f * pB->fRadius,
                     pB->byTrim, pB->byTrim, 0);
 
   /* Intakes either side of it, the one piece of chest trim that reads at
@@ -1611,10 +1667,10 @@ static void mecha_build_torso(tMechaQuadList *pList, const tMechaBuild *pB,
 
       mecha_add_frustum(pList, pTorso,
                         fSide * 0.50f * pB->fRadius * pB->fTorso,
-                        0.20f * pB->fHeight, 0.42f * pB->fRadius * pB->fTorso,
+                        0.20f * pB->fUpperY, 0.42f * pB->fRadius * pB->fTorso,
                         0.17f * pB->fRadius * pB->fTorso, 0.13f * pB->fRadius,
                         0.12f * pB->fRadius * pB->fTorso, 0.10f * pB->fRadius,
-                        0.06f * pB->fHeight,
+                        0.06f * pB->fUpperY,
                         fSide * 0.03f * pB->fRadius * pB->fTorso, 0.0f,
                         pB->byGlow, pB->byGlow, MECHA_QUAD_GLOW);
     }
@@ -1622,21 +1678,21 @@ static void mecha_build_torso(tMechaQuadList *pList, const tMechaBuild *pB,
 
   /* A collar between the shoulders, so the head has something to sit in. */
   if (pB->iDetail >= MECHA_DETAIL_MID) {
-    mecha_add_frustum(pList, pTorso, 0.0f, 0.30f * pB->fHeight, 0.0f,
+    mecha_add_frustum(pList, pTorso, 0.0f, 0.30f * pB->fUpperY, 0.0f,
                       0.42f * pB->fRadius * pB->fTorso, 0.34f * pB->fRadius * pB->fTorso,
                       0.30f * pB->fRadius * pB->fTorso, 0.26f * pB->fRadius * pB->fTorso,
-                      0.03f * pB->fHeight, 0.0f, 0.0f, pB->byJoint, pB->byJoint, 0);
+                      0.03f * pB->fUpperY, 0.0f, 0.0f, pB->byJoint, pB->byJoint, 0);
   }
 
   /*
    * The thruster pack. A carrier wears a rack of pods here instead, which
    * is the whole of how that machine reads from behind. [MESH-36]
    */
-  mecha_add_frustum(pList, pTorso, 0.0f, 0.19f * pB->fHeight,
+  mecha_add_frustum(pList, pTorso, 0.0f, 0.19f * pB->fUpperY,
                     -0.56f * pB->fRadius * pB->fTorso,
                     0.50f * pB->fRadius * pB->fTorso, 0.16f * pB->fRadius,
                     0.44f * pB->fRadius * pB->fTorso, 0.12f * pB->fRadius,
-                    0.11f * pB->fHeight, 0.0f, -0.02f * pB->fRadius,
+                    0.11f * pB->fUpperY, 0.0f, -0.02f * pB->fRadius,
                     pB->byJoint, pB->byJoint, 0);
 
   /*
@@ -1656,7 +1712,7 @@ static void mecha_build_torso(tMechaQuadList *pList, const tMechaBuild *pB,
     for (iPod = 0; iPod < 8; iPod++) {
       float fSide = (iPod & 1) ? 1.0f : -1.0f;
       int iRow = iPod / 2;
-      float fY = 0.20f * pB->fHeight + (float)iRow * 0.085f * pB->fHeight;
+      float fY = 0.20f * pB->fUpperY + (float)iRow * 0.085f * pB->fUpperY;
       /* The columns rake backwards going up, so the rack leans off the
        * pack rather than standing on it like a wardrobe. */
       float fZ = -0.66f * pB->fRadius * pB->fTorso
@@ -1666,7 +1722,7 @@ static void mecha_build_torso(tMechaQuadList *pList, const tMechaBuild *pB,
                         fSide * 0.30f * pB->fRadius * pB->fTorso, fY, fZ,
                         0.19f * pB->fRadius, 0.16f * pB->fRadius,
                         0.15f * pB->fRadius, 0.13f * pB->fRadius,
-                        0.035f * pB->fHeight, 0.0f, 0.0f,
+                        0.035f * pB->fUpperY, 0.0f, 0.0f,
                         pB->byTrim, pB->byGlow, 0);
     }
     mecha_quads_part(pList, MECHA_PART_TORSO);
@@ -1680,10 +1736,10 @@ static void mecha_build_torso(tMechaQuadList *pList, const tMechaBuild *pB,
 
       mecha_add_frustum(pList, pTorso,
                         fSide * 0.30f * pB->fRadius * pB->fTorso,
-                        0.05f * pB->fHeight, -0.60f * pB->fRadius * pB->fTorso,
+                        0.05f * pB->fUpperY, -0.60f * pB->fRadius * pB->fTorso,
                         0.15f * pB->fRadius, 0.13f * pB->fRadius,
                         0.10f * pB->fRadius, 0.09f * pB->fRadius,
-                        0.05f * pB->fHeight,
+                        0.05f * pB->fUpperY,
                         fSide * 0.02f * pB->fRadius, 0.03f * pB->fRadius,
                         pB->byTrim, pB->byTrim, 0);
     }
@@ -1874,8 +1930,8 @@ static void mecha_build_arms_head(tMechaQuadList *pList,
     int iAimPitch;
     int iArmYaw;
     float fReady = mecha_clampf(pB->pMech->fCombat, 0.0f, 1.0f);
-    float fUpper = 0.20f * pB->fHeight;
-    float fFore = 0.17f * pB->fHeight;
+    float fUpper = 0.20f * pB->fArmLen;
+    float fFore = 0.17f * pB->fArmLen;
     /* How far this machine has moved off its aim and into a held pose. */
     float fPosed = mecha_mech_pose_amount(pWorld, iMechIdx);
     int iProfile = pB->iProfile < MECHA_PROFILE_COUNT ? pB->iProfile
@@ -1912,12 +1968,12 @@ static void mecha_build_arms_head(tMechaQuadList *pList,
        * frustum that has to be right at every tier.
        */
       mecha_add_frustum(pList, pTorso, fSide * 1.00f * pB->fRadius * pB->fShoulder,
-                        0.29f * pB->fHeight, 0.0f,
+                        0.29f * pB->fUpperY, 0.0f,
                         0.34f * pB->fRadius * pB->fShoulder,
                         0.40f * pB->fRadius * pB->fShoulder,
                         0.24f * pB->fRadius * pB->fShoulder,
                         0.30f * pB->fRadius * pB->fShoulder,
-                        0.09f * pB->fHeight * pB->fShoulder,
+                        0.09f * pB->fUpperY * pB->fShoulder,
                         fSide * 0.05f * pB->fRadius * pB->fShoulder, 0.0f,
                         pB->byTrim, pB->byTrim, 0);
       /* A lip along the top of it, in the joint colour, so the binder has
@@ -1925,12 +1981,12 @@ static void mecha_build_arms_head(tMechaQuadList *pList,
       if (pB->iDetail >= MECHA_DETAIL_FULL) {
         mecha_add_frustum(pList, pTorso,
                           fSide * 1.02f * pB->fRadius * pB->fShoulder,
-                          0.38f * pB->fHeight * pB->fShoulder, 0.0f,
+                          0.38f * pB->fUpperY * pB->fShoulder, 0.0f,
                           0.24f * pB->fRadius * pB->fShoulder,
                           0.30f * pB->fRadius * pB->fShoulder,
                           0.19f * pB->fRadius * pB->fShoulder,
                           0.24f * pB->fRadius * pB->fShoulder,
-                          0.018f * pB->fHeight, fSide * 0.02f * pB->fRadius, 0.0f,
+                          0.018f * pB->fUpperY, fSide * 0.02f * pB->fRadius, 0.0f,
                           pB->byJoint, pB->byJoint, 0);
       }
 
@@ -1953,6 +2009,27 @@ static void mecha_build_arms_head(tMechaQuadList *pList,
                                   * fReady
                               - (float)MECHA_ARM_REST_ELBOW * (1.0f - fReady));
 
+        /*
+         * An arm swings against the leg on its own side, which is why the
+         * half-turn offset is on iSide and not on the phase: the left arm
+         * goes forward as the left leg goes back. The elbow follows at
+         * about half, because an arm swinging from a locked shoulder is a
+         * pendulum and not an arm. [MESH-43]
+         */
+        if (pB->fWalkPhase >= 0.0f) {
+          int iSwingAngle = (int)((pB->fWalkPhase
+                                   + (iSide == 0 ? 0.5f : 0.0f))
+                                  * (float)MECHA_ANGLE_FULL)
+                            & (MECHA_ANGLE_FULL - 1);
+          float fSwing = mecha_sin(iSwingAngle);
+          float fHow = MECHA_WALK_AIM_KEEP
+                       + (1.0f - MECHA_WALK_AIM_KEEP) * (1.0f - fReady);
+
+          iAimUpper -= (int)((float)MECHA_WALK_ARM_SWING * fSwing * fHow);
+          iAimElbow -= (int)((float)MECHA_WALK_ARM_ELBOW
+                             * (fSwing > 0.0f ? fSwing : 0.0f) * fHow);
+        }
+
         iShoulderYaw = mecha_blend_angle((int)((float)iArmYaw * fReady),
                                          pPose->iYaw, fPosed);
         iShoulderRoll = mecha_blend_angle(0, pPose->iRoll, fPosed);
@@ -1961,7 +2038,7 @@ static void mecha_build_arms_head(tMechaQuadList *pList,
       }
 
       mecha_pose_child(&shoulder, pTorso,
-                       fSide * 0.98f * pB->fRadius * pB->fShoulder, 0.27f * pB->fHeight,
+                       fSide * 0.98f * pB->fRadius * pB->fShoulder, 0.27f * pB->fUpperY,
                        0.0f, iShoulderYaw, 0, iShoulderRoll);
       mecha_pose_child(&upper, &shoulder, 0.0f, 0.0f, 0.0f, 0,
                        iUpperPitch, 0);
@@ -1973,7 +2050,7 @@ static void mecha_build_arms_head(tMechaQuadList *pList,
       /* Proud of both the upper arm and the forearm, for the reason the
        * knee is. */
       mecha_add_box(pList, &upper, 0.0f, -fUpper, 0.0f,
-                    0.19f * pB->fRadius * pB->fLimb, 0.04f * pB->fHeight,
+                    0.19f * pB->fRadius * pB->fLimb, 0.04f * pB->fUpperY,
                     0.20f * pB->fRadius * pB->fLimb, pB->byJoint, pB->byJoint, 0);
 
       /* The elbow makes up the rest of the right angle, so the forearm and
@@ -1997,25 +2074,25 @@ static void mecha_build_arms_head(tMechaQuadList *pList,
        * about how it fights. It gets a manipulator instead. [MESH-36]
        */
       if (pB->iProfile == MECHA_PROFILE_CARRIER) {
-        mecha_add_frustum(pList, &fore, 0.0f, -fFore - 0.04f * pB->fHeight, 0.0f,
+        mecha_add_frustum(pList, &fore, 0.0f, -fFore - 0.04f * pB->fUpperY, 0.0f,
                           0.11f * pB->fRadius * pB->fGun, 0.12f * pB->fRadius * pB->fGun,
                           0.08f * pB->fRadius * pB->fGun, 0.09f * pB->fRadius * pB->fGun,
-                          0.04f * pB->fHeight, 0.0f, 0.0f, pB->byJoint, pB->byJoint, 0);
+                          0.04f * pB->fUpperY, 0.0f, 0.0f, pB->byJoint, pB->byJoint, 0);
       } else {
         mecha_add_frustum(pList, &fore, 0.0f,
-                          -fFore - 0.13f * pB->fHeight * pB->fGun, 0.0f,
+                          -fFore - 0.13f * pB->fUpperY * pB->fGun, 0.0f,
                           0.20f * pB->fRadius * pB->fGun, 0.30f * pB->fRadius * pB->fGun,
                           0.22f * pB->fRadius * pB->fGun, 0.24f * pB->fRadius * pB->fGun,
-                          0.13f * pB->fHeight * pB->fGun, 0.0f,
+                          0.13f * pB->fUpperY * pB->fGun, 0.0f,
                           -0.03f * pB->fRadius * pB->fGun, pB->byBody, pB->byBody, 0);
         /* A muzzle off the end of it, so a gun has a direction. */
         if (pB->iDetail >= MECHA_DETAIL_MID) {
           mecha_add_frustum(pList, &fore, 0.0f,
-                            -fFore - 0.26f * pB->fHeight * pB->fGun,
+                            -fFore - 0.26f * pB->fUpperY * pB->fGun,
                             0.16f * pB->fRadius * pB->fGun,
                             0.09f * pB->fRadius * pB->fGun, 0.14f * pB->fRadius * pB->fGun,
                             0.07f * pB->fRadius * pB->fGun, 0.12f * pB->fRadius * pB->fGun,
-                            0.05f * pB->fHeight * pB->fGun, 0.0f, 0.0f,
+                            0.05f * pB->fUpperY * pB->fGun, 0.0f, 0.0f,
                             pB->byJoint, pB->byJoint, 0);
         }
       }
@@ -2038,18 +2115,18 @@ static void mecha_build_arms_head(tMechaQuadList *pList,
                                     MECHA_HEAD_PITCH_LIMIT);
 
       mecha_quads_part(pList, MECHA_PART_HEAD);
-      mecha_pose_child(&head, pTorso, 0.0f, 0.37f * pB->fHeight, 0.0f,
+      mecha_pose_child(&head, pTorso, 0.0f, 0.37f * pB->fUpperY, 0.0f,
                        iHeadYaw, -iHeadPitch, 0);
       /* The skull narrows towards the crown and juts at the jaw. */
-      mecha_add_frustum(pList, &head, 0.0f, 0.02f * pB->fHeight,
+      mecha_add_frustum(pList, &head, 0.0f, 0.02f * pB->fUpperY,
                         0.05f * pB->fRadius,
                         0.26f * pB->fRadius * pB->fHead, 0.27f * pB->fRadius * pB->fHead,
                         0.21f * pB->fRadius * pB->fHead, 0.22f * pB->fRadius * pB->fHead,
-                        0.05f * pB->fHeight * pB->fHead, 0.0f,
+                        0.05f * pB->fUpperY * pB->fHead, 0.0f,
                         -0.03f * pB->fRadius * pB->fHead, pB->byTrim, pB->byTrim, 0);
-      mecha_add_box(pList, &head, 0.0f, 0.03f * pB->fHeight,
+      mecha_add_box(pList, &head, 0.0f, 0.03f * pB->fUpperY,
                     0.30f * pB->fRadius * pB->fHead,
-                    0.20f * pB->fRadius * pB->fHead, 0.02f * pB->fHeight, 0.03f * pB->fRadius,
+                    0.20f * pB->fRadius * pB->fHead, 0.02f * pB->fUpperY, 0.03f * pB->fRadius,
                     pB->byGlow, pB->byGlow, MECHA_QUAD_GLOW);
 
       /*
@@ -2067,23 +2144,23 @@ static void mecha_build_arms_head(tMechaQuadList *pList,
         if (pB->iProfile == MECHA_PROFILE_SLENDER) {
           mecha_add_frustum(pList, &head,
                             fSide * 0.16f * pB->fRadius * pB->fHead,
-                            0.05f * pB->fHeight, -0.30f * pB->fRadius * pB->fHead,
+                            0.05f * pB->fUpperY, -0.44f * pB->fRadius * pB->fHead,
                             0.07f * pB->fRadius * pB->fHead,
-                            0.34f * pB->fRadius * pB->fHead,
+                            0.52f * pB->fRadius * pB->fHead,
                             0.03f * pB->fRadius * pB->fHead,
-                            0.30f * pB->fRadius * pB->fHead,
-                            0.05f * pB->fHeight * pB->fHead,
-                            fSide * 0.10f * pB->fRadius * pB->fHead,
-                            -0.40f * pB->fRadius * pB->fHead, pB->byGlow, pB->byGlow, 0);
+                            0.46f * pB->fRadius * pB->fHead,
+                            0.05f * pB->fUpperY * pB->fHead,
+                            fSide * 0.12f * pB->fRadius * pB->fHead,
+                            -0.62f * pB->fRadius * pB->fHead, pB->byGlow, pB->byGlow, 0);
         } else {
           mecha_add_frustum(pList, &head,
                             fSide * 0.14f * pB->fRadius * pB->fHead,
-                            0.07f * pB->fHeight, 0.10f * pB->fRadius * pB->fHead,
+                            0.07f * pB->fUpperY, 0.10f * pB->fRadius * pB->fHead,
                             0.09f * pB->fRadius * pB->fHead,
                             0.13f * pB->fRadius * pB->fHead,
                             0.04f * pB->fRadius * pB->fHead,
                             0.05f * pB->fRadius * pB->fHead,
-                            0.05f * pB->fHeight * pB->fHead,
+                            0.05f * pB->fUpperY * pB->fHead,
                             fSide * 0.16f * pB->fRadius * pB->fHead,
                             0.06f * pB->fRadius * pB->fHead, pB->byGlow, pB->byGlow, 0);
         }
@@ -2095,8 +2172,8 @@ static void mecha_build_arms_head(tMechaQuadList *pList,
           float fSide = iSide == 0 ? -1.0f : 1.0f;
 
           mecha_add_box(pList, &head, fSide * 0.25f * pB->fRadius * pB->fHead,
-                        0.01f * pB->fHeight, 0.10f * pB->fRadius * pB->fHead,
-                        0.04f * pB->fRadius * pB->fHead, 0.025f * pB->fHeight,
+                        0.01f * pB->fUpperY, 0.10f * pB->fRadius * pB->fHead,
+                        0.04f * pB->fRadius * pB->fHead, 0.025f * pB->fUpperY,
                         0.10f * pB->fRadius * pB->fHead, pB->byJoint, pB->byJoint, 0);
         }
       }
@@ -2119,9 +2196,9 @@ static void mecha_build_plume(tMechaQuadList *pList,
     float fPlume = (0.35f + 0.12f * mecha_sin(pWorld->iTick * 2100))
                    * pB->fRadius;
 
-    mecha_add_box(pList, pTorso, 0.0f, 0.15f * pB->fHeight,
+    mecha_add_box(pList, pTorso, 0.0f, 0.15f * pB->fUpperY,
                   -0.74f * pB->fRadius - fPlume,
-                  0.30f * pB->fRadius, 0.09f * pB->fHeight, fPlume,
+                  0.30f * pB->fRadius, 0.09f * pB->fUpperY, fPlume,
                   pB->byGlow, pB->byGlow, MECHA_QUAD_GLOW);
   }
 }
@@ -2275,7 +2352,7 @@ static void mecha_mesh_tread(tMechaQuadList *pList, const tMechaWorld *pWorld,
    * And the machine from the waist up, turned on the ring rather than at a
    * waist. It carries no skirt: there are no legs for a skirt to be over.
    */
-  mecha_pose_child(&torso, &pose, 0.0f, 0.47f * fHeight, 0.0f,
+  mecha_pose_child(&torso, &pose, 0.0f, build.fHipY, 0.0f,
                    mecha_angle_delta(pMech->iLegYaw, pMech->iFacing),
                    mecha_mesh_lean_pitch(pMech), 0);
   mecha_build_torso(pList, &build, &torso);
@@ -2367,8 +2444,8 @@ static void mecha_mesh_arachnid(tMechaQuadList *pList,
    * bone here -- it has to reach the floor from a knee standing above the
    * hull, which is further than anything on a biped reaches.
    */
-  fBodyY = 0.50f * fHeight;
-  fCoxa  = 0.22f * fRadius;
+  fBodyY = 0.42f * fHeight;
+  fCoxa  = 0.30f * fRadius;
   fFemur = 0.30f * fHeight;
   fTibia = 0.80f * fHeight;
   fPhase = pMech->fStepPhase - (float)(int)pMech->fStepPhase;
@@ -2382,7 +2459,7 @@ static void mecha_mesh_arachnid(tMechaQuadList *pList,
      * middle pair reach furthest out. */
     static const int aiFan[3] = { MECHA_DEG(52), MECHA_DEG(0),
                                   -MECHA_DEG(52) };
-    static const float afOut[3] = { 0.70f, 0.95f, 0.70f };
+    static const float afOut[3] = { 0.78f, 1.05f, 0.78f };
     /* How far up and down the body each rank sits. Written at 0.55 of the
      * radius, where the three pairs stood close enough together that from
      * the front the machine had four legs and a smudge. */
@@ -2399,7 +2476,13 @@ static void mecha_mesh_arachnid(tMechaQuadList *pList,
     float fLift;
     float fKneeY;
     float fDrop;
-    int iFemurUp = MECHA_DEG(60);
+    /*
+     * Out further than up. At sixty degrees the six legs stood under the
+     * machine like table legs and the thing read as a walker with too many
+     * of them; at forty-two they go out to the sides and the knees still
+     * clear the body, which is what an arachnid is. [MESH-39]
+     */
+    int iFemurUp = MECHA_DEG(42);
     int iTibiaDown;
 
     /* A planted leg does not move; a swinging one picks its foot up. */
@@ -2469,33 +2552,37 @@ static void mecha_mesh_arachnid(tMechaQuadList *pList,
   }
 
   /*
-   * The body: a low disc of a hull with a sensor turret on it rather than a
-   * chest and a head. It keeps the shared arms, because the machine still
-   * has to hold the roster's guns and point them.
+   * The hub the legs hang off, and it is small on purpose: this machine is
+   * its legs, and a hull big enough to look like a body turns six limbs into
+   * a fringe round a box. What sits above it is the roster's own torso --
+   * an ordinary robot from the waist up, walking on something that is not
+   * legs. [MESH-39]
    */
   mecha_quads_part(pList, MECHA_PART_TORSO);
   mecha_add_frustum(pList, &pose, 0.0f, fBodyY, 0.0f,
-                    1.15f * fRadius, 1.40f * fRadius,
-                    0.92f * fRadius, 1.10f * fRadius,
-                    0.13f * fHeight, 0.0f, 0.0f,
-                    build.byBody, build.byTrim, 0);
-  /* Underside plate, so the hull is not an open shell from below -- which
-   * is a view this machine actually gives, being the one that climbs. */
-  mecha_add_frustum(pList, &pose, 0.0f, fBodyY - 0.10f * fHeight, 0.0f,
-                    0.72f * fRadius, 0.80f * fRadius,
-                    1.02f * fRadius, 1.16f * fRadius,
-                    0.02f * fHeight, 0.0f, 0.0f,
+                    0.54f * fRadius, 0.66f * fRadius,
+                    0.46f * fRadius, 0.54f * fRadius,
+                    0.05f * fHeight, 0.0f, 0.0f,
+                    build.byJoint, build.byJoint, 0);
+  /* Underside plate, so the hub is not an open shell from below -- which is
+   * a view this machine actually gives, being the one that climbs. */
+  mecha_add_frustum(pList, &pose, 0.0f, fBodyY - 0.05f * fHeight, 0.0f,
+                    0.38f * fRadius, 0.44f * fRadius,
+                    0.52f * fRadius, 0.62f * fRadius,
+                    0.015f * fHeight, 0.0f, 0.0f,
                     build.byJoint, build.byJoint, 0);
 
   /*
-   * The arms and head hang off a frame set so that the shoulders land just
-   * above the hull rather than where a biped's chest would put them: the
-   * shared builder measures everything from its own origin, so placing that
-   * origin is how a different body wears the same shoulders.
+   * And the machine from the waist up, turned on the hub. The shared builder
+   * measures from its own origin, so placing that origin is the whole of how
+   * a different body wears the same shoulders.
    */
-  mecha_pose_child(&torso, &pose, 0.0f, fBodyY - 0.22f * fHeight, 0.0f,
+  build.fWalkPhase = fPhase;
+  mecha_pose_child(&torso, &pose, 0.0f, fBodyY + 0.03f * fHeight, 0.0f,
                    mecha_angle_delta(pMech->iLegYaw, pMech->iFacing), 0, 0);
+  mecha_build_torso(pList, &build, &torso);
   mecha_build_arms_head(pList, pWorld, iMechIdx, &build, &torso);
+  mecha_build_plume(pList, pWorld, &build, &torso);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2641,7 +2728,7 @@ void mecha_mesh_mech(tMechaQuadList *pList, const tMechaWorld *pWorld,
     if (iGait == MECHA_GAIT_SKATE)
       fPhase = (float)(pWorld->iTick % MECHA_SKATE_TICKS)
                / (float)MECHA_SKATE_TICKS;
-    fLegSpan = 0.47f * fHeight - fAnkle;
+    fLegSpan = build.fHipY - fAnkle;
     fThighLen = 0.52f * fLegSpan;
     fShinLen = fLegSpan - fThighLen;
 
@@ -2726,7 +2813,7 @@ void mecha_mesh_mech(tMechaQuadList *pList, const tMechaWorld *pWorld,
      * two rotations do not commute. [MESH-17]
      */
     mecha_pose_child(&hip, &pose, fSide * 0.42f * fRadius * fLimb,
-                     0.47f * fHeight, 0.0f, aiHipYaw[iSide], 0,
+                     build.fHipY, 0.0f, aiHipYaw[iSide], 0,
                      (int)(fSide * (float)aiRoll[iSide]));
     mecha_pose_child(&thigh, &hip, 0.0f, 0.0f, 0.0f, 0, -aiThigh[iSide], 0);
     /* Wide at the hip and narrowing to the knee, which is the line a
@@ -2832,6 +2919,8 @@ void mecha_mesh_mech(tMechaQuadList *pList, const tMechaWorld *pWorld,
     float fSwayX = 0.0f;
     int iSwayRoll = 0;
     int iRecoil = 0;
+    int iTwist = 0;
+    int iRock = 0;
 
     /*
      * A crossing walk has to be paid for above the waist. The feet come
@@ -2872,11 +2961,29 @@ void mecha_mesh_mech(tMechaQuadList *pList, const tMechaWorld *pWorld,
     if (build.iProfile == MECHA_PROFILE_SLENDER && pMech->iRecovery > 0)
       iRecoil = MECHA_ARM_RECOIL * mecha_clampi(pMech->iRecovery, 0, 8) / 8;
 
-    mecha_pose_child(&torso, &pose, fSwayX, 0.47f * fHeight, 0.0f,
-                     mecha_angle_delta(pMech->iLegYaw, pMech->iFacing),
-                     mecha_mesh_lean_pitch(pMech) - iRecoil, iSwayRoll);
+    /*
+     * The shoulders twist against the hips and the body rocks fore and aft
+     * with the step. Both are small -- eight degrees and three -- and both
+     * are the difference between a machine walking and a machine being
+     * carried along by its own legs. [MESH-43]
+     */
+    if (fWalkPhase >= 0.0f) {
+      int iWalkAngle = (int)(fWalkPhase * (float)MECHA_ANGLE_FULL)
+                       & (MECHA_ANGLE_FULL - 1);
+
+      iTwist = -(int)((float)MECHA_WALK_TWIST * mecha_sin(iWalkAngle));
+      iRock = (int)((float)MECHA_WALK_ROCK
+                    * mecha_cos(mecha_angle_wrap(iWalkAngle * 2)));
+    }
+
+    mecha_pose_child(&torso, &pose, fSwayX, build.fHipY, 0.0f,
+                     mecha_angle_delta(pMech->iLegYaw, pMech->iFacing)
+                       + iTwist,
+                     mecha_mesh_lean_pitch(pMech) - iRecoil + iRock,
+                     iSwayRoll);
   }
 
+  build.fWalkPhase = fWalkPhase;
   mecha_build_torso(pList, &build, &torso);
   mecha_build_skirt(pList, &build, &torso, aiThigh);
   mecha_build_arms_head(pList, pWorld, iMechIdx, &build, &torso);

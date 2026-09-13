@@ -940,7 +940,13 @@ on the stick, and pick what to spend the next round on.
   travelling across to follow them and the shoulders rolling the other way.
   Corvid 3 carries a rack of eight pods across its back and no gun in either
   hand, because what it fights with is drones and mines that hang in the air
-  rather than falling to the floor.
+  rather than falling to the floor -- and then go after whoever they were laid
+  against, slowly enough to be seen coming.
+
+- **The upper body answers the legs.** Arms swing against the leg on their own
+  side, the shoulders twist against the hips and the body rocks fore and aft
+  with each footfall. A machine holding a lock keeps a third of it, so the swing
+  does not appear and vanish as the reticle comes and goes.
 
 - **A machine that wins a round stands like it.** One pose per build -- a
   salute, an arm up beside the head with the other hand on the hip, both arms
