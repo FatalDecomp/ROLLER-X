@@ -79,6 +79,47 @@ typedef enum
 } eMechaStance;
 
 //-------------------------------------------------------------------------------------------------
+/*
+ * What the machine is built on, which is a question about drawing and
+ * nothing else: how many legs to hang off it and what they do. The physics
+ * asks bWheeled, which is older and answers a different question -- whether
+ * the machine has one signed speed along its nose instead of a walk and a
+ * strafe -- and the two are kept apart deliberately. A tracked machine
+ * walks, turns and strafes like every other biped; it merely does not look
+ * like one. [TYPE-06]
+ */
+typedef enum
+{
+  MECHA_CHASSIS_BIPED    = 0,
+  /* The race game's own car plan, with a gun bolted to it. */
+  MECHA_CHASSIS_CAR      = 1,
+  /* A tank for legs: two track units and a hull slung between them. */
+  MECHA_CHASSIS_TREAD    = 2,
+  /* Six legs off a low body, arched above it. */
+  MECHA_CHASSIS_ARACHNID = 3,
+  MECHA_CHASSIS_COUNT    = 4
+} eMechaChassis;
+
+//-------------------------------------------------------------------------------------------------
+/*
+ * The trim package a biped wears over that skeleton, and how it carries
+ * itself. The bones are the same in all three -- a profile changes what is
+ * bolted to them and which gait table the legs read, not how many joints
+ * there are. [TYPE-07]
+ */
+typedef enum
+{
+  MECHA_PROFILE_STANDARD = 0,
+  /* Narrow waist, flared skirt, tapered limbs, trailing head crests, and a
+   * walk that leads from the hips. */
+  MECHA_PROFILE_SLENDER  = 1,
+  /* A rack of pods across the back and no main gun in either hand: this one
+   * fights by what it puts in the air. */
+  MECHA_PROFILE_CARRIER  = 2,
+  MECHA_PROFILE_COUNT    = 3
+} eMechaProfile;
+
+//-------------------------------------------------------------------------------------------------
 
 /*
  * What the reticle is actually doing. iTargetIdx says who it is pointed at;
@@ -219,6 +260,14 @@ typedef struct
 {
   const char *szName;
   const char *szClass;
+
+  /*
+   * What the mesh builds and what it hangs on it, as eMechaChassis and
+   * eMechaProfile. Drawing only: zero is a standard biped, which is what
+   * every machine written before these existed still gets. [TYPE-06]
+   */
+  uint8_t byChassis;
+  uint8_t byProfile;
 
   /*
    * Silhouette multipliers, so an archetype reads from across the arena

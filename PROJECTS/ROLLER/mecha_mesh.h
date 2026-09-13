@@ -58,6 +58,24 @@
 
 //-------------------------------------------------------------------------------------------------
 
+/*
+ * Which part of a machine a quad belongs to. Nothing in the renderer reads
+ * this: it is here so that a caller wanting "the legs" or "the gun" can say
+ * so. The tests used to name a box by counting how many the builder had
+ * emitted before it, which was true right up until the builder emitted a
+ * different number, and then quietly measured the wrong box rather than
+ * failing. [MESHH-03]
+ */
+#define MECHA_PART_NONE    0
+#define MECHA_PART_LEG     1   /* legs, tracks, spider limbs: the running gear */
+#define MECHA_PART_TORSO   2
+#define MECHA_PART_SKIRT   3
+#define MECHA_PART_ARM     4
+#define MECHA_PART_GUN     5
+#define MECHA_PART_HEAD    6
+#define MECHA_PART_THRUST  7   /* plumes and the pack they come out of */
+#define MECHA_PART_DRONE   8   /* a carrier's pods, on the rack or in the air */
+
 typedef struct
 {
   float   afVert[4][3];   /* world space, wound counter-clockwise seen from the front */
@@ -68,6 +86,7 @@ typedef struct
    * resolved, and falls back to byPalette. [MESHH-02] */
   uint8_t byTexBank;
   uint8_t byTile;
+  uint8_t byPart;         /* MECHA_PART_*, for callers that want to find one */
 } tMechaQuad;
 
 /* The banks the mode draws from. The renderer maps these onto the engine's
@@ -127,10 +146,16 @@ typedef struct
   int         iCount;
   int         iCapacity;
   int         iDropped;
+  /* Stamped onto every quad added from here on, so a builder says which
+   * part it is on once rather than on every call. [MESHH-03] */
+  uint8_t     byPart;
 } tMechaQuadList;
 
 void mecha_quads_reset(tMechaQuadList *pList, tMechaQuad *paStorage,
                        int iCapacity);
+
+/* What the quads added after this one belong to. Reset clears it. */
+void mecha_quads_part(tMechaQuadList *pList, uint8_t byPart);
 
 /* Appends one quad, deriving its normal from the first three vertices.
  * Returns false when the buffer is full. */
@@ -143,10 +168,26 @@ bool mecha_quads_add(tMechaQuadList *pList,
 
 void mecha_mesh_arena(tMechaQuadList *pList, const tMechaArena *pArena);
 
+/*
+ * How much of a machine to build. A player reads a machine by its outline,
+ * so the outline survives every tier and what falls away is the trim that is
+ * already sub-pixel by the time it does. Sixteen machines at full detail on
+ * the largest arena do not fit in one quad buffer; tiering them is what makes
+ * the detail affordable at all. [MESH-32]
+ */
+#define MECHA_DETAIL_FAR  0
+#define MECHA_DETAIL_MID  1
+#define MECHA_DETAIL_FULL 2
+
+/* Which tier a machine that far from the eye is worth, in world units. The
+ * thresholds live here with the geometry they drop. */
+int mecha_mesh_detail_for_range(float fRange);
+
 /* One posed mech. The walk cycle, the dash lean, the guard crouch and the
- * knockdown all come out of the mech's own simulated state. */
+ * knockdown all come out of the mech's own simulated state. iDetail is one
+ * of the tiers above; the tests build at MECHA_DETAIL_FULL. */
 void mecha_mesh_mech(tMechaQuadList *pList, const tMechaWorld *pWorld,
-                     int iMechIdx);
+                     int iMechIdx, int iDetail);
 
 /* Projectiles and effects are camera-facing, so they need the view heading
  * the renderer is about to draw with. */
@@ -193,7 +234,17 @@ void mecha_mesh_effects(tMechaQuadList *pList, const tMechaWorld *pWorld,
 void mecha_mesh_shadows(tMechaQuadList *pList, const tMechaWorld *pWorld);
 
 //-------------------------------------------------------------------------------------------------
-/* Enough for the arena, eight mechs, and a full projectile table. */
-#define MECHA_QUAD_CAPACITY 8192
+/*
+ * Enough for the arena, sixteen machines and a full projectile table, with
+ * room over. The worst case the mode can reach is a team deathmatch on
+ * FACING WORLDS, whose arena alone is 4346 quads -- over half of what 8192
+ * was -- and measured over ninety seconds of that fight the scene peaked at
+ * 6706 quads before the machines carried any detail and 8116 after, which
+ * is ninety-nine per cent of the old buffer and not a margin. The detail
+ * tiers are what keep it to 8116 rather than 8946; this is what keeps 8116
+ * clear of the ceiling. It costs 272 KB of BSS, once, for the whole mode.
+ * [MESHH-04]
+ */
+#define MECHA_QUAD_CAPACITY 12288
 //-------------------------------------------------------------------------------------------------
 #endif

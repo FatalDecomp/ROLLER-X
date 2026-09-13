@@ -194,6 +194,105 @@ static void dump_frame(const char *szOutDir, const char *szName)
         fprintf(stderr, "   FAILED to write %s\n", szPath);
 }
 
+/*
+ * How far back a camera has to stand to have the whole machine in shot.
+ * Framing off the roster's fHeight alone put a siege platform through the
+ * edges of the picture and stood the camera inside the car, because how
+ * tall a machine is says nothing about how wide it is or how far its legs
+ * reach out to the side.
+ */
+static float mecha_test_portrait_range(tMechaWorld *pWorld, int iMechIdx)
+{
+    static tMechaQuad aShot[MECHA_QUAD_CAPACITY];
+    tMechaQuadList list;
+    const tMechaMech *pMech = &pWorld->aMechs[iMechIdx];
+    float fSpan = 0.0f;
+    int i;
+    int v;
+
+    mecha_quads_reset(&list, aShot, MECHA_QUAD_CAPACITY);
+    mecha_mesh_mech(&list, pWorld, iMechIdx, MECHA_DETAIL_FULL);
+    for (i = 0; i < list.iCount; i++) {
+        for (v = 0; v < 4; v++) {
+            float fDx = aShot[i].afVert[v][0] - pMech->fX;
+            float fDy = aShot[i].afVert[v][1] - pMech->fY;
+            float fDz = aShot[i].afVert[v][2] - pMech->fZ;
+
+            if (fDx < 0.0f) fDx = -fDx;
+            if (fDz < 0.0f) fDz = -fDz;
+            if (fDx > fSpan) fSpan = fDx;
+            if (fDy > fSpan) fSpan = fDy;
+            if (fDz > fSpan) fSpan = fDz;
+        }
+    }
+    /* Half the machine's largest reach, so this is its half-span; the
+     * multiplier is what leaves air round the edges of the picture. */
+    return fSpan * 2.35f + MECHA_M(2.0f);
+}
+
+/* Whether two measurements are within iPercent of the larger. */
+static bool near_within(int iA, int iB, int iPercent)
+{
+    int iBig = iA > iB ? iA : iB;
+    int iGap = iA > iB ? iA - iB : iB - iA;
+
+    return iBig > 0 && iGap * 100 <= iBig * iPercent;
+}
+
+/*
+ * A machine posed to be looked at rather than to be fighting: standing,
+ * still, square to the camera, and settled into a combat stance so its guns
+ * are up. Everything the pilot would otherwise be doing -- walking away,
+ * boosting, aiming off -- makes two machines impossible to compare.
+ */
+static void mecha_test_clear_debris(tMechaWorld *pWorld)
+{
+    int i;
+
+    /* Three seconds of two pilots closing on each other leaves shots in the
+     * air and blasts on the ground, and a portrait is not a fight. */
+    for (i = 0; i < MECHA_MAX_PROJECTILES; i++)
+        pWorld->aProjectiles[i].bActive = false;
+    for (i = 0; i < MECHA_MAX_EFFECTS; i++)
+        pWorld->aEffects[i].bActive = false;
+}
+
+static void mecha_test_pose_for_portrait(tMechaWorld *pWorld, int iMechIdx)
+{
+    tMechaMech *pMech = &pWorld->aMechs[iMechIdx];
+
+    /*
+     * Stood in the middle of the arena rather than wherever its pilot got
+     * to. Left where it walked, a machine ends up behind a block as often
+     * as not, and a silhouette measured through cover is not a silhouette.
+     */
+    pMech->fX = 0.0f;
+    pMech->fZ = 0.0f;
+    pMech->fY = mecha_arena_terrain_height(&pWorld->arena, 0.0f, 0.0f);
+    /* And with the cover taken away. There is a block near the middle of
+     * the first arena, and a machine measured from behind one is measured
+     * as whatever of it sticks out. */
+    pWorld->arena.iObstacleCount = 0;
+    /*
+     * And in its own colours. A computer pilot draws a paint scheme off the
+     * match seed [SIM-22], so left alone the whole roster turns up in
+     * whatever colour the draw handed out and every portrait is the same
+     * green. Scheme zero is the works finish -- the machine's own palette,
+     * which is the one worth photographing.
+     */
+    pMech->byScheme = 0;
+    pMech->byMove = MECHA_MOVE_STAND;
+    pMech->iFacing = 0;
+    pMech->iLegYaw = 0;
+    pMech->iAimPitch = 0;
+    pMech->fCombat = 1.0f;
+    pMech->fStepPhase = 0.0f;
+    pMech->fVelX = 0.0f;
+    pMech->fVelY = 0.0f;
+    pMech->fVelZ = 0.0f;
+    pMech->fLeanRoll = 0.0f;
+}
+
 /* Ticks past the READY announcement so the controls are live. */
 static void run_to_fight(tMechaInput *paInputs)
 {
@@ -781,7 +880,7 @@ int main(int argc, char **argv)
                 memset(&body, 0, sizeof(body));
                 body.paQuads   = s_aBodyQuads;
                 body.iCapacity = MECHA_QUAD_CAPACITY;
-                mecha_mesh_mech(&body, &s_World, 0);
+                mecha_mesh_mech(&body, &s_World, 0, MECHA_DETAIL_FULL);
 
                 /* Nearest panel wins the space, or the roof and the tail
                  * write over the windscreen. [TEST-04] */
@@ -898,6 +997,357 @@ int main(int argc, char **argv)
         if (mecha_test_file_present("xzizin.bm"))
             CHECK(mecha_render_car_skin_active());
         CHECK(!single_colour(aiCounts));
+    }
+
+    /* --- the roster, machine by machine ----------------------------------
+     *
+     * Four views of every machine on a bare arena, dumped rather than
+     * asserted, because what these are for is being looked at: a silhouette
+     * is not something a number can sign off. The line-up below is the half
+     * that can be checked, and it is checked. [TEST-09]
+     */
+    if (szOutDir) {
+        static const int aiPhi[4] = { 0, 45, 90, 180 };
+        int iDef;
+
+        for (iDef = 0; iDef < mecha_def_count(); iDef++) {
+            const tMechaMechDef *pDef = mecha_def_get(iDef);
+            tMechaInput aIdle[MECHA_MAX_MECHS];
+            float fRange;
+            float fEye;
+            int iShot;
+            int iSelf;
+            int iFoe;
+
+            /* A fresh world each time: the machine under the camera is the
+             * one being looked at, and the arena is the plainest there is. */
+            mecha_sim_init(&s_World, 0, 0x5EED1234u, 1);
+            iSelf = mecha_sim_add_mech(&s_World, iDef, MECHA_CONTROL_AI, 0);
+            iFoe = mecha_sim_add_mech(&s_World, iDef, MECHA_CONTROL_AI, 1);
+            CHECK(iSelf >= 0 && iFoe >= 0);
+            /* Nobody shoots: a melee hitbox swung across the lens is a
+             * bright square over the machine being photographed. */
+            mecha_sim_set_ai_hold_fire(&s_World, true);
+            mecha_sim_begin_match(&s_World);
+            memset(aIdle, 0, sizeof(aIdle));
+            /* Long enough to be settled into a fighting stance with its
+             * guns up, which is the pose worth looking at. */
+            for (iShot = 0; iShot < MECHA_TICK_HZ * 3; iShot++)
+                mecha_sim_tick(&s_World, aIdle, MECHA_MAX_MECHS);
+
+            /*
+             * Standing, and standing still. Left to itself the pilot walks
+             * off to fight, and a machine photographed mid-boost is mostly
+             * a thruster plume: the plume is self-lit, so the depth key
+             * pulls it forward and it is drawn over the machine throwing
+             * it. [MESH-24]
+             */
+            mecha_test_pose_for_portrait(&s_World, iSelf);
+            mecha_test_clear_debris(&s_World);
+            /* The other one straight off the nose and well away, so the
+             * arms come up along the machine rather than across it. */
+            s_World.aMechs[iFoe].fX = s_World.aMechs[iSelf].fX;
+            s_World.aMechs[iFoe].fZ = s_World.aMechs[iSelf].fZ
+                                      + MECHA_M(120.0f);
+            s_World.aMechs[iFoe].bActive = false;
+
+            /* Framed off the machine's own size, or the tall ones walk out
+             * of the top of the picture and the car is a dot. */
+            fRange = mecha_test_portrait_range(&s_World, iSelf);
+            fEye = pDef->fHeight * 0.46f;
+
+            for (iShot = 0; iShot < 4; iShot++) {
+                float fPhi = (float)aiPhi[iShot] * 3.14159265f / 180.0f;
+                char szName[96];
+
+                s_Camera.fX = s_World.aMechs[iSelf].fX + fRange * sinf(fPhi);
+                s_Camera.fY = s_World.aMechs[iSelf].fY + fEye;
+                s_Camera.fZ = s_World.aMechs[iSelf].fZ + fRange * cosf(fPhi);
+                s_Camera.iYaw = MECHA_DEG(aiPhi[iShot] + 180);
+                s_Camera.iPitch = -MECHA_DEG(7);
+                s_Camera.bSettled = true;
+                /* No view machine, so no HUD and no round banner painted
+                 * over the thing being looked at. */
+                mecha_render_frame(pRenderer, &s_World, &s_Camera, -1,
+                                   s_aFrame, FRAME_W, FRAME_H, s_aQuads,
+                                   MECHA_QUAD_CAPACITY);
+                snprintf(szName, sizeof(szName), "roster%d_%03d.png",
+                         iDef, aiPhi[iShot]);
+                dump_frame(szOutDir, szName);
+            }
+
+            /* And the pose it holds when it has won a round, which is the
+             * one frame per machine that is not the same shape as every
+             * other machine's. [MESH-42] */
+            {
+                char szName[96];
+                float fPhi = 0.61f;
+
+                s_World.match.byPhase = MECHA_PHASE_ROUND_OVER;
+                s_World.match.iWinnerIdx = iSelf;
+                s_World.match.iPhaseTicks = MECHA_POSE_EASE_TICKS;
+                fRange = mecha_test_portrait_range(&s_World, iSelf);
+                s_Camera.fX = s_World.aMechs[iSelf].fX
+                              + fRange * sinf(fPhi);
+                s_Camera.fY = s_World.aMechs[iSelf].fY + fEye;
+                s_Camera.fZ = s_World.aMechs[iSelf].fZ
+                              + fRange * cosf(fPhi);
+                s_Camera.iYaw = MECHA_DEG(35 + 180);
+                s_Camera.iPitch = -MECHA_DEG(7);
+                mecha_render_frame(pRenderer, &s_World, &s_Camera, -1,
+                                   s_aFrame, FRAME_W, FRAME_H, s_aQuads,
+                                   MECHA_QUAD_CAPACITY);
+                snprintf(szName, sizeof(szName), "roster%d_win.png", iDef);
+                dump_frame(szOutDir, szName);
+            }
+            printf("   %-16s %s\n", pDef->szName, pDef->szClass);
+        }
+    }
+
+    /* --- and all of them together, at the range they are told apart at ---
+     *
+     * The whole point of a silhouette is that it survives being small. Each
+     * machine is drawn side on at the range the far tier starts, and then
+     * drawn again with it taken away, and what differs between the two
+     * frames is the machine and nothing else -- which is the only way to
+     * measure one against an arena it is standing in. [TEST-09]
+     */
+    {
+        static uint8 aEmpty[FRAME_W * FRAME_H];
+        int aiWide[MECHA_MAX_MECHS];
+        int aiTall[MECHA_MAX_MECHS];
+        int aiInk[MECHA_MAX_MECHS];
+        int iCount = mecha_def_count();
+        int iDef;
+        int iSame = 0;
+
+        if (iCount > MECHA_MAX_MECHS)
+            iCount = MECHA_MAX_MECHS;
+        for (iDef = 0; iDef < iCount; iDef++) {
+            tMechaInput aIdle[MECHA_MAX_MECHS];
+            int iMinX = FRAME_W;
+            int iMaxX = -1;
+            int iMinY = FRAME_H;
+            int iMaxY = -1;
+            int iSelf;
+            int i;
+
+            mecha_sim_init(&s_World, 0, 0x5EED1234u, 1);
+            iSelf = mecha_sim_add_mech(&s_World, iDef, MECHA_CONTROL_AI, 0);
+            CHECK(mecha_sim_add_mech(&s_World, iDef, MECHA_CONTROL_AI, 1) >= 0);
+            mecha_sim_set_ai_hold_fire(&s_World, true);
+            mecha_sim_begin_match(&s_World);
+            memset(aIdle, 0, sizeof(aIdle));
+            for (i = 0; i < MECHA_TICK_HZ * 3; i++)
+                mecha_sim_tick(&s_World, aIdle, MECHA_MAX_MECHS);
+            mecha_test_pose_for_portrait(&s_World, iSelf);
+            mecha_test_clear_debris(&s_World);
+            s_World.aMechs[1].fX = s_World.aMechs[iSelf].fX;
+            s_World.aMechs[1].fZ = s_World.aMechs[iSelf].fZ + MECHA_M(120.0f);
+            s_World.aMechs[1].bActive = false;
+
+            /* Side on, at the range the far tier starts, which is the
+             * hardest case an outline has to survive. */
+            s_Camera.fX = s_World.aMechs[iSelf].fX + MECHA_M(130.0f);
+            s_Camera.fY = s_World.aMechs[iSelf].fY
+                          + mecha_def_get(iDef)->fHeight * 0.5f;
+            s_Camera.fZ = s_World.aMechs[iSelf].fZ;
+            s_Camera.iYaw = MECHA_DEG(270);
+            s_Camera.iPitch = 0;
+            s_Camera.bSettled = true;
+            mecha_render_frame(pRenderer, &s_World, &s_Camera, -1,
+                               s_aFrame, FRAME_W, FRAME_H, s_aQuads,
+                               MECHA_QUAD_CAPACITY);
+            if (szOutDir) {
+                char szName[96];
+
+                snprintf(szName, sizeof(szName), "roster%d_far.png", iDef);
+                dump_frame(szOutDir, szName);
+            }
+            memcpy(aEmpty, s_aFrame, sizeof(aEmpty));
+
+            /* The same frame with the machine taken out from under the
+             * camera, so what is left over is the arena behind it. */
+            s_World.aMechs[iSelf].bActive = false;
+            mecha_render_frame(pRenderer, &s_World, &s_Camera, -1,
+                               s_aFrame, FRAME_W, FRAME_H, s_aQuads,
+                               MECHA_QUAD_CAPACITY);
+            s_World.aMechs[iSelf].bActive = true;
+
+            aiInk[iDef] = 0;
+            for (i = 0; i < FRAME_W * FRAME_H; i++) {
+                if (aEmpty[i] == s_aFrame[i])
+                    continue;
+                aiInk[iDef]++;
+                if (i % FRAME_W < iMinX) iMinX = i % FRAME_W;
+                if (i % FRAME_W > iMaxX) iMaxX = i % FRAME_W;
+                if (i / FRAME_W < iMinY) iMinY = i / FRAME_W;
+                if (i / FRAME_W > iMaxY) iMaxY = i / FRAME_W;
+            }
+            CHECK(aiInk[iDef] > 0);
+            aiWide[iDef] = iMaxX - iMinX + 1;
+            aiTall[iDef] = iMaxY - iMinY + 1;
+            printf("   %-16s %5d px, %3d x %3d, %d%% filled\n",
+                   mecha_def_get(iDef)->szName, aiInk[iDef],
+                   aiWide[iDef], aiTall[iDef],
+                   100 * aiInk[iDef] / (aiWide[iDef] * aiTall[iDef]));
+        }
+
+        /*
+         * No two machines may have the same outline, and an outline here is
+         * three numbers: how wide it is, how tall, and how much of its own
+         * box it fills. Two of the three matching is a coincidence; all
+         * three matching is two machines a player cannot tell apart at the
+         * range this was measured at. It is a weak test of a strong claim,
+         * and it catches the failure that actually happens, which is a new
+         * machine shipping as an old one with the numbers changed.
+         */
+        for (iDef = 1; iDef < iCount; iDef++) {
+            int iOther;
+
+            for (iOther = 0; iOther < iDef; iOther++) {
+                int iFillA = 100 * aiInk[iDef] / (aiWide[iDef] * aiTall[iDef]);
+                int iFillB = 100 * aiInk[iOther]
+                             / (aiWide[iOther] * aiTall[iOther]);
+
+                if (near_within(aiWide[iDef], aiWide[iOther], 10)
+                    && near_within(aiTall[iDef], aiTall[iOther], 10)
+                    && near_within(iFillA, iFillB, 10)) {
+                    printf("   %s and %s have the same outline\n",
+                           mecha_def_get(iDef)->szName,
+                           mecha_def_get(iOther)->szName);
+                    iSame++;
+                }
+            }
+        }
+        CHECK(iSame == 0);
+    }
+
+    /* --- the slender frame, moving --------------------------------------
+     *
+     * A walk is the one thing about a machine no still frame can show, so
+     * this walks the step cycle round in eight and dumps each one, then
+     * pulls a trigger and dumps the rock-back. Written for the slender
+     * profile because that is the frame whose gait is its own; any machine
+     * would go through here just as well. [TEST-10]
+     */
+    if (szOutDir) {
+        int iSlim = -1;
+        int iDef;
+
+        for (iDef = 0; iDef < mecha_def_count(); iDef++) {
+            if (mecha_def_get(iDef)->byProfile == MECHA_PROFILE_SLENDER) {
+                iSlim = iDef;
+                break;
+            }
+        }
+        if (iSlim >= 0) {
+            const tMechaMechDef *pDef = mecha_def_get(iSlim);
+            tMechaInput aIdle[MECHA_MAX_MECHS];
+            float fRange;
+            int iSelf;
+            int iStep;
+            int i;
+
+            mecha_sim_init(&s_World, 0, 0x5EED1234u, 1);
+            iSelf = mecha_sim_add_mech(&s_World, iSlim, MECHA_CONTROL_AI, 0);
+            CHECK(mecha_sim_add_mech(&s_World, iSlim, MECHA_CONTROL_AI, 1) >= 0);
+            mecha_sim_set_ai_hold_fire(&s_World, true);
+            mecha_sim_begin_match(&s_World);
+            memset(aIdle, 0, sizeof(aIdle));
+            for (i = 0; i < MECHA_TICK_HZ * 3; i++)
+                mecha_sim_tick(&s_World, aIdle, MECHA_MAX_MECHS);
+            mecha_test_pose_for_portrait(&s_World, iSelf);
+            mecha_test_clear_debris(&s_World);
+            s_World.aMechs[1].bActive = false;
+
+            fRange = mecha_test_portrait_range(&s_World, iSelf);
+
+            /* Three quarters on, the way the machine is worth looking at,
+             * and near enough that a hip moving is a hip you can see. */
+            s_Camera.fX = s_World.aMechs[iSelf].fX
+                          + fRange * 0.80f * sinf(0.61f);
+            s_Camera.fY = s_World.aMechs[iSelf].fY + pDef->fHeight * 0.46f;
+            s_Camera.fZ = s_World.aMechs[iSelf].fZ
+                          + fRange * 0.80f * cosf(0.61f);
+            s_Camera.iYaw = MECHA_DEG(35 + 180);
+            s_Camera.iPitch = -MECHA_DEG(5);
+            s_Camera.bSettled = true;
+
+            /*
+             * The walk. fStepPhase is what the cycle is paced by [MESH-04],
+             * so stepping it by hand is the cycle, with no clock to wait
+             * for and nothing else in the machine's state changing.
+             */
+            for (iStep = 0; iStep < 8; iStep++) {
+                char szName[96];
+
+                s_World.aMechs[iSelf].byMove = MECHA_MOVE_WALK;
+                s_World.aMechs[iSelf].fStepPhase = (float)iStep / 8.0f;
+                mecha_render_frame(pRenderer, &s_World, &s_Camera, -1,
+                                   s_aFrame, FRAME_W, FRAME_H, s_aQuads,
+                                   MECHA_QUAD_CAPACITY);
+                snprintf(szName, sizeof(szName), "slim_walk%d.png", iStep);
+                dump_frame(szOutDir, szName);
+            }
+
+            /*
+             * And the recoil. iRecovery counts down after a trigger pull,
+             * and on this frame it rocks the whole machine back from the
+             * waist rather than only kicking the arm that fired. [MESH-40]
+             */
+            for (iStep = 0; iStep < 4; iStep++) {
+                char szName[96];
+
+                s_World.aMechs[iSelf].byMove = MECHA_MOVE_STAND;
+                s_World.aMechs[iSelf].fStepPhase = 0.0f;
+                s_World.aMechs[iSelf].iLastFiredSlot = MECHA_SLOT_RIGHT;
+                s_World.aMechs[iSelf].iRecovery = 8 - iStep * 2;
+                mecha_render_frame(pRenderer, &s_World, &s_Camera, -1,
+                                   s_aFrame, FRAME_W, FRAME_H, s_aQuads,
+                                   MECHA_QUAD_CAPACITY);
+                snprintf(szName, sizeof(szName), "slim_fire%d.png", iStep);
+                dump_frame(szOutDir, szName);
+            }
+            s_World.aMechs[iSelf].iRecovery = 0;
+
+            /*
+             * And the nearest this rig gets to a hand-up pose: both arms
+             * elevated to their stop, the weight on one leg with the other
+             * crossed in front, and the head turned onto the camera. With
+             * no lock the aim pitch is taken straight off the machine, so
+             * setting it is how a pose is asked for. There is no V-sign in
+             * here to find: a hand is a gun mount with no fingers on it,
+             * and both arms read one aim between them.
+             */
+            s_World.aMechs[iSelf].byMove = MECHA_MOVE_STAND;
+            s_World.aMechs[iSelf].fStepPhase = 0.0f;
+            s_World.aMechs[iSelf].fCombat = 1.0f;
+            s_World.match.byPhase = MECHA_PHASE_ROUND_OVER;
+            s_World.match.iWinnerIdx = iSelf;
+            /* A raised arm reaches higher than anything the machine
+             * measures standing, so the shot is framed again with the pose
+             * held rather than with the pose it was framed on. */
+            s_World.match.iPhaseTicks = MECHA_POSE_EASE_TICKS;
+            fRange = mecha_test_portrait_range(&s_World, iSelf);
+            s_Camera.fX = s_World.aMechs[iSelf].fX
+                          + fRange * 0.80f * sinf(0.61f);
+            s_Camera.fZ = s_World.aMechs[iSelf].fZ
+                          + fRange * 0.80f * cosf(0.61f);
+            for (iStep = 0; iStep < 4; iStep++) {
+                char szName[96];
+
+                s_World.match.iPhaseTicks =
+                    MECHA_POSE_EASE_TICKS * iStep / 3;
+                mecha_render_frame(pRenderer, &s_World, &s_Camera, -1,
+                                   s_aFrame, FRAME_W, FRAME_H, s_aQuads,
+                                   MECHA_QUAD_CAPACITY);
+                snprintf(szName, sizeof(szName), "slim_win%d.png", iStep);
+                dump_frame(szOutDir, szName);
+            }
+            printf("   %s: eight of the walk, four of the recoil, four of"
+                   " the win pose\n", pDef->szName);
+        }
     }
 
     /* --- the briefing screen draws ---------------------------------------

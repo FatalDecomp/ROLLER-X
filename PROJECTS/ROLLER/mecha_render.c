@@ -727,8 +727,24 @@ static void mecha_render_scene(GameRenderer *pRenderer,
   mecha_quads_reset(&list, paScratch, iScratchCapacity);
   mecha_mesh_arena(&list, &pWorld->arena);
   mecha_mesh_shadows(&list, pWorld);
-  for (iMech = 0; iMech < MECHA_MAX_MECHS; iMech++)
-    mecha_mesh_mech(&list, pWorld, iMech);
+  /*
+   * Detail is spent where it is seen. Sixteen machines built in full on the
+   * largest arena overrun the quad buffer on their own, and the ones that
+   * would overrun it are the ones too far away to show what the detail
+   * bought. Range is measured to the eye, so it answers where the camera is
+   * rather than where the player's machine is -- a spectator gets the same
+   * deal as anyone else. [MESH-32]
+   */
+  for (iMech = 0; iMech < MECHA_MAX_MECHS; iMech++) {
+    const tMechaMech *pMech = &pWorld->aMechs[iMech];
+    float fDx = pMech->fX - pCamera->fX;
+    float fDy = pMech->fY - pCamera->fY;
+    float fDz = pMech->fZ - pCamera->fZ;
+
+    mecha_mesh_mech(&list, pWorld, iMech,
+                    mecha_mesh_detail_for_range(mecha_length3(fDx, fDy,
+                                                              fDz)));
+  }
   mecha_mesh_scenery(&list, &pWorld->arena, pWorld->uiSeed, pCamera->iYaw);
   mecha_mesh_clouds(&list, pWorld);
   mecha_mesh_projectiles(&list, pWorld, pCamera->iYaw);
