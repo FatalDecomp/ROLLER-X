@@ -89,7 +89,7 @@ python3 tools/check_roller_core_manifest.py
 mdformat --check docs/
 ```
 
-At the time of writing that is 85 sim test groups and 300 python tests, all
+At the time of writing that is 86 sim test groups and 300 python tests, all
 passing. `zig` is not on a remote session's PATH and its package fetcher cannot
 reach GitHub through the agent proxy; the way round both is in the toolchain
 notes below.
@@ -2280,9 +2280,18 @@ not the read. What produces the read is two things going opposite ways: the
 limbs narrow towards the joints while the skirt flares wider than any other
 frame's. Thin legs under a wide flare.
 
-`fTaper` is 0.74 and `fFlare` is 1.5, and they are applied to different pieces
-on purpose -- the taper to thighs, shins, upper arms, forearms and the waist,
-the flare only to the side skirt plates.
+Three numbers, applied to different pieces on purpose. `fTaper` at 0.74 goes on
+the thighs, shins, upper arms, forearms and the waist. `fFlare` at 1.45 goes
+only on how far the side skirt plates reach past that waist. `fChest` at 0.82
+goes on the chest, the plate over it, the collar, and the pack behind it.
+
+The chest needs a number of its own rather than the limbs': taking 0.74 to the
+torso as well puts the chest narrower than the waist under it, which is not a
+slighter machine, it is an upside-down one. The flare was briefly at 1.9,
+reaching for an outline that would not read as the interceptor's at range --
+which is a job the machine's height does instead [DEF-10], and which made the
+hips one slab from one side to the other as soon as the plates were properly
+joined to the waist.
 
 ## MESH-34 — the waist is three shapes, not a column
 
@@ -2299,6 +2308,15 @@ The front pair hinge on the leg they hang in front of, at just over half that
 leg's swing. Fixed, they had the thigh pass straight through them at the top of
 every stride; at the full swing they stop reading as armour and start reading as
 a second thigh.
+
+**A plate is hung off the waist, not placed beside it.** Its inner edge starts
+at the waist block's own bottom edge, and `fFlare` grows how far past that it
+reaches -- only that. Scaling the plate's centre by the flare instead, which is
+how this was first written, moves the inner edge out along with the rest of it:
+at a flare of one nobody notices, and at 1.9 the machine has its hips hanging in
+the air a metre and a half either side of it. The top of the plate is skewed
+back in so that edge lands on the waist too, which is what stops the join
+opening up again above.
 
 ## MESH-35 — the crest is the cheapest identity there is
 

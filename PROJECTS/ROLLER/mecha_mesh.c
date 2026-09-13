@@ -1544,6 +1544,13 @@ typedef struct
   float   fTaper;
   float   fFlare;
   /*
+   * And what it does to the chest, which is not the same number. Taking the
+   * limbs' taper to the torso as well puts the chest narrower than the waist
+   * under it, which is not a slighter machine, it is an upside-down one.
+   * [MESH-33]
+   */
+  float   fChest;
+  /*
    * Where the hips are, and what that does to everything above them. A
    * machine whose hips ride high has long legs and a short body, and the
    * second half of that is not optional -- left alone, raising the hips
@@ -1589,7 +1596,15 @@ static void mecha_build_setup(tMechaBuild *pB, const tMechaMech *pMech,
    * rather than as a mech drawn at three quarters. [MESH-33]
    */
   pB->fTaper = pB->iProfile == MECHA_PROFILE_SLENDER ? 0.74f : 1.0f;
-  pB->fFlare = pB->iProfile == MECHA_PROFILE_SLENDER ? 1.9f : 1.0f;
+  /*
+   * Back off from the 1.9 this was briefly at. That was reaching for a
+   * silhouette that would not read as the interceptor's at range, which is
+   * a job the machine's height does instead [DEF-10]; a flare that wide,
+   * once the plates were actually joined to the waist, made the hips one
+   * slab from one side to the other rather than armour hung on a frame.
+   */
+  pB->fFlare = pB->iProfile == MECHA_PROFILE_SLENDER ? 1.45f : 1.0f;
+  pB->fChest = pB->iProfile == MECHA_PROFILE_SLENDER ? 0.82f : 1.0f;
   {
     /*
      * The figure. MECHA_HIP_CLASSIC is where the hips sat when there was
@@ -1646,15 +1661,18 @@ static void mecha_build_torso(tMechaQuadList *pList, const tMechaBuild *pB,
    */
   mecha_add_frustum(pList, pTorso, 0.0f, 0.17f * pB->fUpperY, 0.02f * pB->fRadius,
                     0.58f * pB->fRadius * pB->fTorso * pB->fTaper,
-                    0.46f * pB->fRadius * pB->fTorso,
-                    0.76f * pB->fRadius * pB->fTorso, 0.50f * pB->fRadius * pB->fTorso,
+                    0.46f * pB->fRadius * pB->fTorso * pB->fChest,
+                    0.76f * pB->fRadius * pB->fTorso * pB->fChest,
+                    0.50f * pB->fRadius * pB->fTorso * pB->fChest,
                     0.13f * pB->fUpperY, 0.0f, 0.0f, pB->byBody, pB->byTrim, 0);
 
   /* The plate over the front of it, sloped back towards the collar. */
   mecha_add_frustum(pList, pTorso, 0.0f, 0.19f * pB->fUpperY,
-                    0.50f * pB->fRadius * pB->fTorso,
-                    0.52f * pB->fRadius * pB->fTorso, 0.07f * pB->fRadius,
-                    0.44f * pB->fRadius * pB->fTorso, 0.05f * pB->fRadius,
+                    0.50f * pB->fRadius * pB->fTorso * pB->fChest,
+                    0.52f * pB->fRadius * pB->fTorso * pB->fChest,
+                    0.07f * pB->fRadius,
+                    0.44f * pB->fRadius * pB->fTorso * pB->fChest,
+                    0.05f * pB->fRadius,
                     0.09f * pB->fUpperY, 0.0f, -0.04f * pB->fRadius,
                     pB->byTrim, pB->byTrim, 0);
 
@@ -1679,8 +1697,10 @@ static void mecha_build_torso(tMechaQuadList *pList, const tMechaBuild *pB,
   /* A collar between the shoulders, so the head has something to sit in. */
   if (pB->iDetail >= MECHA_DETAIL_MID) {
     mecha_add_frustum(pList, pTorso, 0.0f, 0.30f * pB->fUpperY, 0.0f,
-                      0.42f * pB->fRadius * pB->fTorso, 0.34f * pB->fRadius * pB->fTorso,
-                      0.30f * pB->fRadius * pB->fTorso, 0.26f * pB->fRadius * pB->fTorso,
+                      0.42f * pB->fRadius * pB->fTorso * pB->fChest,
+                      0.34f * pB->fRadius * pB->fTorso * pB->fChest,
+                      0.30f * pB->fRadius * pB->fTorso * pB->fChest,
+                      0.26f * pB->fRadius * pB->fTorso * pB->fChest,
                       0.03f * pB->fUpperY, 0.0f, 0.0f, pB->byJoint, pB->byJoint, 0);
   }
 
@@ -1689,9 +1709,11 @@ static void mecha_build_torso(tMechaQuadList *pList, const tMechaBuild *pB,
    * is the whole of how that machine reads from behind. [MESH-36]
    */
   mecha_add_frustum(pList, pTorso, 0.0f, 0.19f * pB->fUpperY,
-                    -0.56f * pB->fRadius * pB->fTorso,
-                    0.50f * pB->fRadius * pB->fTorso, 0.16f * pB->fRadius,
-                    0.44f * pB->fRadius * pB->fTorso, 0.12f * pB->fRadius,
+                    -0.56f * pB->fRadius * pB->fTorso * pB->fChest,
+                    0.50f * pB->fRadius * pB->fTorso * pB->fChest,
+                    0.16f * pB->fRadius,
+                    0.44f * pB->fRadius * pB->fTorso * pB->fChest,
+                    0.12f * pB->fRadius,
                     0.11f * pB->fUpperY, 0.0f, -0.02f * pB->fRadius,
                     pB->byJoint, pB->byJoint, 0);
 
@@ -1768,46 +1790,70 @@ static void mecha_build_skirt(tMechaQuadList *pList, const tMechaBuild *pB,
    * plates on a model kit do: a skirt that stayed put would have the thigh
    * pass straight through it at the top of every stride.
    */
-  for (iSide = 0; iSide < 2; iSide++) {
-    float fSide = iSide == 0 ? -1.0f : 1.0f;
+  {
+    /*
+     * The plate is hung off the waist rather than placed beside it. The
+     * waist's own bottom edge is where it starts, and the flare grows how
+     * far past that it reaches -- which is the whole fix for a wide skirt
+     * that used to float: scaling the plate's centre by the flare moved the
+     * inner edge out too, and left a machine with its hips hanging in the
+     * air either side of it. [MESH-34]
+     */
+    float fWaist = 0.52f * pB->fRadius * pB->fTorso * pB->fTaper;
+    float fReach = 0.30f * pB->fRadius * pB->fTorso * pB->fFlare;
+    float fHalf = 0.5f * fReach;
+    /* Narrower where it meets the waist than where it hangs, so the plate
+     * has a taper of its own and reads as armour rather than as a slab. */
+    float fHalfTop = 0.45f * fHalf;
 
-    mecha_add_frustum(pList, pTorso,
-                      fSide * 0.66f * pB->fRadius * pB->fTorso * pB->fFlare,
-                      -0.07f * pB->fHeight, -0.01f * pB->fRadius,
-                      0.13f * pB->fRadius * pB->fTorso * pB->fFlare,
-                      0.34f * pB->fRadius * pB->fTorso,
-                      0.09f * pB->fRadius * pB->fTorso * pB->fFlare,
-                      0.30f * pB->fRadius * pB->fTorso,
-                      0.07f * pB->fHeight,
-                      -fSide * 0.05f * pB->fRadius * pB->fTorso * pB->fFlare, 0.0f,
-                      pB->byBody, pB->byTrim, 0);
+    for (iSide = 0; iSide < 2; iSide++) {
+      float fSide = iSide == 0 ? -1.0f : 1.0f;
 
-    if (pB->iDetail >= MECHA_DETAIL_MID) {
-      tMechaPose skirt;
+      mecha_add_frustum(pList, pTorso,
+                        fSide * (fWaist + fHalf),
+                        -0.07f * pB->fUpperY, -0.01f * pB->fRadius,
+                        fHalf, 0.34f * pB->fRadius * pB->fTorso,
+                        fHalfTop, 0.30f * pB->fRadius * pB->fTorso,
+                        0.07f * pB->fUpperY,
+                        /* The top's inner edge lands on the waist too, which
+                         * is what the skew is carrying. */
+                        fSide * (fHalfTop - fHalf), 0.0f,
+                        pB->byBody, pB->byTrim, 0);
 
-      /* Just over half the thigh's swing: enough that the plate is never
-       * inside the leg, little enough that it still reads as armour rather
-       * than as a second thigh. */
-      mecha_pose_child(&skirt, pTorso, fSide * 0.24f * pB->fRadius * pB->fTorso,
-                       -0.02f * pB->fHeight, 0.0f, 0,
-                       (int)(-0.55f * (float)paiThigh[iSide]), 0);
-      mecha_add_frustum(pList, &skirt, 0.0f, -0.05f * pB->fHeight,
-                        0.34f * pB->fRadius * pB->fTorso,
-                        0.21f * pB->fRadius * pB->fTorso, 0.10f * pB->fRadius * pB->fTorso,
-                        0.18f * pB->fRadius * pB->fTorso, 0.07f * pB->fRadius * pB->fTorso,
-                        0.06f * pB->fHeight, 0.0f,
-                        -0.05f * pB->fRadius * pB->fTorso, pB->byBody, pB->byTrim, 0);
+      if (pB->iDetail >= MECHA_DETAIL_MID) {
+        tMechaPose skirt;
+
+        /* Just over half the thigh's swing: enough that the plate is never
+         * inside the leg, little enough that it still reads as armour rather
+         * than as a second thigh. */
+        mecha_pose_child(&skirt, pTorso,
+                         fSide * 0.24f * pB->fRadius * pB->fTorso,
+                         -0.02f * pB->fUpperY, 0.0f, 0,
+                         (int)(-0.55f * (float)paiThigh[iSide]), 0);
+        mecha_add_frustum(pList, &skirt, 0.0f, -0.05f * pB->fUpperY,
+                          0.30f * pB->fRadius * pB->fTorso,
+                          0.21f * pB->fRadius * pB->fTorso,
+                          0.10f * pB->fRadius * pB->fTorso,
+                          0.18f * pB->fRadius * pB->fTorso,
+                          0.07f * pB->fRadius * pB->fTorso,
+                          0.06f * pB->fUpperY, 0.0f,
+                          -0.05f * pB->fRadius * pB->fTorso,
+                          pB->byBody, pB->byTrim, 0);
+      }
     }
-  }
 
-  /* And one plate across the back of the waist. */
-  if (pB->iDetail >= MECHA_DETAIL_FULL) {
-    mecha_add_frustum(pList, pTorso, 0.0f, -0.05f * pB->fHeight,
-                      -0.36f * pB->fRadius * pB->fTorso,
-                      0.44f * pB->fRadius * pB->fTorso, 0.11f * pB->fRadius * pB->fTorso,
-                      0.40f * pB->fRadius * pB->fTorso, 0.08f * pB->fRadius * pB->fTorso,
-                      0.05f * pB->fHeight, 0.0f, 0.04f * pB->fRadius * pB->fTorso,
-                      pB->byJoint, pB->byJoint, 0);
+    /* And one plate across the back of the waist. */
+    if (pB->iDetail >= MECHA_DETAIL_FULL) {
+      mecha_add_frustum(pList, pTorso, 0.0f, -0.05f * pB->fUpperY,
+                        -0.32f * pB->fRadius * pB->fTorso,
+                        0.44f * pB->fRadius * pB->fTorso,
+                        0.11f * pB->fRadius * pB->fTorso,
+                        0.40f * pB->fRadius * pB->fTorso,
+                        0.08f * pB->fRadius * pB->fTorso,
+                        0.05f * pB->fUpperY, 0.0f,
+                        0.04f * pB->fRadius * pB->fTorso,
+                        pB->byJoint, pB->byJoint, 0);
+    }
   }
 }
 

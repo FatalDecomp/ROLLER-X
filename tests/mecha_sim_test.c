@@ -5756,6 +5756,79 @@ static int test_a_floating_mine_settles_then_hunts(void)
 
 //-------------------------------------------------------------------------------------------------
 
+/*
+ * Skirt armour is bolted to the waist, not parked beside it. The flare that
+ * makes one machine's hips wider than another's used to scale the whole
+ * plate's offset, which moves its inner edge out along with everything else
+ * -- at a modest flare nobody notices and at a wide one the machine has its
+ * hips hanging in the air either side of it. [MESH-34]
+ */
+static int test_the_skirt_is_attached_to_the_waist(void)
+{
+    static tMechaQuad aStorage[MECHA_QUAD_CAPACITY];
+    tMechaQuadList list;
+    tMechaWorld world;
+    int iDef;
+    int iChecked = 0;
+
+    for (iDef = 0; iDef < mecha_def_count(); iDef++) {
+        const tMechaMechDef *pDef = mecha_def_get(iDef);
+        float fWaistOut = 0.0f;
+        float fSideIn = 1e9f;
+        int iTorso = 0;
+        int i;
+        int v;
+
+        if (pDef->byChassis != MECHA_CHASSIS_BIPED)
+            continue;                   /* only a biped wears one */
+        start_duel(&world, 0, iDef, iDef, 0x5C1Au, 1);
+        world.aMechs[0].iFacing = 0;
+        world.aMechs[0].iLegYaw = 0;
+        world.aMechs[0].byMove = MECHA_MOVE_STAND;
+        world.aMechs[0].fStepPhase = 0.0f;
+        mecha_quads_reset(&list, aStorage, MECHA_QUAD_CAPACITY);
+        mecha_mesh_mech(&list, &world, 0, MECHA_DETAIL_FULL);
+
+        for (i = 0; i < list.iCount; i++) {
+            if (aStorage[i].byPart == MECHA_PART_TORSO)
+                iTorso++;
+            for (v = 0; v < 4; v++) {
+                float fX = aStorage[i].afVert[v][0] - world.aMechs[0].fX;
+                float fOut = fX < 0.0f ? -fX : fX;
+
+                /*
+                 * The waist is the first box the torso builder emits, and it
+                 * is what the skirt hangs off -- not the chest, which is
+                 * wider than either by design.
+                 */
+                if (aStorage[i].byPart == MECHA_PART_TORSO && iTorso <= 6
+                    && fOut > fWaistOut)
+                    fWaistOut = fOut;
+                /*
+                 * And the side plates are the ones out past the centreline;
+                 * the front pair straddle it, so a plain minimum would find
+                 * those instead.
+                 */
+                if (aStorage[i].byPart == MECHA_PART_SKIRT
+                    && fOut > 0.3f * MECHA_METRE && fOut < fSideIn)
+                    fSideIn = fOut;
+            }
+        }
+
+        CHECK(fWaistOut > 0.0f);
+        CHECK(fSideIn < 1e8f);
+        printf("   %-16s waist %.2f m, skirt starts %.2f m\n", pDef->szName,
+               fWaistOut / MECHA_METRE, fSideIn / MECHA_METRE);
+        /* Touching or overlapping. A positive gap is a floating plate. */
+        CHECK(fSideIn <= fWaistOut);
+        iChecked++;
+    }
+    CHECK(iChecked > 0);
+    return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static int test_a_winner_holds_a_pose(void)
 {
     static tMechaQuad aStorage[MECHA_QUAD_CAPACITY];
@@ -7677,6 +7750,8 @@ int main(void)
         { "arena geometry", test_arena_geometry },
         { "roster", test_roster },
         { "the worst scene fits", test_the_worst_scene_fits },
+        { "the skirt is attached to the waist",
+          test_the_skirt_is_attached_to_the_waist },
         { "a winner holds a pose", test_a_winner_holds_a_pose },
         { "a floating mine settles then hunts",
           test_a_floating_mine_settles_then_hunts },
