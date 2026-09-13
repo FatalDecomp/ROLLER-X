@@ -14,6 +14,129 @@ mecha_defs.c, `MODE-` mecha_mode.c, `TEST-` the test sources.
 
 ______________________________________________________________________
 
+## HANDOFF — where the arena stands, for whoever picks it up next
+
+Written at the end of the session that cut 0.2.1. Everything below is state and
+working rules, not reasoning; the reasoning is in the coded notes.
+
+### What this is
+
+An original Virtual-On-style arcade mecha arena fighter built inside ROLLER, the
+C reimplementation of Whiplash / Fatal Racing (1995). It reuses ROLLER's
+software rasteriser, its 14-bit angle math and its physics idioms, and it reads
+the retail game's textures out of FATDATA at runtime. It is not a mode of the
+race game: it is a second game sharing an engine, reached with `--arena` or from
+the main menu.
+
+### How to work on it
+
+These are the standing instructions, in the user's own terms:
+
+- **Never guess.** If a fact is needed and not to hand, stop and ask. Do not
+  invent numbers, APIs or behaviour.
+- **Do it the way ROLLER does it.** Study the engine's own code first and follow
+  it. Where a better approach exists, or the engine cannot do what is being
+  asked, say so and ask before departing from it -- do not quietly improvise.
+- **Do not push work that is not right yet.** A half-finished change on the
+  branch is worse than no change.
+- **Comments stay short.** Source comments are concise, descriptive and for a
+  human reader; anything longer belongs in this file behind an alphanumeric
+  code, with the code cited in the comment.
+- **Be token-efficient.** Measure rather than argue; ask rather than explore
+  blindly.
+
+### The retail data, which is not ours
+
+The user supplies `PALETTE.PAL` and a `FATDATA.zip` for debugging. They are
+retail game data: they live in the session scratchpad, outside the repository,
+and are **never** committed. Only index numbers and this project's own fallback
+colours go in the tree. A new session starts with an empty scratchpad -- ask the
+user to re-supply them if a texture or palette question comes up, rather than
+going looking.
+
+### Repository, branch, release state
+
+- Repo is `FatalDecomp/ROLLER-X`, moved there from `kitaaaaaa/ROLLER`. The old
+  URL 301s, and in a session whose GitHub scope is the old owner the redirect is
+  what makes pushes work: pointing `origin` at the new URL gets a 403 from the
+  git proxy, which will not inject a credential for a repo outside the session's
+  authorized set. `add_repo` refuses cross-owner adds, so a session that needs
+  GitHub API or write access under the new org has to be **started** with
+  `FatalDecomp/ROLLER-X` as its source.
+- Default branch is `master`. Arena work has been on
+  `claude/virtual-on-mecha-game-19to7d`, merged to master for each release.
+- `build.zig.zon` says 0.2.1; `docs/release-notes/0.2.1.md` is written and the
+  Release workflow reads it by version.
+- **Cutting a release cannot be done from a Claude session**: dispatching the
+  workflow returns 403 (not accessible by integration) and pushing a tag is 403
+  too. The user dispatches Actions -> Release -> Run workflow (version, draft
+  off) by hand. Both 0.2.0 and 0.2.1 went out that way.
+
+### Verifying a change
+
+Run all of these before committing anything:
+
+```
+gcc -std=c99 -O1 -I PROJECTS/ROLLER \
+    PROJECTS/ROLLER/mecha_math.c PROJECTS/ROLLER/mecha_arena.c \
+    PROJECTS/ROLLER/mecha_defs.c PROJECTS/ROLLER/mecha_sim.c \
+    PROJECTS/ROLLER/mecha_ai.c PROJECTS/ROLLER/mecha_mesh.c \
+    PROJECTS/ROLLER/carplans.c tests/mecha_sim_test.c -lm -o simtest && ./simtest
+python3 -m unittest discover -s tests -p "test_*.py"
+zig build test-mecha-render
+zig build -Doptimize=ReleaseSafe
+python3 tools/check_roller_core_manifest.py
+mdformat --check docs/
+```
+
+At 0.2.1 that is 82 sim test groups and 300 python tests, all passing.
+
+Notes on the toolchain and the harness:
+
+- **gcc is the test toolchain.** Zig is for the render test and the release
+  build only; when Zig's math got in the way the user's instruction was to keep
+  using gcc.
+- A remote session may have no `zig` on PATH. It can be fetched into the
+  scratchpad (the `ziglang` pip package carries the binary) and run with
+  `--global-cache-dir`/`--cache-dir` pointing there.
+- When grabbing render frames, copy the **newest** `mecha_render_headless_test`
+  (`ls -t`, not a bare `find`) into a scratch directory and run it there with
+  the dump directory as argv[1]. A stale binary has wasted hours.
+- Piping a build into `head` can kill the compiler with SIGPIPE and leave the
+  **old** binary in place, so a measurement then reports the previous behaviour.
+  Do not pipe `gcc` into `head`.
+
+### What is in the game at 0.2.1
+
+Modes: duel, survival (sixteen machines, each its own team), team deathmatch
+(eight a side [MODE-08]) and spectator. Seven arenas, the last being FACING
+WORLDS [ARENA-16..19]. Five machines, one of them wheeled (the ZIZIN, which gets
+its own pilot branch in `mecha_ai_think`). Sound runs through Whiplash's mixer
+[SND-01..03]. Computer pilots get round cover [AI-09], turn a dash mid-burst
+[AI-10], refuse drops [AI-11], get round gaps [AI-12] and follow the arena's
+published ways [AI-13].
+
+### Known and open, at 0.2.1
+
+- **FACING WORLDS endgame.** Two survivors on opposite lanes settle into trading
+  fire at about 200 m instead of crossing at the pinch: 9 of 12 clock-less
+  fights finish inside ten minutes, the rest run out. It is a chase behaviour,
+  not navigation. With the briefing's round clock on, rounds end on armour and
+  it does not show.
+- **Falls.** About 1.2 machines a sixteen-machine fight still go into the hole
+  on FACING WORLDS, nearly all of them the wheeled ZIZIN.
+- **The keeps are open-topped.** A box here is solid from the ground up, so a
+  roof would be a lid with no way under it.
+- **Wall tiles.** The keeps wear `MECHA_TILE_RUST`; BRICK is a floral tile and
+  CONCRETE is a glazed facade, so neither reads as masonry.
+- **Sound is unheard.** Levels, pitches and the pan convention are asserted from
+  the mixer's own code [SND-02] and by tests, but nobody has listened to it.
+- **A spectator sees DEFEAT.** `mecha_phase_banner` asks whether the viewer is
+  allied with the winner, and a free camera is on nobody's side. Pre-existing,
+  never reported as a bug, listed here so it is not rediscovered as one.
+
+______________________________________________________________________
+
 ## AI-01 — the dodge margin does not scale with skill
 
 `MECHA_AI_DODGE_MARGIN` is the same at every skill level, deliberately.
