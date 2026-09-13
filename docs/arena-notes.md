@@ -89,7 +89,7 @@ python3 tools/check_roller_core_manifest.py
 mdformat --check docs/
 ```
 
-At the time of writing that is 86 sim test groups and 300 python tests, all
+At the time of writing that is 86 sim test groups and 305 python tests, all
 passing. `zig` is not on a remote session's PATH and its package fetcher cannot
 reach GitHub through the agent proxy; the way round both is in the toolchain
 notes below.
@@ -2625,3 +2625,31 @@ between them now.
 It is drawn on the torso rather than on the head, because a neck does not turn
 with what it carries -- and this is the one place that distinction shows, the
 head being the only part of a machine that turns on its own [MESH-20].
+
+## MODE-09 — a screen that is drawn and never presented
+
+Selecting VIEW CONTROLS on the briefing softlocked the game, and none of it was
+in the controls page. Its drawing was correct, and the headless render test
+already checked its pixels -- by calling `mecha_render_controls` itself, which
+is precisely the call that was fine.
+
+What the page did not do was open a renderer frame. `game_render_end_frame` is
+what puts the buffer on the screen; the branch drew into `scrbuf` and returned
+without it. So the page was rendered into memory and never shown: the briefing
+stayed up, the mode went on running behind it with its input working, and from
+the player's side the button did nothing, forever.
+
+The fix is one begin/end pair around the whole of `mecha_mode_draw` rather than
+one per branch. Wrapping each branch would have fixed this instance and left the
+next screen free to make the same mistake; wrapping the function means a branch
+cannot be the one that forgets.
+
+The test is a source test, in the same vein as the palette one \[the arena exit
+scene\]: it reads the function, and asserts one frame opened, one closed,
+nothing drawn outside them, no return between them to strand one, and a branch
+for every screen the mode declares. It was checked by putting the bug back, and
+it names the offending call when it fires.
+
+The general lesson is the one worth keeping: a test that calls a drawing
+function directly proves the drawing, and says nothing at all about whether
+anybody asked for it to be shown.

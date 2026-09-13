@@ -1031,6 +1031,13 @@ zig build test-mecha-render -Dmecha-frames=/tmp/frames
   `mecha_mesh.c` or `mecha_render.c`, so retuning against a different palette
   stays a small edit.
 
+- **Every screen is drawn inside one renderer frame.** Ending the frame is what
+  presents the buffer, so a screen drawn outside the pair is drawn into memory
+  and never shown -- which is what the controls page did, and it read as a
+  softlock rather than as a blank page: the briefing stayed up and the mode kept
+  running behind it. `mecha_mode_draw` opens and closes one frame around all of
+  them.
+
 - **Leaving for the race is a tested path.** `--snapshot-scene arena-exit` boots
   into the arena, takes the exit, and draws the main menu, all headless -- which
   is how the crash behind "exit to Whiplash" was finally caught. It is not in
