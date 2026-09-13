@@ -2797,11 +2797,22 @@ at the high end, exactly like a car horn. That is what pitching up a bright
 broadband sample does: `BRP` already peaks between 2.6 and 4.7 kHz, so 1.45x
 puts it at 3.8 to 6.8 kHz and there is nowhere else for it to read as.
 
-The hit warning stays where it was. The dry trigger is a different noise
-entirely now: `BANK`, the barrier impact, a low decaying thud at 1.30x. An empty
-gun is a mechanism working and nothing coming out, which is a clunk rather than
-a beep — and being a different kind of sound rather than a different pitch makes
-it impossible to confuse with the damage buzz in the middle of a fight.
+So the two became a buzz and a clunk rather than one buzz twice: `BRP` at 0.80x,
+and `BANK` — the barrier impact, a low decaying thud — at 1.30x. Being a
+different *kind* of sound rather than a different pitch is what makes them
+impossible to confuse in the middle of a fight.
+
+Which event gets which then changed again on listening: the clunk is taking a
+hit and the buzz is the dry trigger, where it started the other way round. That
+is two reversals on two sounds, so the mapping is now one pair of defines
+(`MECHA_SND_HURT_SFX` / `MECHA_SND_DRY_SFX`) rather than something spelt out at
+the call, and the samples are named for what they sound like rather than for
+what they mean.
+
+**Rate travels with the sample, not with the event.** Each rate was tuned
+against the sample it sits on, and the buzz taken up instead of down is the car
+horn again — so a swap moves the pair. Level stays with the event: being shot
+matters more than a trigger that did nothing.
 
 They are **not** placed and **not** attenuated. Everything else in the arena is
 mixed from where the camera stands [SND-02], but a cockpit warning is not in the

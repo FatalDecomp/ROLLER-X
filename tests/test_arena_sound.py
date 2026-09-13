@@ -72,9 +72,7 @@ class ArenaSoundTests(unittest.TestCase):
         sound = read(SOUND)
         enter = sound[sound.index("void mecha_sound_enter(void)"):]
         loaded = set(re.findall(r"MECHA_SFX_\w+", enter[: enter.index("\n}")]))
-        played = set(re.findall(r"MECHA_SFX_\w+", sound)) - {"MECHA_SFX_WARN"}
-        # WARN is played through mecha_sound_warn, which names it directly.
-        self.assertIn("MECHA_SFX_WARN", loaded)
+        played = set(re.findall(r"MECHA_SFX_\w+", sound))
         self.assertTrue(played <= loaded, sorted(played - loaded))
 
     def test_the_squeal_belongs_to_the_boost_and_not_to_strafing(self):
@@ -110,13 +108,33 @@ class ArenaSoundTests(unittest.TestCase):
     def test_the_two_warnings_are_not_the_same_noise(self):
         """They started as one sample at two pitches, and the high one was a
         car horn -- which is what a bright broadband sample pitched up sounds
-        like. The dry trigger is a different sample now. [SND-05]"""
+        like. One is a buzz and the other a clunk now. [SND-05]"""
         sound = read(SOUND)
-        self.assertIn("MECHA_SFX_WARN", sound)
-        self.assertIn("MECHA_SFX_DRY", sound)
-        hurt = re.search(r"#define MECHA_SFX_WARN\s+(\S+)", sound)[1]
-        dry = re.search(r"#define MECHA_SFX_DRY\s+(\S+)", sound)[1]
+        buzz = re.search(r"#define MECHA_SFX_BUZZ\s+(\S+)", sound)[1]
+        clunk = re.search(r"#define MECHA_SFX_CLUNK\s+(\S+)", sound)[1]
+        self.assertNotEqual(buzz, clunk)
+
+    def test_each_warning_carries_its_own_sample_and_rate(self):
+        """Which event gets which noise has changed twice, so the mapping is
+        one pair of defines rather than something spelt out at the call. A
+        rate belongs to the sample it was tuned against, not to the event:
+        taking the buzz up instead of down is how it became a horn. [SND-05]"""
+        sound = read(SOUND)
+        hurt = re.search(r"#define MECHA_SND_HURT_SFX\s+(\S+)", sound)[1]
+        dry = re.search(r"#define MECHA_SND_DRY_SFX\s+(\S+)", sound)[1]
+        self.assertIn(hurt, ("MECHA_SFX_BUZZ", "MECHA_SFX_CLUNK"))
+        self.assertIn(dry, ("MECHA_SFX_BUZZ", "MECHA_SFX_CLUNK"))
         self.assertNotEqual(hurt, dry)
+        # The buzz is only ever taken down. Up, it is a car horn.
+        rates = {
+            hurt: float(
+                re.search(r"#define MECHA_SND_HURT_RATE\s+([\d.]+)f", sound)[1]
+            ),
+            dry: float(
+                re.search(r"#define MECHA_SND_DRY_RATE\s+([\d.]+)f", sound)[1]
+            ),
+        }
+        self.assertLess(rates["MECHA_SFX_BUZZ"], 1.0)
 
     def test_the_squeal_is_not_taken_above_the_rate_it_was_cut_at(self):
         """It ran to 2.7x at an ordinary dash and 4.6x at the quickest,

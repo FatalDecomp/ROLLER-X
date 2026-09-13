@@ -993,10 +993,10 @@ a mecha. What separates one noise from another is mostly pitch.
   down. A gun's weight sets its pitch, so the same sample is a rifle at one end
   of the roster and a siege gun at the other.
 
-- **Two cockpit warnings.** A low buzz when something lands on you, and a dead
-  mechanical clunk when you pull a trigger on an empty gun. Neither is placed or
-  attenuated -- they are your machine talking to you, not something in the arena
-  -- and only the machine you are flying gets them.
+- **Two cockpit warnings.** A dull clunk when something lands on you, and a low
+  buzz when you pull a trigger on an empty gun. Neither is placed or attenuated
+  -- they are your machine talking to you, not something in the arena -- and
+  only the machine you are flying gets them.
 
 - **Everything else is placed.** Distance, pan and doppler are worked out the
   way the race game works them out for a car, from where the camera stands.

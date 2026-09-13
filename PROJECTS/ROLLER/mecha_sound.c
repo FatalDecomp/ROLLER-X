@@ -39,13 +39,12 @@
 #define MECHA_SFX_LAUNCH  SOUND_SAMPLE_LIGHTLAN /* pods and lobbed charges       */
 #define MECHA_SFX_LAY     SOUND_SAMPLE_BUTTON   /* a mine going down             */
 /*
- * The two cockpit warnings. Being hit is a buzz taken below the rate it was
- * cut at; a trigger pulled on an empty gun is a dead mechanical clunk, not
- * a beep. The same buzz taken up instead was a car horn, which is what it
- * sounds like when a bright broadband sample is pitched up. [SND-05]
+ * The two cockpit warnings are a buzz and a clunk. Which event gets which is
+ * decided further down and has been changed more than once, so the two are
+ * named for what they sound like rather than for what they mean. [SND-05]
  */
-#define MECHA_SFX_WARN    SOUND_SAMPLE_BRP
-#define MECHA_SFX_DRY     SOUND_SAMPLE_BANK
+#define MECHA_SFX_BUZZ    SOUND_SAMPLE_BRP
+#define MECHA_SFX_CLUNK   SOUND_SAMPLE_BANK
 
 /*
  * Inverse-square with a floor, exactly as enginesound() has it: the constant
@@ -112,10 +111,18 @@
 #define MECHA_SND_GUN_HIGH    1.30f
 #define MECHA_SND_GUN_LOW     0.72f
 #define MECHA_SND_GUN_LEVEL   0.72f
-/* And the two warnings. [SND-05] */
-#define MECHA_SND_WARN_HURT   0.80f
-#define MECHA_SND_WARN_DRY    1.30f
-#define MECHA_SND_WARN_LEVEL  0.85f
+/*
+ * And which warning is which. Taking a hit is the clunk and a dry trigger is
+ * the buzz; they were the other way round to start with. Sample and rate
+ * move together -- each is tuned to the sample it sits on, and the buzz
+ * taken up rather than down is a car horn. Level stays with the event: being
+ * shot matters more than a trigger that did nothing. [SND-05]
+ */
+#define MECHA_SND_HURT_SFX    MECHA_SFX_CLUNK
+#define MECHA_SND_HURT_RATE   1.30f
+#define MECHA_SND_HURT_LEVEL  0.85f
+#define MECHA_SND_DRY_SFX     MECHA_SFX_BUZZ
+#define MECHA_SND_DRY_RATE    0.80f
 #define MECHA_SND_DRY_LEVEL   0.80f
 /*
  * Two blasts inside a sixth of a second are not two blasts. pannedsample
@@ -262,7 +269,7 @@ void mecha_sound_enter(void)
     MECHA_SFX_ENGINE, MECHA_SFX_SKID, MECHA_SFX_LAND,
     MECHA_SFX_BLAST, MECHA_SFX_WRECK, MECHA_SFX_HIT,
     MECHA_SFX_SLUG, MECHA_SFX_BOLT, MECHA_SFX_LAUNCH,
-    MECHA_SFX_LAY, MECHA_SFX_WARN, MECHA_SFX_DRY,
+    MECHA_SFX_LAY, MECHA_SFX_BUZZ, MECHA_SFX_CLUNK,
   };
   size_t i;
 
@@ -568,12 +575,12 @@ void mecha_sound_update(const tMechaWorld *pWorld, const tMechaCamera *pCamera,
     if (i == iViewMech) {
       if (pMech->iHitTakenTick != s_aiHitTakenWas[i]
           && pMech->iHitTakenTick >= 0)
-        mecha_sound_warn(MECHA_SFX_WARN, MECHA_SND_WARN_LEVEL,
-                         MECHA_SND_WARN_HURT);
+        mecha_sound_warn(MECHA_SND_HURT_SFX, MECHA_SND_HURT_LEVEL,
+                         MECHA_SND_HURT_RATE);
       if (pMech->iDryFireTick != s_aiDryFireWas[i]
           && pMech->iDryFireTick >= 0)
-        mecha_sound_warn(MECHA_SFX_DRY, MECHA_SND_DRY_LEVEL,
-                         MECHA_SND_WARN_DRY);
+        mecha_sound_warn(MECHA_SND_DRY_SFX, MECHA_SND_DRY_LEVEL,
+                         MECHA_SND_DRY_RATE);
     }
     s_aiHitTakenWas[i] = pMech->iHitTakenTick;
     s_aiDryFireWas[i] = pMech->iDryFireTick;
