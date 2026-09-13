@@ -396,6 +396,10 @@ void loadfile(const char *szFile, void **pBuf, unsigned int *uiSize, int iIsSoun
 void initsounds();
 void stopallsamples();
 void pannedsample(int iSampleIdx, int iHandle, int iPan);
+/* pannedsample with the playback rate moved: iPitch is 0x10000 for the rate
+ * the sample was recorded at, half that an octave down, twice it an octave
+ * up. One shot, not a loop -- loopsample is still the looping one. */
+void pitchedsample(int iSampleIdx, int iVolume, int iPitch, int iPan);
 void speechonly(int iSampleIdx, int iVolume, int iDelay, int iCarIdx);
 void speechsample(int iSampleIdx, int iVolume, int iDelay, int iCarIdx);
 void analysespeechsamples();

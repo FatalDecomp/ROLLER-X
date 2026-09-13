@@ -29,8 +29,11 @@ void mecha_sound_briefing(void);
 void mecha_sound_match(void);
 
 /* One frame's worth: loops retuned, one-shots fired. pCamera is where the
- * listener is. Call it after the tick and before the frame is drawn. */
-void mecha_sound_update(const tMechaWorld *pWorld, const tMechaCamera *pCamera);
+ * listener is; iViewMech is whose cockpit the warnings belong to, or -1 for
+ * a spectator, who gets none. Call it after the tick and before the frame is
+ * drawn. */
+void mecha_sound_update(const tMechaWorld *pWorld, const tMechaCamera *pCamera,
+                        int iViewMech);
 
 //-------------------------------------------------------------------------------------------------
 #endif

@@ -116,6 +116,16 @@ static const uint8 s_aabyFont[][MECHA_GLYPH_H] = {
 #define MECHA_HUD_EMPTY   119
 #define MECHA_HUD_LOCK    171
 #define MECHA_HUD_ENEMY   231
+#define MECHA_HUD_HIT     231
+
+/*
+ * How long HIT stays up after the player lands one, and how fast it blinks
+ * while it does. Long enough to be caught out of the corner of an eye in a
+ * fight, short enough that a steady stream of hits reads as a stream rather
+ * than as one continuous word. [REND-14]
+ */
+#define MECHA_HIT_FLASH_TICKS MECHA_SEC(0.55f)
+#define MECHA_HIT_BLINK_TICKS MECHA_SEC(0.09f)
 
 /* Camera framing, in metres. */
 /* TEMP knob */
@@ -747,14 +757,17 @@ static void mecha_render_scene(GameRenderer *pRenderer,
   }
   mecha_mesh_scenery(&list, &pWorld->arena, pWorld->uiSeed, pCamera->iYaw);
   mecha_mesh_clouds(&list, pWorld);
-  mecha_mesh_projectiles(&list, pWorld, pCamera->iYaw);
-  mecha_mesh_effects(&list, pWorld, pCamera->iYaw);
-  (void)iViewMech;
 
   mecha_camera_basis(pCamera, afRight, afUp, afForward);
   afEye[0] = pCamera->fX;
   afEye[1] = pCamera->fY;
   afEye[2] = pCamera->fZ;
+
+  /* Shots are turned to face the eye rather than the view plane, so they
+   * need it built before they are added. [MESH-48] */
+  mecha_mesh_projectiles(&list, pWorld, pCamera->iYaw, afEye);
+  mecha_mesh_effects(&list, pWorld, pCamera->iYaw);
+  (void)iViewMech;
 
   for (i = 0; i < list.iCount; i++) {
     const tMechaQuad *pQuad = &paScratch[i];
@@ -852,7 +865,7 @@ static void mecha_render_scene(GameRenderer *pRenderer,
        * happened to use it. */
       if (pQuad->byTexBank == MECHA_TEX_EFFECT
           || (pQuad->byTexBank >= MECHA_TEX_EFFECT_WARM
-              && pQuad->byTexBank <= MECHA_TEX_EFFECT_GREEN))
+              && pQuad->byTexBank <= MECHA_TEX_EFFECT_ROSE))
         iSprite |= SURFACE_FLAG_PARTIAL_TRANS;
 
       /*
@@ -1156,6 +1169,25 @@ static void mecha_render_hud(uint8 *pScrBuf, int iWidth, int iHeight,
                       - 12 * iScale,
                     iHeight - 24 * iScale, iScale * 2, MECHA_HUD_TEXT,
                     szBuffer);
+
+  /*
+   * HIT, directly over the clock, for a moment after the player lands one.
+   * The simulation leaves the tick behind rather than a flag, so this needs
+   * no state of its own and a paused or rewound frame draws the same thing
+   * twice. [REND-14]
+   */
+  if (pMech->iHitDealtTick >= 0) {
+    int iAge = pWorld->iTick - pMech->iHitDealtTick;
+
+    if (iAge >= 0 && iAge < MECHA_HIT_FLASH_TICKS
+        && ((iAge / MECHA_HIT_BLINK_TICKS) & 1) == 0) {
+      mecha_render_text(pScrBuf, iWidth, iHeight,
+                        iWidth - mecha_render_text_width(iScale * 2, "HIT")
+                          - 12 * iScale,
+                        iHeight - 38 * iScale, iScale * 2, MECHA_HUD_HIT,
+                        "HIT");
+    }
+  }
 
   snprintf(szBuffer, sizeof(szBuffer), "ROUND %d", pWorld->match.iRound);
   mecha_render_text(pScrBuf, iWidth, iHeight,
@@ -1530,9 +1562,9 @@ static const struct
   float fG;
   float fB;
 } s_aTintHue[3] = {
-  { 1.00f, 0.62f, 0.20f },   /* warm: orange, amber, sand */
-  { 0.72f, 0.42f, 1.00f },   /* violet                    */
-  { 0.42f, 1.00f, 0.46f },   /* green                     */
+  { 1.00f, 0.62f, 0.20f },   /* warm: orange, yellow, red */
+  { 1.00f, 0.24f, 1.00f },   /* magenta                   */
+  { 1.00f, 0.26f, 0.58f },   /* rose                      */
 };
 
 static tMechaTexBank s_aBanks[MECHA_TEX_BANK_COUNT] = {
@@ -1695,7 +1727,7 @@ static bool mecha_bank_ensure(GameRenderer *pRenderer, int iBank)
    * bank rather than read off disk, so they take a different path in. A
    * range check that said "everything above the effect banks" quietly
    * swallowed the car's skin the moment one was added after them. */
-  if (iBank >= MECHA_TEX_EFFECT_WARM && iBank <= MECHA_TEX_EFFECT_GREEN) {
+  if (iBank >= MECHA_TEX_EFFECT_WARM && iBank <= MECHA_TEX_EFFECT_ROSE) {
     if (pBank->bTried)
       return false;
     pBank->bTried = true;
@@ -1971,55 +2003,58 @@ static const struct
   uint8 byG;
   uint8 byB;
 } s_aArenaPalette[] = {
-  {  11,  8, 10, 26 },   /* sky                                         */
+  {  11, 15, 20, 10 },   /* sky                                          */
   { 145,  2, 19, 63 },   /* DrawHorizon's sky, the one index it hardcodes */
-  {  18, 45, 39, 30 },   /* iron trim                                   */
-  {  35, 44, 20, 60 },   /* violet tracer                               */
-  {  67, 58, 52, 30 },   /* sand tracer                                 */
-  { 105, 22, 22, 25 },   /* mech joints                                 */
-  { 115,  5,  5,  7 },   /* HUD frame, the darkest tone used            */
-  { 119, 13, 13, 17 },   /* dark hull, empty HUD socket                 */
-  { 120, 15, 15, 17 },   /* arena wall                                  */
-  { 123, 20, 20, 22 },   /* floor tile A                                */
-  { 124, 29, 25, 20 },   /* arena block                                 */
-  { 125, 31, 26, 21 },   /* iron hull                                   */
-  { 126, 27, 27, 29 },   /* floor tile B                                */
-  { 127, 30, 30, 35 },   /* dark trim                                   */
-  { 128, 30, 32, 37 },   /* steel hull                                  */
-  { 129, 33, 33, 35 },   /* floor grid tile                             */
-  { 130, 41, 37, 30 },   /* block top                                   */
-  { 136, 45, 47, 51 },   /* steel trim                                  */
-  { 137, 47, 49, 53 },   /* pale hull                                   */
-  { 141, 58, 58, 61 },   /* pale trim                                   */
-  { 143, 63, 63, 63 },   /* white tracer, HUD text                      */
-  { 148, 16, 60, 24 },   /* green tracer, armour bar                    */
-  { 183, 63, 40,  8 },   /* orange tracer, lock reticle                 */
-  { 193, 60, 45, 10 },   /* hazard trim                                 */
-  { 194, 63, 52, 10 },   /* amber tracer, ammo pips                     */
-  { 218, 16, 52, 63 },   /* cyan tracer, boost gauge                    */
-  { 231, 63, 12, 12 },   /* red tracer, low armour, enemy bar           */
-  { 255, 10, 60, 14 },   /* green tracer, armour bar                    */
-  { 206, 60, 56, 12 },   /* amber tracer, ammo pips                     */
-  { 192, 46, 10, 58 },   /* violet tracer                               */
-  {  34, 55, 48, 30 },   /* sand tracer                                 */
-  {  57, 40, 29, 21 },   /* bark, off the retail palette's brown ramp    */
-  { 246,  0, 20,  0 },   /* meadow grass, the darker check              */
-  { 249,  0, 34,  0 },   /* meadow grass, the lighter check             */
-  { 252,  0, 48,  0 },   /* canopy                                      */
+  {  18, 46, 39, 34 },   /* iron trim                                    */
+  {  57, 40, 29, 21 },   /* bark                                         */
+  { 105, 21, 21, 27 },   /* mech joints                                  */
+  { 115,  5,  5,  5 },   /* HUD frame, the darkest tone used             */
+  { 118, 11, 11, 11 },   /* everything below the horizon band            */
+  { 119, 13, 13, 13 },   /* dark hull, empty HUD socket                  */
+  { 120, 15, 15, 15 },   /* arena wall                                   */
+  { 123, 21, 21, 21 },   /* floor tile A                                 */
+  { 124, 24, 24, 24 },   /* arena block                                  */
+  { 125, 26, 26, 26 },   /* iron hull, rock                              */
+  { 126, 28, 28, 28 },   /* floor tile B                                 */
+  { 127, 30, 30, 30 },   /* dark trim                                    */
+  { 128, 32, 32, 32 },   /* steel hull                                   */
+  { 129, 34, 34, 34 },   /* floor grid tile                              */
+  { 130, 36, 36, 36 },   /* block top, rock top                          */
+  { 136, 48, 48, 48 },   /* steel trim                                   */
+  { 137, 50, 50, 50 },   /* pale hull                                    */
+  { 141, 59, 59, 59 },   /* pale trim                                    */
+  { 166, 37, 18,  0 },   /* hazard paint                                 */
+  { 246,  0, 20,  0 },   /* meadow grass, the darker check               */
+  { 249,  0, 34,  0 },   /* meadow grass, the lighter check              */
+  { 252,  0, 48,  0 },   /* canopy                                       */
 
-  /* The sky, deepest first. The bands climb in brightness through the
-   * retail palette as well as this one. 231 is deliberately skipped: it is
-   * the low-armour warning. [REND-12] */
-  { 221, 15,  3, 10 },   /* zenith                                      */
-  { 224, 27,  4,  9 },
-  { 227, 39,  6,  8 },
-  { 230, 51,  9,  6 },
-  { 167, 57, 20,  5 },
-  { 170, 61, 30,  6 },
-  { 171, 63, 38,  8 },
-  { 204, 63, 48, 12 },
-  { 207, 63, 58, 22 },   /* the band sitting on the horizon             */
-  { 118,  9,  8, 10 },   /* everything below it                         */
+  /* Weapon fire: the top of one pure-hue ramp each, and no hue the arena
+   * itself is painted in. [DEF-12] */
+  { 143, 63, 63, 63 },   /* white bolt, HUD text                         */
+  { 148, 11, 29, 63 },   /* blue bolt                                    */
+  { 171, 63, 31,  0 },   /* orange bolt, lock reticle                    */
+  { 183, 63,  0, 28 },   /* rose bolt                                    */
+  { 195, 63,  0, 63 },   /* magenta bolt                                 */
+  { 207, 63, 63,  0 },   /* yellow bolt, the band on the horizon         */
+  { 219,  0, 63, 63 },   /* cyan bolt                                    */
+  { 231, 63,  0,  0 },   /* red bolt, low armour, enemy bar              */
+
+  /* The rest of the HUD, one step down the ramps the fire tops out. */
+  { 206, 58, 58,  0 },   /* ammo pips                                    */
+  { 218,  0, 58, 58 },   /* boost gauge                                  */
+  { 255,  0, 63,  0 },   /* armour bar                                   */
+
+  /* The sky, deepest first, which is also the ramp cooling debris walks
+   * down. It climbs the red ramp and then the orange one; 231 tops the red
+   * ramp and is left out of the sky because it is the low-armour warning
+   * and must not appear overhead. [REND-12] */
+  { 221, 15,  0,  0 },   /* zenith                                       */
+  { 224, 30,  0,  0 },
+  { 227, 44,  0,  0 },
+  { 230, 58,  0,  0 },
+  { 167, 42, 21,  0 },
+  { 170, 58, 28,  0 },
+  { 204, 48, 48,  0 },   /* the band sitting on the horizon              */
 };
 
 #define MECHA_PALETTE_COUNT \

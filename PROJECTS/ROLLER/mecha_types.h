@@ -539,6 +539,20 @@ typedef struct
    * the hit, so a whole volley still counts. [SIM-04] */
   int   iDownTick;
 
+  /*
+   * When each of the things worth hearing or announcing last happened, as
+   * ticks. The simulation writes them and never reads them back; sound and
+   * the HUD are the only things that care. Ticks rather than flags because
+   * a frame can run several ticks and a flag set inside one would be gone
+   * before anything looked, and ticks rather than counters because what the
+   * HUD wants is "how long ago", which a counter cannot answer. -1 is never,
+   * and the match's own tick starts at zero. [TYPE-09]
+   */
+  int   iFireTick;      /* a shot left a barrel */
+  int   iDryFireTick;   /* a trigger was pulled on an empty or reloading slot */
+  int   iHitTakenTick;  /* something landed on this machine */
+  int   iHitDealtTick;  /* this machine landed something on somebody else */
+
   /* Noise for the damage particles. Private, because nothing cosmetic may
    * reach into the sequence a fight is decided from. [SIM-02] */
   tMechaRng spray;

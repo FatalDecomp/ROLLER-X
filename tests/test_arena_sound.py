@@ -32,7 +32,7 @@ class ArenaSoundTests(unittest.TestCase):
             "mecha_sound_exit();",
             "mecha_sound_briefing();",
             "mecha_sound_match();",
-            "mecha_sound_update(&s_World, &s_Camera);",
+            "mecha_sound_update(&s_World, &s_Camera, s_iPlayerIdx);",
         ):
             self.assertIn(call, mode, call)
 
@@ -40,7 +40,7 @@ class ArenaSoundTests(unittest.TestCase):
         """A frame's sound has to be mixed from where that frame is drawn."""
         mode = read(MODE)
         camera = mode.index("mecha_mode_free_camera_update();")
-        listener = mode.index("mecha_sound_update(&s_World, &s_Camera);")
+        listener = mode.index("mecha_sound_update(&s_World, &s_Camera,")
         self.assertLess(camera, listener)
 
     def test_the_simulation_still_knows_nothing_about_sound(self):
@@ -58,8 +58,71 @@ class ArenaSoundTests(unittest.TestCase):
             "SOUND_SAMPLE_EXPLO",
             "SOUND_SAMPLE_BIGCRASH",
             "SOUND_SAMPLE_FENDER",
+            "SOUND_SAMPLE_GRSHIFT",
+            "SOUND_SAMPLE_BLOP",
+            "SOUND_SAMPLE_LIGHTLAN",
+            "SOUND_SAMPLE_BUTTON",
+            "SOUND_SAMPLE_BRP",
         ):
             self.assertIn(sample, sound, sample)
+
+    def test_every_sample_it_plays_is_one_it_asked_to_be_loaded(self):
+        """A sample nobody loaded is silence, and silence is not a crash --
+        so nothing would ever report it. [SND-04]"""
+        sound = read(SOUND)
+        enter = sound[sound.index("void mecha_sound_enter(void)"):]
+        loaded = set(re.findall(r"MECHA_SFX_\w+", enter[: enter.index("\n}")]))
+        played = set(re.findall(r"MECHA_SFX_\w+", sound)) - {"MECHA_SFX_WARN"}
+        # WARN is played through mecha_sound_warn, which names it directly.
+        self.assertIn("MECHA_SFX_WARN", loaded)
+        self.assertTrue(played <= loaded, sorted(played - loaded))
+
+    def test_the_squeal_belongs_to_the_boost_and_not_to_strafing(self):
+        """A mecha strafes for a living: keying the skid loop off the angle
+        between facing and travel made walking sideways squeal. [SND-06]"""
+        sound = read(SOUND)
+        self.assertNotIn("MECHA_SND_SLIP_ANGLE", sound)
+        skid = sound[sound.index("fLevel = 0.0f;\n  if (pMech->byMove"):]
+        skid = skid[: skid.index("loopsample(iMechIdx, MECHA_SFX_SKID")]
+        self.assertIn("MECHA_MOVE_DASH", skid)
+        self.assertIn("mecha_mech_is_airborne", skid)
+
+    def test_only_a_machine_with_legs_is_modulated_by_its_gait(self):
+        """Wheels and tracks roll; their noise follows road speed and did
+        already. [SND-07]"""
+        sound = read(SOUND)
+        self.assertIn("MECHA_CHASSIS_BIPED", sound)
+        self.assertIn("MECHA_CHASSIS_ARACHNID", sound)
+        self.assertNotIn("MECHA_CHASSIS_CAR", sound)
+        self.assertNotIn("MECHA_CHASSIS_TREAD", sound)
+        self.assertIn("fStepPhase", sound)
+
+    def test_the_cockpit_warnings_are_the_view_machine_only(self):
+        """They are the player's own machine talking to the player, so they
+        are neither placed nor attenuated -- and nobody else's. [SND-05]"""
+        sound = read(SOUND)
+        self.assertIn("if (i == iViewMech) {", sound)
+        warn = sound[sound.index("if (i == iViewMech) {"):]
+        warn = warn[: warn.index("\n    }")]
+        self.assertIn("iHitTakenTick", warn)
+        self.assertIn("iDryFireTick", warn)
+
+    def test_the_two_warnings_are_the_same_sample_at_two_pitches(self):
+        sound = read(SOUND)
+        self.assertIn("MECHA_SND_WARN_HURT", sound)
+        self.assertIn("MECHA_SND_WARN_DRY", sound)
+        hurt = float(re.search(r"MECHA_SND_WARN_HURT\s+([\d.]+)f", sound)[1])
+        dry = float(re.search(r"MECHA_SND_WARN_DRY\s+([\d.]+)f", sound)[1])
+        self.assertLess(hurt, 1.0)
+        self.assertGreater(dry, 1.0)
+
+    def test_the_events_it_reads_are_ticks_the_sim_leaves_behind(self):
+        """A frame can run several ticks, so a flag set inside one would be
+        gone before the sound layer looked. [TYPE-09]"""
+        sim = read(SIM)
+        for field in ("iFireTick", "iDryFireTick", "iHitTakenTick",
+                      "iHitDealtTick"):
+            self.assertRegex(sim, r"->%s = " % field, field)
 
     def test_pan_runs_left_to_right(self):
         """DIGISetPanLocation reads iPan / 0x8000 - 1, so zero is hard left.

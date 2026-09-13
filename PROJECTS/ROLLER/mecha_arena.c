@@ -18,7 +18,10 @@
 #define MECHA_PAL_SKY       11
 #define MECHA_PAL_BLOCK     124
 #define MECHA_PAL_BLOCK_TOP 130
-#define MECHA_PAL_HAZARD    193
+/* Dark amber rather than the magenta ramp it used to sit on: hazard paint
+ * is a static stripe and must not compete with weapon fire, which owns the
+ * bright end of every hue the terrain does not use. [DEF-12] */
+#define MECHA_PAL_HAZARD    166
 /* The green arena, off the palette's own green and brown ramps rather than
  * borrowed tracer colours. [ARENA-01] */
 #define MECHA_PAL_GRASS_A   249

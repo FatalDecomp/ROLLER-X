@@ -480,9 +480,15 @@ void mecha_sim_damage(tMechaWorld *pWorld, int iVictimIdx, int iAttackerIdx,
   fMass = pDef->fMass > 0.1f ? pDef->fMass : 0.1f;
 
   pVictim->fArmour -= fDamage;
+  pVictim->iHitTakenTick = pWorld->iTick;
   if (iAttackerIdx >= 0 && iAttackerIdx < MECHA_MAX_MECHS
-      && pWorld->aMechs[iAttackerIdx].bActive)
+      && pWorld->aMechs[iAttackerIdx].bActive) {
     pWorld->aMechs[iAttackerIdx].fDamageDealt += fDamage;
+    /* Only against somebody else: a machine standing in its own blast is
+     * not scoring a hit, and the HUD must not congratulate it. [TYPE-09] */
+    if (iAttackerIdx != iVictimIdx)
+      pWorld->aMechs[iAttackerIdx].iHitDealtTick = pWorld->iTick;
+  }
 
   /* Knockback and stagger both scale against mass, so the same shot shoves a
    * light interceptor and barely rocks a siege platform. */
@@ -2168,6 +2174,7 @@ static void mecha_fire_weapon(tMechaWorld *pWorld, int iMechIdx, int iSlot)
   pMech->iRecovery = pWeapon->iRecoveryTicks;
   pMech->iLastFiredSlot = iSlot;
   pMech->iLastFiredStance = (int)eStance;
+  pMech->iFireTick = pWorld->iTick;
 
   /* Muzzle: out along the shoulder the weapon hangs from, and forward far
    * enough that the shot clears the mech's own hull. */
@@ -2408,8 +2415,19 @@ static void mecha_update_weapons(tMechaWorld *pWorld, int iMechIdx,
 
   for (iSlot = 0; iSlot < MECHA_WEAPON_SLOTS; iSlot++) {
     if (bCanAct && abFire[iSlot] && pMech->iRecovery <= 0
-        && pMech->aiAmmo[iSlot] > 0 && pMech->aiReload[iSlot] <= 0)
+        && pMech->aiAmmo[iSlot] > 0 && pMech->aiReload[iSlot] <= 0) {
       mecha_fire_weapon(pWorld, iMechIdx, iSlot);
+    } else if (bCanAct && abFire[iSlot]
+               && mecha_mech_weapon(pWorld, iMechIdx, iSlot) != NULL
+               && (pMech->aiAmmo[iSlot] <= 0 || pMech->aiReload[iSlot] > 0)) {
+      /*
+       * A trigger pulled on a gun with nothing in it. Recovery is not this:
+       * a machine still working the last shot has ammunition and will fire
+       * in a moment, and warning about that would cry wolf on every burst.
+       * [TYPE-09]
+       */
+      pMech->iDryFireTick = pWorld->iTick;
+    }
     pMech->abFireHeld[iSlot] = abWanted[iSlot];
   }
 }
@@ -3172,6 +3190,11 @@ static void mecha_reset_mech_for_round(tMechaWorld *pWorld, int iMechIdx,
   pMech->iRecovery = 0;
   /* No tick is tick -1, so nothing is inside its knockdown grace. */
   pMech->iDownTick = -1;
+  /* And nothing has fired, missed a trigger, or been hit yet. [TYPE-09] */
+  pMech->iFireTick = -1;
+  pMech->iDryFireTick = -1;
+  pMech->iHitTakenTick = -1;
+  pMech->iHitDealtTick = -1;
   pMech->iLungeTicks = 0;
   pMech->fLungeSpeed = 0.0f;
   pMech->iLastFiredSlot = -1;

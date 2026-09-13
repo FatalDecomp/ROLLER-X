@@ -19,6 +19,14 @@
 #include <stdio.h>
 #include <string.h>
 
+/*
+ * Where the eye stands for the quad-building tests. Well back and a little
+ * up, the way the chase camera sits, so shots are drawn at a real distance
+ * rather than on top of the viewer. Only the mesh needs it; the simulation
+ * has no camera.
+ */
+static const float s_afTestEye[3] = { 0.0f, MECHA_M(14.0f), MECHA_M(-40.0f) };
+
 static int check(int bCondition, int iLine)
 {
     if (!bCondition)
@@ -4275,7 +4283,7 @@ static int test_a_full_arena_fights_itself_out(void)
             for (i = 0; i < MECHA_MAX_MECHS; i++)
                 if (mecha_mech_alive(&world.aMechs[i]))
                     mecha_mesh_mech(&list, &world, i, MECHA_DETAIL_FULL);
-            mecha_mesh_projectiles(&list, &world, 0);
+            mecha_mesh_projectiles(&list, &world, 0, s_afTestEye);
             mecha_mesh_effects(&list, &world, 0);
             if (list.iCount > iPeak)
                 iPeak = list.iCount;
@@ -5160,7 +5168,7 @@ static int test_close_quarters_swings_a_blade(void)
 
     /* Only the swing: mesh the projectiles alone, and there is one. */
     mecha_quads_reset(&list, aStorage, MECHA_QUAD_CAPACITY);
-    mecha_mesh_projectiles(&list, &world, 0);
+    mecha_mesh_projectiles(&list, &world, 0, s_afTestEye);
     CHECK(list.iCount > 0);
 
     for (i = 0; i < list.iCount; i++)
@@ -6065,7 +6073,7 @@ static int test_the_worst_scene_fits(void)
                 iFull++;
             mecha_mesh_mech(&list, &world, i, iTier);
         }
-        mecha_mesh_projectiles(&list, &world, 0);
+        mecha_mesh_projectiles(&list, &world, 0, s_afTestEye);
         mecha_mesh_effects(&list, &world, 0);
         iDropped += list.iDropped;
         if (list.iCount > iPeak)
@@ -6671,7 +6679,7 @@ static int test_shots_carry_plasma_frames(void)
 
         mecha_quads_reset(&list, aStorage, MECHA_QUAD_CAPACITY);
         mecha_mesh_set_sprites(true);
-        mecha_mesh_projectiles(&list, &world, 0);
+        mecha_mesh_projectiles(&list, &world, 0, s_afTestEye);
         if (i == 2) {
             /* Same tick, bank absent: still geometry, and none of it
              * claiming a frame the renderer would have to reject. */
@@ -6680,7 +6688,7 @@ static int test_shots_carry_plasma_frames(void)
             iSpriteQuads = list.iCount;
             mecha_quads_reset(&list, aStorage, MECHA_QUAD_CAPACITY);
             mecha_mesh_set_sprites(false);
-            mecha_mesh_projectiles(&list, &world, 0);
+            mecha_mesh_projectiles(&list, &world, 0, s_afTestEye);
             iFlatQuads = list.iCount;
             for (int iQuad = 0; iQuad < list.iCount; iQuad++)
                 if (list.paQuads[iQuad].byTexBank == MECHA_TEX_EFFECT)
@@ -6689,7 +6697,7 @@ static int test_shots_carry_plasma_frames(void)
             CHECK(iTextured < iSpriteQuads);
             mecha_quads_reset(&list, aStorage, MECHA_QUAD_CAPACITY);
             mecha_mesh_set_sprites(true);
-            mecha_mesh_projectiles(&list, &world, 0);
+            mecha_mesh_projectiles(&list, &world, 0, s_afTestEye);
         }
         for (int iQuad = 0; iQuad < list.iCount; iQuad++) {
             const tMechaQuad *pQuad = &list.paQuads[iQuad];
@@ -7808,7 +7816,8 @@ static int test_mesh_survives_a_match(void)
         mecha_mesh_shadows(&list, &world);
         for (iMech = 0; iMech < MECHA_MAX_MECHS; iMech++)
             mecha_mesh_mech(&list, &world, iMech, MECHA_DETAIL_FULL);
-        mecha_mesh_projectiles(&list, &world, world.aMechs[0].iFacing);
+        mecha_mesh_projectiles(&list, &world, world.aMechs[0].iFacing,
+                               s_afTestEye);
         mecha_mesh_effects(&list, &world, world.aMechs[0].iFacing);
 
         CHECK(list.iCount <= list.iCapacity);
@@ -7821,6 +7830,163 @@ static int test_mesh_survives_a_match(void)
             if (aStorage[iMech].byFlags & MECHA_QUAD_SHADOW)
                 CHECK(aStorage[iMech].byPalette <= 15);
         }
+    }
+    return 0;
+}
+
+/*
+ * What the presentation layers read. None of this is behaviour a player can
+ * see on its own: it is the record the sound layer and the HUD work from,
+ * and the whole point of it is that a frame running several ticks still
+ * catches everything that happened inside them. [TYPE-09]
+ */
+static int test_the_sim_leaves_a_record_of_what_was_heard(void)
+{
+    tMechaWorld world;
+    tMechaInput aInputs[MECHA_MAX_MECHS];
+    tMechaMech *pMech;
+    int iFiredAt;
+    int iDryAt;
+    int i;
+
+    start_duel(&world, 0, 0, 0, 0x4E1Du, 1);
+    pMech = &world.aMechs[0];
+
+    /* Nothing has happened yet, and tick zero is a tick a match can fire
+     * on -- so "never" cannot be zero. */
+    CHECK(pMech->iFireTick < 0);
+    CHECK(pMech->iDryFireTick < 0);
+    CHECK(pMech->iHitTakenTick < 0);
+    CHECK(pMech->iHitDealtTick < 0);
+
+    /*
+     * One outer trigger waits a few ticks to see whether its partner is
+     * coming, because both together are the centre weapon [SIM-23], so a
+     * shot is not out on the tick the button goes down.
+     */
+    memset(aInputs, 0, sizeof(aInputs));
+    aInputs[0].bFireLeft = true;
+    run_ticks(&world, aInputs, MECHA_MAX_MECHS, MECHA_FIRE_PAIR_TICKS + 2);
+    CHECK(pMech->iFireTick >= 0);
+    CHECK(pMech->iFireTick < world.iTick);
+    iFiredAt = pMech->iFireTick;
+
+    /*
+     * Straight back on the trigger. The gun is still recovering and has
+     * rounds left, which is not the same thing as being empty: warning
+     * about it would cry wolf on every burst.
+     */
+    aInputs[0].bFireLeft = false;
+    mecha_sim_tick(&world, aInputs, MECHA_MAX_MECHS);
+    aInputs[0].bFireLeft = true;
+    run_ticks(&world, aInputs, MECHA_MAX_MECHS, MECHA_FIRE_PAIR_TICKS + 1);
+    CHECK(pMech->iDryFireTick < 0);
+
+    /* Empty it, then pull again. */
+    for (i = 0; i < MECHA_TICK_HZ * 6; i++) {
+        aInputs[0].bFireLeft = (i & 1) != 0;
+        mecha_sim_tick(&world, aInputs, MECHA_MAX_MECHS);
+        if (pMech->aiAmmo[MECHA_SLOT_LEFT] == 0 && pMech->aiReload[MECHA_SLOT_LEFT] > 0)
+            break;
+    }
+    CHECK(pMech->aiAmmo[MECHA_SLOT_LEFT] == 0);
+    CHECK(pMech->iFireTick > iFiredAt);
+
+    iDryAt = pMech->iDryFireTick;
+    aInputs[0].bFireLeft = false;
+    mecha_sim_tick(&world, aInputs, MECHA_MAX_MECHS);
+    aInputs[0].bFireLeft = true;
+    mecha_sim_tick(&world, aInputs, MECHA_MAX_MECHS);
+    CHECK(pMech->iDryFireTick > iDryAt);
+    printf("   dry trigger recorded at tick %d, last shot at %d\n",
+           pMech->iDryFireTick, pMech->iFireTick);
+
+    /* A hit is recorded on both sides of it, and a machine standing in its
+     * own blast is not congratulated for it. */
+    memset(aInputs, 0, sizeof(aInputs));
+    mecha_sim_damage(&world, 1, 0, 20.0f, 0.0f, 0.0f, 0.0f);
+    CHECK(world.aMechs[1].iHitTakenTick == world.iTick);
+    CHECK(world.aMechs[0].iHitDealtTick == world.iTick);
+
+    world.aMechs[0].iHitDealtTick = -1;
+    mecha_sim_damage(&world, 0, 0, 5.0f, 0.0f, 0.0f, 0.0f);
+    CHECK(world.aMechs[0].iHitTakenTick == world.iTick);
+    CHECK(world.aMechs[0].iHitDealtTick < 0);
+    return 0;
+}
+
+/*
+ * A round has to stay visible all the way out to the far end of the arena.
+ * Its own size puts it under a pixel across well inside the range these
+ * fights are held at, so the drawn size is held to a floor. [MESH-48]
+ */
+static int test_a_distant_shot_is_still_worth_a_pixel(void)
+{
+    static tMechaQuad aStorage[MECHA_QUAD_CAPACITY];
+    tMechaQuadList list;
+    tMechaWorld world;
+    /* The projection puts a world half-extent h at distance d on screen at
+     * h * 200 / d pixels in the 320-wide frame the rasteriser works in. */
+    const float fViewDist = 200.0f;
+    float afEye[3];
+    float afRange[3] = { MECHA_M(20.0f), MECHA_M(90.0f), MECHA_M(200.0f) };
+    int iRange;
+
+    for (iRange = 0; iRange < 3; iRange++) {
+        tMechaProjectile *pShot;
+        float fWidest = 0.0f;
+        float fPixels;
+        int i;
+        int v;
+
+        mecha_sim_init(&world, 0, 0x1234u, 1);
+        mecha_sim_add_mech(&world, 0, MECHA_CONTROL_HUMAN, 0);
+        mecha_sim_begin_match(&world);
+
+        afEye[0] = 0.0f;
+        afEye[1] = MECHA_M(14.0f);
+        afEye[2] = 0.0f;
+
+        /* One bullet, the smallest the roster fires, straight out in front
+         * of the eye at the range under test. */
+        pShot = &world.aProjectiles[0];
+        memset(pShot, 0, sizeof(*pShot));
+        pShot->bActive = true;
+        pShot->byKind = MECHA_PROJ_BULLET;
+        pShot->fRadius = MECHA_M(0.8f);
+        pShot->fX = 0.0f;
+        pShot->fY = afEye[1];
+        pShot->fZ = afRange[iRange];
+        pShot->fPrevX = pShot->fX;
+        pShot->fPrevY = pShot->fY;
+        pShot->fPrevZ = pShot->fZ - MECHA_M(2.0f);
+        pShot->byPalette = 143;
+
+        mecha_quads_reset(&list, aStorage, MECHA_QUAD_CAPACITY);
+        mecha_mesh_projectiles(&list, &world, 0, afEye);
+        CHECK(list.iCount > 0);
+
+        /* Across the view, which for a shot dead ahead is the x axis. */
+        for (i = 0; i < list.iCount; i++) {
+            float fMin = aStorage[i].afVert[0][0];
+            float fMax = fMin;
+
+            for (v = 1; v < 4; v++) {
+                if (aStorage[i].afVert[v][0] < fMin)
+                    fMin = aStorage[i].afVert[v][0];
+                if (aStorage[i].afVert[v][0] > fMax)
+                    fMax = aStorage[i].afVert[v][0];
+            }
+            if (fMax - fMin > fWidest)
+                fWidest = fMax - fMin;
+        }
+
+        fPixels = fWidest * fViewDist / afRange[iRange];
+        printf("   a 0.8 m round at %3.0f m draws %.1f px across\n",
+               afRange[iRange] / MECHA_METRE, fPixels);
+        /* Two pixels is the least a moving dot can be and still be
+         * followed by eye. */
+        CHECK(fPixels >= 2.0f);
     }
     return 0;
 }
@@ -7839,6 +8005,10 @@ int main(void)
         { "the worst scene fits", test_the_worst_scene_fits },
         { "a stance stands on two even legs",
           test_a_stance_stands_on_two_even_legs },
+        { "the sim leaves a record of what was heard",
+          test_the_sim_leaves_a_record_of_what_was_heard },
+        { "a distant shot is still worth a pixel",
+          test_a_distant_shot_is_still_worth_a_pixel },
         { "the skirt is attached to the waist",
           test_the_skirt_is_attached_to_the_waist },
         { "a winner holds a pose", test_a_winner_holds_a_pose },

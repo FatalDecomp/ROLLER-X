@@ -128,6 +128,11 @@ on the stick, and pick what to spend the next round on.
   runs until the burst or the gauge does. You can fire the whole way through
   without cutting it short, and the lock is live for all of it.
 
+- **HIT tells you a shot connected.** It flashes red over the round clock for
+  about half a second. At range, with the opponent's condition drawn as a bar
+  rather than a number, a shot that lands and a shot that misses otherwise look
+  identical.
+
 - **Every trigger is four attacks.** Each of the three weapons has a separate
   definition for standing, crouching, dashing and airborne, so the same button
   is a different attack depending on how you are moving. That is the central
@@ -822,7 +827,10 @@ on the stick, and pick what to spend the next round on.
   panelled boxes the blocks are, so they collide, occlude and texture the way
   cover does. The grass, the canopy and the bark take their palette indices off
   the retail palette's own green and brown ramps rather than borrowing tracer
-  colours: a field checkered green against grey read as a chess board.
+  colours: a field checkered green against grey read as a chess board. Weapon
+  fire then stays off those ramps entirely -- it is painted in six neon hues the
+  arena is never painted in, because a green bolt over a green field cannot be
+  seen at any brightness.
 
 - **Cover is panelled too.** Same reason as the walls, same tile size: a block
   twenty metres across wore one tile stretched over the whole face. Its sides
@@ -960,6 +968,34 @@ on the stick, and pick what to spend the next round on.
   is already sub-pixel by the time it does. Sixteen machines built in full on
   the largest arena do not fit in one quad buffer; tiering them is what makes
   the detail affordable at all.
+
+## What it sounds like
+
+Everything comes out of Whiplash's own mixer and its own samples -- there is no
+new audio data, and there is nothing in the retail set that was ever meant to be
+a mecha. What separates one noise from another is mostly pitch.
+
+- **The engine loop is per machine, and a walker's follows its stride.** A
+  machine with legs swings its loop's level and pitch either side of where road
+  speed alone would put them, once per footfall, deeper the faster it walks and
+  flat while it stands. Wheels and tracks roll instead: their noise follows road
+  speed and nothing else.
+
+- **A ground boost squeals.** Thrusters lit with the feet still down, in any
+  direction. Strafing does not, and used to.
+
+- **Every weapon has a voice.** A gear change is a breech clack, a water blip is
+  an energy bolt, a light landing is a launch tube, a menu click is a mine going
+  down. A gun's weight sets its pitch, so the same sample is a rifle at one end
+  of the roster and a siege gun at the other.
+
+- **Two cockpit warnings.** A low buzz when something lands on you, the same
+  buzz higher when you pull a trigger on an empty gun. Neither is placed or
+  attenuated -- they are your machine talking to you, not something in the arena
+  -- and only the machine you are flying gets them.
+
+- **Everything else is placed.** Distance, pan and doppler are worked out the
+  way the race game works them out for a car, from where the camera stands.
 
 ## Layout
 

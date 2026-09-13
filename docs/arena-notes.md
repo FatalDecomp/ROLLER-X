@@ -89,7 +89,7 @@ python3 tools/check_roller_core_manifest.py
 mdformat --check docs/
 ```
 
-At the time of writing that is 87 sim test groups and 305 python tests, all
+At the time of writing that is 89 sim test groups and 311 python tests, all
 passing. `zig` is not on a remote session's PATH and its package fetcher cannot
 reach GitHub through the agent proxy; the way round both is in the toolchain
 notes below.
@@ -121,10 +121,15 @@ Notes on the toolchain and the harness:
 
 Modes: duel, survival (sixteen machines, each its own team), team deathmatch
 (eight a side [MODE-08]) and spectator. Seven arenas, the last being FACING
-WORLDS [ARENA-16..19]. Sound runs through Whiplash's mixer [SND-01..03].
-Computer pilots get round cover [AI-09], turn a dash mid-burst [AI-10], refuse
-drops [AI-11], get round gaps [AI-12] and follow the arena's published ways
-[AI-13].
+WORLDS [ARENA-16..19]. Sound runs through Whiplash's mixer \[SND-01..07\]: the
+walk drives the engine loop [SND-07], a ground boost is what squeals [SND-06],
+every weapon has a voice built out of a car noise at a new pitch [SND-04], and
+two cockpit warnings answer a hit taken and a dry trigger [SND-05]. Weapon fire
+is painted in six neon hues the arena is never painted in [DEF-12] and held to a
+minimum apparent size [MESH-48]; a landed hit flashes HIT over the clock
+[REND-14]. Computer pilots get round cover [AI-09], turn a dash mid-burst
+[AI-10], refuse drops [AI-11], get round gaps [AI-12] and follow the arena's
+published ways [AI-13].
 
 Nine machines on four drawn chassis \[TYPE-06\]: five ordinary bipeds, the
 wheeled ZIZIN (which gets its own pilot branch in `mecha_ai_think`), BASTION 88
@@ -148,7 +153,11 @@ wins a round holds a pose [MESH-41, MESH-42].
 - **Wall tiles.** The keeps wear `MECHA_TILE_RUST`; BRICK is a floral tile and
   CONCRETE is a glazed facade, so neither reads as masonry.
 - **Sound is unheard.** Levels, pitches and the pan convention are asserted from
-  the mixer's own code [SND-02] and by tests, but nobody has listened to it.
+  the mixer's own code [SND-02] and by tests, but nobody has listened to it. The
+  sample choices in [SND-04] were made by measuring the `.RAW` files --
+  duration, zero crossings, dominant frequency, tonality -- not by ear, and the
+  two warning pitches in [SND-05] are a guess at "slightly different" that only
+  listening can settle.
 - **A spectator sees DEFEAT.** `mecha_phase_banner` asks whether the viewer is
   allied with the winner, and a free camera is on nobody's side. Pre-existing,
   never reported as a bug, listed here so it is not rediscovered as one.
@@ -2704,3 +2713,241 @@ so tilting the pelvis tilts the armour away from the legs it is sitting over. A
 few degrees stays inside that overlap; the nine the victory pose was first given
 opened a gap you could see daylight through, which is what "her leg has come
 away from her hip" turned out to be.
+
+______________________________________________________________________
+
+## TYPE-09 — what the sim leaves behind for the things that have no voice
+
+Sound and the HUD both need to know that something *just happened*: a shot went
+off, a trigger came up dry, a hit landed. The simulation cannot tell them —
+nothing behind `mecha_sim.h` knows either exists, and that is worth keeping.
+
+So the sim leaves a record and they read it. Four fields on the mech, each the
+tick a thing last happened on: `iFireTick`, `iDryFireTick`, `iHitTakenTick`,
+`iHitDealtTick`.
+
+Ticks, not flags, because a frame can run up to five ticks [MODE-03] and a flag
+raised inside one would be lowered before anything looked. Ticks, not counters,
+because the HUD's question is "how long ago", which a counter cannot answer —
+the HIT flash [REND-14] is drawn straight off `iHitDealtTick` and needs no state
+of its own, so a paused frame drawn twice draws the same thing twice.
+
+`-1` is never. Zero is a real tick a match can fire on, so the comparison state
+in the sound layer starts at `-1` as well rather than being `memset` flat; that
+is the one thing a reader has to get right.
+
+Two distinctions turned out to matter:
+
+- **Recovery is not empty.** A trigger pulled while the last shot is still
+  recovering has rounds behind it and will fire in a moment. Counting that as a
+  dry trigger cries wolf on every burst, so `iDryFireTick` only moves when the
+  slot is actually out or reloading. The test disables that condition to prove
+  it.
+- **Your own blast is not a hit.** `mecha_sim_damage` is the single chokepoint
+  for every point of damage in the game, including a machine standing in its own
+  explosion, so the attacker's `iHitDealtTick` only moves when the attacker is
+  not the victim. Otherwise the HUD congratulates you for blowing yourself up.
+
+______________________________________________________________________
+
+## SND-04 — a gun bank built out of car noises
+
+Whiplash has no laser in it. It has engines, tyres, gear changes, fenders, menu
+clicks and a commentator. Every weapon in the arena is one of those put to
+another use:
+
+| kind          | sample     | why                               |
+| ------------- | ---------- | --------------------------------- |
+| bullet        | `GRSHIFT`  | a gear change is a breech clack   |
+| beam          | `BLOP`     | short, bright, tonal              |
+| arc, homing   | `LIGHTLAN` | a low thump is a launch tube      |
+| mine          | `BUTTON`   | a click as it goes down           |
+| melee         | `SKID1`    | short and metallic, taken well up |
+| standing fire | `EXPLO`    | it is an explosion                |
+
+What separates one gun from another is **pitch**, not sample. A weapon's
+`fDamage` rides between 26 and 150 across the roster, and the same clack played
+from 1.30x down to 0.72x across that span is the difference between a rifle and
+a siege gun. That is the whole reason `pitchedsample()` exists.
+
+The samples were picked by measuring rather than by name: duration, zero
+crossing rate, dominant frequency and tonality over the whole `.RAW` set. It is
+what ruled out the obvious-sounding candidates — `REJECT1`, `REJECT2`, `BLOCK`
+and `TDAMAGE` are all commentator speech, not effects, and would have put a man
+shouting over every shot.
+
+One caveat found in the mixer rather than by ear: `pannedsample` keys its handle
+table on the sample index alone, so two machines firing the same weapon on the
+same frame means the second cuts the first off. That is Whiplash's own behaviour
+and the race lives with it; in a crossfire it reads as one shot rather than two.
+
+______________________________________________________________________
+
+## SND-05 — one warning sample, two pitches
+
+Virtual-On warns you that you are being hit and warns you, differently, that the
+gun you just pulled is empty. The brief said "a slightly different warning
+sound", and that is exactly what one sample at two rates gives: `BRP`, a third
+of a second of buzz, at 0.80x for a hit taken and 1.45x for a dry trigger.
+
+They are **not** placed and **not** attenuated. Everything else in the arena is
+mixed from where the camera stands [SND-02], but a cockpit warning is not in the
+arena — it is the machine talking to the pilot, so it plays centre and at full
+level, and only for `iViewMech`. A spectator passes `-1` and gets neither.
+
+______________________________________________________________________
+
+## SND-06 — the squeal belongs to the boost
+
+The skid loop used to key off the angle between where a machine pointed and
+where it was travelling, which is precisely how `enginesounds()` spots a car
+sliding in the race game. Borrowing that was the mistake: a mecha strafes for a
+living. Walking sideways is not a slide, and the machine squealed its way around
+every circle-strafe.
+
+What actually scrubs the floor is a ground dash — thrusters lit with the feet
+still down, in any direction. That is now the only thing that squeals, its level
+riding the machine's speed against its own walk speed and its pitch riding
+absolute speed as before. Airborne dashes are silent on this channel, because
+nothing is being scrubbed.
+
+______________________________________________________________________
+
+## SND-07 — the engine loop follows the gait
+
+A machine with legs is not a machine with a throttle. Driving its loop off road
+speed alone gave a flat hum that rose and fell with a joystick, and what the ear
+expects from something walking is the stride.
+
+`fStepPhase` counts strides rather than time [MESH-13], so the sound reads it
+directly: the loop's level and pitch swing either side of where speed alone
+would put them, once per footfall. Two footfalls per stride covers every machine
+with legs — a biped's two feet and the arachnid's tripod [MESH-39] both put
+something down twice a stride, so one figure does for both.
+
+The depth of the swing follows how fast the machine is actually walking, so a
+machine standing still hums flat rather than pulsing on the spot. It is off
+while airborne and off during a dash: feet in the air are not walking, and a
+machine gliding on its thrusters should not sound like one striding.
+
+Wheels and tracks are untouched. `MECHA_CHASSIS_CAR` and `MECHA_CHASSIS_TREAD`
+roll, their noise follows road speed, and it already did.
+
+______________________________________________________________________
+
+## DEF-12 — weapon fire owns every hue the arena does not
+
+Two complaints, one cause: green shots vanished against grass and violet ones
+read as dark.
+
+The arena paints in grey (floors, walls, blocks), green (the meadow's grass and
+canopy) and brown (bark). The tracer set had a green in it — index 255, the top
+of the same ramp the grass sits two steps down. A green bolt over a green field
+is invisible, and no amount of "make it brighter" fixes it, because the
+brightest thing on that ramp is what it already was.
+
+So the rule is now hue, not brightness: **weapon fire owns every hue the terrain
+does not.** Six of them, each the top of one of the retail palette's pure ramps:
+
+| name    | index | retail RGB  |
+| ------- | ----- | ----------- |
+| orange  | 171   | 255, 125, 0 |
+| yellow  | 207   | 255, 255, 0 |
+| rose    | 183   | 255, 0, 113 |
+| magenta | 195   | 255, 0, 255 |
+| cyan    | 219   | 0, 255, 255 |
+| red     | 231   | 255, 0, 0   |
+
+Green is gone from the roster entirely. Blue was tried and dropped: 148 is the
+only usable blue in the palette and it scores worse against grey than any of the
+six above.
+
+Two knock-on changes were needed to make the rule true rather than nearly true:
+
+- **The hazard stripe moved off the magenta ramp.** `MECHA_PAL_HAZARD` was 193,
+  two steps under the magenta a weapon now fires. A painted stripe on a concrete
+  block has no business competing with a bolt, so it went to 166, a dark amber —
+  which is what hazard paint looks like anyway.
+- **White is a blade and nothing else.** 143 is the one colour in the set a grey
+  arena can swallow: against the pale top of a block it scored 27 on the measure
+  below, worse than the green that started this. Every white *projectile* took
+  its machine's own accent colour instead — which is better design as well as
+  more visible, since a unit's beam now reads as that unit's. The blades kept
+  it; a sword is swung at arm's length, where being the colour of steel is
+  right.
+
+### Measuring it
+
+The test walks every flying weapon on the roster against every arena's floor,
+grid and wall, and insists on a gap of 50. The measure is **not** a
+channel-by-channel distance: that calls a saturated blue and a mid grey close,
+because every channel is near the middle, which is exactly the mistake that
+would let a shot go invisible. It is an opponent-colour distance — brightness,
+red against green, blue against the other two.
+
+On that measure the set as painted bottoms out at 56 (orange over the floor
+grid). The green that started this scores 36 over the meadow, and 19 over the
+canopy. Re-pointing one tracer back at green is what was used to prove the test
+catches it.
+
+### The fallback table was lying
+
+Half of this was invisible because `s_aArenaPalette` — the colours the mode uses
+when no retail palette is loaded — did not match the retail palette at the
+indices that mattered. Index 148 was written as green and is blue; 183 was
+"orange" and is hot pink; 193 and 194 were "hazard" and "amber" and are both
+magenta. Every one of those is now taken straight from `PALETTE.PAL`, so the
+no-data view and the retail view are the same picture, and the names beside them
+say what is actually there.
+
+______________________________________________________________________
+
+## MESH-48 — a shot has to be worth a pixel
+
+Small rounds were hard to see, and there were two reasons rather than one.
+
+**A bare streak.** A solid round was drawn as its tracer and nothing else — one
+tick of travel, widened towards the camera. That is fine at 20 m and gone by
+100: the streak is as long as the distance the shot covered since the last tick,
+which is short whenever the shot is far enough away for the foreshortening to
+bite. Energy bolts had a head and solid rounds did not, and the ones that could
+not be seen coming were the solid ones. They have a head now, in the shot's own
+colour rather than a white core [DEF-12].
+
+**A floor on apparent size.** The projection puts a world half-extent `h` at
+distance `d` on screen at `h * 200 / d` pixels in the 320-wide frame the
+rasteriser works in. The smallest round on the roster is 0.8 m, which is 1.6 px
+across at 200 m — under the two pixels a moving dot needs to be followed by eye.
+So a shot is never drawn subtending less than 0.0065 radians, capped at 3.2x its
+own size so a distant round grows into a dot rather than a balloon. Measured:
+16.0 px at 20 m, 3.6 at 90 m (the floor is not yet in play), 2.6 at 200 m
+against 1.6 before.
+
+**And they face the eye, not the view plane.** Both the billboards and the
+tracer streaks took the camera's own heading, which is right only at the centre
+of the screen; off to one side a streak was widened along a direction that was
+not square to the eye and foreshortened to a hairline exactly where it was
+hardest to see. Each shot now takes the heading from the eye to itself, and the
+streak is widened perpendicular to both its flight path and the line to the eye.
+
+Left alone deliberately: scenery, clouds and explosions still take the camera
+yaw. They are large or distant enough that the difference is not visible, and
+the silhouette tests measure them.
+
+______________________________________________________________________
+
+## REND-14 — HIT, over the clock
+
+When the player lands a hit the word HIT flashes in red above the round clock,
+which is the arcade convention and the one piece of feedback the arena had no
+way of giving: at range, with the opponent's armour bar a bar rather than a
+number, a shot that connects and a shot that misses look the same.
+
+It is drawn straight off `iHitDealtTick` [TYPE-09] rather than off any state of
+the HUD's own — the HUD is handed a world and draws it, and adding a countdown
+to it would be the one thing in the renderer that had to be ticked. About half a
+second, blinking at roughly 11 Hz, so a steady stream of hits reads as a stream
+rather than as one continuous word.
+
+Above the clock rather than over it: the clock is in the bottom right [REND-09]
+and is the one number that still has to be readable while HIT is up.

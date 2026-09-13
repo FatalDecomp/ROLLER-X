@@ -2018,6 +2018,19 @@ void pannedsample(int iSampleIdx, int iHandle, int iPan)
 }
 
 //-------------------------------------------------------------------------------------------------
+// Added by ROLLER: the same one-shot with the playback rate moved. The panned
+// sample structure carries the rate, so this borrows it for the one call and
+// puts it back -- every other caller goes on getting the recorded rate.
+void pitchedsample(int iSampleIdx, int iVolume, int iPitch, int iPan)
+{
+  int iWasPitch = SamplePanned.iPitch;
+
+  SamplePanned.iPitch = iPitch;
+  pannedsample(iSampleIdx, iVolume, iPan);
+  SamplePanned.iPitch = iWasPitch;
+}
+
+//-------------------------------------------------------------------------------------------------
 //0003C2B0
 void speechonly(int iSampleIdx, int iVolume, int iDelay, int iCarIdx)
 {

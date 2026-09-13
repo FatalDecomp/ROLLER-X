@@ -866,8 +866,9 @@ void mecha_mode_update(void)
   else
     mecha_mode_free_camera_update();
 
-  /* After the camera: the listener stands where the frame is drawn from. */
-  mecha_sound_update(&s_World, &s_Camera);
+  /* After the camera: the listener stands where the frame is drawn from,
+   * and the cockpit warnings belong to whoever is being flown. */
+  mecha_sound_update(&s_World, &s_Camera, s_iPlayerIdx);
 
   /* A decided match holds on VICTORY or DEFEAT long enough to be read, then
    * hands the player back to the briefing. The simulation keeps ticking

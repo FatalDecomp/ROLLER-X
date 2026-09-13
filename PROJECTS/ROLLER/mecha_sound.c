@@ -21,11 +21,30 @@
 
 /* Which of Whiplash's samples the arena borrows, and what it uses them as. */
 #define MECHA_SFX_ENGINE  SOUND_SAMPLE_ENGINE   /* the machine, idling to flat out */
-#define MECHA_SFX_SKID    SOUND_SAMPLE_SKID1    /* tyres and feet losing grip */
+#define MECHA_SFX_SKID    SOUND_SAMPLE_SKID1    /* thrusters scrubbing the floor */
 #define MECHA_SFX_LAND    SOUND_SAMPLE_LANDSKID /* coming down off a jump */
 #define MECHA_SFX_BLAST   SOUND_SAMPLE_EXPLO    /* a shell going off */
 #define MECHA_SFX_WRECK   SOUND_SAMPLE_BIGCRASH /* a machine going up */
 #define MECHA_SFX_HIT     SOUND_SAMPLE_FENDER   /* two machines meeting */
+/*
+ * The guns. Whiplash has no laser in it, so each of these is a car noise
+ * put to a new use and moved off its recorded pitch: the gear change is a
+ * breech, the water blip a bolt, the light landing a launch tube and the
+ * menu click a mine going down. Pitch is what separates a light gun from a
+ * heavy one, which is the whole reason the mixer grew a pitched one-shot.
+ * [SND-04]
+ */
+#define MECHA_SFX_SLUG    SOUND_SAMPLE_GRSHIFT  /* solid rounds: a breech clack */
+#define MECHA_SFX_BOLT    SOUND_SAMPLE_BLOP     /* energy: a blip                */
+#define MECHA_SFX_LAUNCH  SOUND_SAMPLE_LIGHTLAN /* pods and lobbed charges       */
+#define MECHA_SFX_LAY     SOUND_SAMPLE_BUTTON   /* a mine going down             */
+/*
+ * Both cockpit warnings, one sample at two pitches: the low one is the
+ * machine being hit, the high one a trigger pulled on an empty gun. They
+ * have to be told apart in the middle of a fight without being separate
+ * enough to sound like two unrelated events. [SND-05]
+ */
+#define MECHA_SFX_WARN    SOUND_SAMPLE_BRP
 
 /*
  * Inverse-square with a floor, exactly as enginesound() has it: the constant
@@ -48,15 +67,49 @@
 #define MECHA_SND_SKID_SPEED  6400.0f
 /* Sound travels at 343 m/s here as anywhere else. */
 #define MECHA_SND_MACH        MECHA_MPS(343.0f)
-/* A machine has to be this far off its line before the tyres complain. */
-#define MECHA_SND_SLIP_ANGLE  MECHA_DEG(9)
-#define MECHA_SND_SLIP_FULL   MECHA_DEG(38)
-/* And moving at all, or a machine turning on the spot squeals. */
-#define MECHA_SND_SLIP_SPEED  MECHA_MPS(6.0f)
+/*
+ * The squeal belongs to the boost, not to sliding. It used to key off the
+ * angle between where a machine pointed and where it was going, which is
+ * how Whiplash spots a car sliding -- but a mecha strafes for a living, and
+ * a machine walking sideways is not scrubbing anything. What does scrub is
+ * a ground dash: thrusters lit with the feet still down, in any direction.
+ * [SND-06]
+ */
+#define MECHA_SND_BOOST_LEVEL 0.85f
 /* How hard a landing has to be to be worth a sample, and what counts as the
  * full-volume one. */
 #define MECHA_SND_LAND_SOFT   MECHA_MPS(6.0f)
 #define MECHA_SND_LAND_HARD   MECHA_MPS(34.0f)
+
+/*
+ * The walk. fStepPhase counts strides, and both a biped and the arachnid's
+ * tripod put a foot down twice a stride, so one figure covers every machine
+ * with legs. The servos wind up through the swing and drop as the foot goes
+ * down; the depth of it follows how fast the machine is actually walking,
+ * so a machine standing still hums flat. [SND-07]
+ */
+#define MECHA_SND_GAIT_STEPS  2.0f
+#define MECHA_SND_GAIT_VOL    0.34f
+#define MECHA_SND_GAIT_PITCH  0.16f
+
+/* The rate a sample was recorded at, as the mixer counts pitch. */
+#define MECHA_SND_NATIVE      0x10000
+/*
+ * A gun's voice follows its weight: the lightest round in the roster does
+ * 26 damage and the heaviest 148, and the same sample played across this
+ * span is the difference between a rifle and a siege gun. [SND-04]
+ */
+#define MECHA_SND_GUN_LIGHT   26.0f
+#define MECHA_SND_GUN_HEAVY   150.0f
+#define MECHA_SND_GUN_HIGH    1.30f
+#define MECHA_SND_GUN_LOW     0.72f
+#define MECHA_SND_GUN_LEVEL   0.72f
+/* And the two warnings, one sample either side of the rate it was cut at.
+ * [SND-05] */
+#define MECHA_SND_WARN_HURT   0.80f
+#define MECHA_SND_WARN_DRY    1.45f
+#define MECHA_SND_WARN_LEVEL  0.85f
+#define MECHA_SND_DRY_LEVEL   0.55f
 
 //-------------------------------------------------------------------------------------------------
 
@@ -67,6 +120,12 @@ static bool  s_abAirborneWas[MECHA_MAX_MECHS];
 static float s_afFallWas[MECHA_MAX_MECHS];
 static bool  s_abEngineOn[MECHA_MAX_MECHS];
 static bool  s_abSkidOn[MECHA_MAX_MECHS];
+/* The event ticks as they stood last frame. -1 is the sim's own "never", so
+ * these start there too and a thing that happens on tick zero is still new.
+ * [TYPE-09] */
+static int   s_aiFireWas[MECHA_MAX_MECHS];
+static int   s_aiDryFireWas[MECHA_MAX_MECHS];
+static int   s_aiHitTakenWas[MECHA_MAX_MECHS];
 static bool  s_bActive;
 
 //-------------------------------------------------------------------------------------------------
@@ -181,6 +240,8 @@ void mecha_sound_enter(void)
   static const int aiSamples[] = {
     MECHA_SFX_ENGINE, MECHA_SFX_SKID, MECHA_SFX_LAND,
     MECHA_SFX_BLAST, MECHA_SFX_WRECK, MECHA_SFX_HIT,
+    MECHA_SFX_SLUG, MECHA_SFX_BOLT, MECHA_SFX_LAUNCH,
+    MECHA_SFX_LAY, MECHA_SFX_WARN,
   };
   size_t i;
 
@@ -190,9 +251,16 @@ void mecha_sound_enter(void)
   memset(s_afFallWas, 0, sizeof(s_afFallWas));
   memset(s_abEngineOn, 0, sizeof(s_abEngineOn));
   memset(s_abSkidOn, 0, sizeof(s_abSkidOn));
+  /* Not memset: -1 is the sim's "it has not happened", and zero is a real
+   * tick a match can fire on. [TYPE-09] */
+  for (i = 0; i < MECHA_MAX_MECHS; i++) {
+    s_aiFireWas[i] = -1;
+    s_aiDryFireWas[i] = -1;
+    s_aiHitTakenWas[i] = -1;
+  }
   s_bActive = true;
 
-  /* The race loads the whole set when it starts; the arena wants six of
+  /* The race loads the whole set when it starts; the arena wants eleven of
    * them, and a sample already in memory is not loaded twice. */
   for (i = 0; i < sizeof(aiSamples) / sizeof(aiSamples[0]); i++)
     if (!SamplePtr[aiSamples[i]])
@@ -237,11 +305,20 @@ void mecha_sound_match(void)
 
 //-------------------------------------------------------------------------------------------------
 
+/* Whether this chassis walks. Wheels and tracks roll: their noise follows
+ * road speed and nothing else, which is what it already did. [SND-07] */
+static bool mecha_sound_has_legs(const tMechaMechDef *pDef)
+{
+  return pDef->byChassis == MECHA_CHASSIS_BIPED
+         || pDef->byChassis == MECHA_CHASSIS_ARACHNID;
+}
+
 /*
- * One machine's engine and tyres. The pitch is Whiplash's: a base the sample
- * was recorded at, plus a span the machine's own speed rides up, times the
- * doppler shift. A walker gets a narrower span, because servos hum where an
- * engine revs. [SND-03]
+ * One machine's engine and thrusters. The pitch is Whiplash's: a base the
+ * sample was recorded at, plus a span the machine's own speed rides up,
+ * times the doppler shift. A walker gets a narrower span, because servos hum
+ * where an engine revs, and its whole voice then rises and falls with the
+ * gait. [SND-03, SND-07]
  */
 static void mecha_sound_machine(const tMechaWorld *pWorld, int iMechIdx,
                                 const tMechaCamera *pCamera)
@@ -253,6 +330,8 @@ static void mecha_sound_machine(const tMechaWorld *pWorld, int iMechIdx,
   float fTop;
   float fRatio;
   float fLevel;
+  float fSpan;
+  float fGait;
   int iVolume;
   int iPitch;
 
@@ -283,38 +362,44 @@ static void mecha_sound_machine(const tMechaWorld *pWorld, int iMechIdx,
   fLevel = 0.32f + fRatio * 0.48f;
   if (pMech->byMove == MECHA_MOVE_DASH || pMech->byMove == MECHA_MOVE_JUMP)
     fLevel += 0.20f;
+  fSpan = pDef->bWheeled ? MECHA_SND_PITCH_SPAN : MECHA_SND_SERVO_SPAN;
+  fGait = 1.0f;
+
+  /*
+   * A machine with legs is not a machine with a throttle: what the ear
+   * follows is the stride, so the loop swings either side of where the road
+   * speed alone would put it, once per footfall. On the ground only -- feet
+   * in the air are not walking, and a machine gliding on its thrusters
+   * should not sound like one striding. [SND-07]
+   */
+  if (mecha_sound_has_legs(pDef) && !mecha_mech_is_airborne(pWorld, iMechIdx)
+      && pMech->byMove != MECHA_MOVE_DASH) {
+    float fCycle = pMech->fStepPhase * MECHA_SND_GAIT_STEPS;
+    float fDepth = fRatio > 1.0f ? 1.0f : fRatio;
+    float fSwing;
+
+    fCycle -= floorf(fCycle);
+    fSwing = mecha_sin((int)(fCycle * (float)MECHA_ANGLE_FULL)) * fDepth;
+    fLevel *= 1.0f + MECHA_SND_GAIT_VOL * fSwing;
+    fGait = 1.0f + MECHA_SND_GAIT_PITCH * fSwing;
+  }
+
   iVolume = mecha_sound_volume(fLevel, &place, EngineVolume);
-  iPitch = (int)((MECHA_SND_PITCH_BASE
-                  + fRatio * (pDef->bWheeled ? MECHA_SND_PITCH_SPAN
-                                             : MECHA_SND_SERVO_SPAN))
+  iPitch = (int)((MECHA_SND_PITCH_BASE + fRatio * fSpan) * fGait
                  * place.fDoppler);
   loopsample(iMechIdx, MECHA_SFX_ENGINE, iVolume, iPitch, place.iPan);
   s_abEngineOn[iMechIdx] = iVolume > 0;
 
   /*
-   * Skid is the mismatch between where a machine points and where it is
-   * actually going, which is how Whiplash decides a car is sliding -- it
-   * compares the steered yaw against the one the car ended up with.
+   * The scrub. A ground dash is thrusters lit with the machine still on the
+   * floor, whichever way it is pointed and whichever way it is going; that
+   * is what tears at the ground, and it is the one thing in the arena that
+   * should squeal. [SND-06]
    */
   fLevel = 0.0f;
-  if (fSpeed > MECHA_SND_SLIP_SPEED && !mecha_mech_is_airborne(pWorld, iMechIdx)) {
-    int iTravel = mecha_atan2_angle(pMech->fVelX, pMech->fVelZ);
-    int iSlip = mecha_angle_delta(pMech->iFacing, iTravel);
-
-    if (iSlip < 0)
-      iSlip = -iSlip;
-    /* Backwards is not sideways: a machine reversing is travelling a half
-     * turn off its nose and is not sliding at all. */
-    if (iSlip > MECHA_ANGLE_QUARTER)
-      iSlip = MECHA_ANGLE_HALF - iSlip;
-    if (iSlip > MECHA_SND_SLIP_ANGLE) {
-      fLevel = (float)(iSlip - MECHA_SND_SLIP_ANGLE)
-               / (float)(MECHA_SND_SLIP_FULL - MECHA_SND_SLIP_ANGLE);
-      if (fLevel > 1.0f)
-        fLevel = 1.0f;
-      /* Faster slides are louder slides. */
-      fLevel *= fRatio > 1.0f ? 1.0f : fRatio;
-    }
+  if (pMech->byMove == MECHA_MOVE_DASH
+      && !mecha_mech_is_airborne(pWorld, iMechIdx)) {
+    fLevel = MECHA_SND_BOOST_LEVEL * (fRatio > 1.0f ? 1.0f : fRatio);
   }
   iVolume = mecha_sound_volume(fLevel, &place, SFXVolume);
   iPitch = (int)((fSpeed / MECHA_SND_SKID_SPEED + 1.0f) * MECHA_SND_SKID_BASE
@@ -325,7 +410,86 @@ static void mecha_sound_machine(const tMechaWorld *pWorld, int iMechIdx,
 
 //-------------------------------------------------------------------------------------------------
 
-void mecha_sound_update(const tMechaWorld *pWorld, const tMechaCamera *pCamera)
+/* A one-shot off its recorded rate. Same placement as any other, but the
+ * mixer is asked for a playback ratio too. [SND-04] */
+static void mecha_sound_pitched(int iSample, float fLevel, float fRate,
+                                const tMechaSoundPlace *pPlace)
+{
+  int iVolume = mecha_sound_volume(fLevel, pPlace, SFXVolume);
+
+  if (iVolume > 0)
+    pitchedsample(iSample, iVolume,
+                  (int)((float)MECHA_SND_NATIVE * fRate * pPlace->fDoppler),
+                  pPlace->iPan);
+}
+
+/* A cockpit warning: the player's own machine talking to the player, so it
+ * is neither placed nor attenuated -- it is not in the arena. [SND-05] */
+static void mecha_sound_warn(float fLevel, float fRate)
+{
+  float fVolume = fLevel * (float)MECHA_SND_FULL
+                  * ((float)SFXVolume / 127.0f);
+
+  if (fVolume < (float)MECHA_SND_FLOOR)
+    return;
+  if (fVolume > (float)MECHA_SND_FULL)
+    fVolume = (float)MECHA_SND_FULL;
+  pitchedsample(MECHA_SFX_WARN, (int)fVolume,
+                (int)((float)MECHA_SND_NATIVE * fRate), 0x8000);
+}
+
+/* Which noise a weapon makes, and how far off its recorded rate. A heavier
+ * round speaks lower. [SND-04] */
+static int mecha_sound_gun(const tMechaWeaponDef *pWeapon, float *pfRate)
+{
+  float fSpan = MECHA_SND_GUN_HEAVY - MECHA_SND_GUN_LIGHT;
+  float fWeight = (pWeapon->fDamage - MECHA_SND_GUN_LIGHT) / fSpan;
+
+  fWeight = mecha_clampf(fWeight, 0.0f, 1.0f);
+  *pfRate = MECHA_SND_GUN_HIGH
+            + (MECHA_SND_GUN_LOW - MECHA_SND_GUN_HIGH) * fWeight;
+
+  switch (pWeapon->byKind) {
+  case MECHA_PROJ_BEAM:
+    return MECHA_SFX_BOLT;
+  case MECHA_PROJ_ARC:
+    return MECHA_SFX_LAUNCH;
+  case MECHA_PROJ_HOMING:
+    /* Pods leave their tubes brighter than a lobbed charge does, whatever
+     * they weigh. */
+    *pfRate *= 1.35f;
+    return MECHA_SFX_LAUNCH;
+  case MECHA_PROJ_MINE:
+    *pfRate = 1.0f;
+    return MECHA_SFX_LAY;
+  case MECHA_PROJ_MELEE:
+    /* The skid sample, short and metallic, taken well up: a blade coming
+     * round rather than a tyre. */
+    *pfRate = 1.7f;
+    return MECHA_SFX_SKID;
+  case MECHA_PROJ_SHELL:
+    *pfRate = 0.85f;
+    return MECHA_SFX_BLAST;
+  default:
+    return MECHA_SFX_SLUG;
+  }
+}
+
+/* The weapon a machine last actually fired, or NULL if it has not fired. */
+static const tMechaWeaponDef *mecha_sound_last_weapon(const tMechaMech *pMech)
+{
+  const tMechaMechDef *pDef = mecha_def_get((int)pMech->byDefIdx);
+
+  if (!pDef || pMech->iLastFiredSlot < 0
+      || pMech->iLastFiredSlot >= MECHA_WEAPON_SLOTS
+      || pMech->iLastFiredStance < 0
+      || pMech->iLastFiredStance >= MECHA_STANCE_COUNT)
+    return NULL;
+  return &pDef->aWeapons[pMech->iLastFiredSlot][pMech->iLastFiredStance];
+}
+
+void mecha_sound_update(const tMechaWorld *pWorld, const tMechaCamera *pCamera,
+                        int iViewMech)
 {
   int i;
 
@@ -350,6 +514,37 @@ void mecha_sound_update(const tMechaWorld *pWorld, const tMechaCamera *pCamera)
     if (pMech->iRamCooldown > s_aiRamWas[i])
       mecha_sound_shot(MECHA_SFX_HIT, 0.9f, &place);
     s_aiRamWas[i] = pMech->iRamCooldown;
+
+    /*
+     * A shot leaving a barrel. The tick it happened on is what the sim
+     * leaves behind, so a change in it is a new shot however many ticks
+     * this frame ran -- and two slots fired on the same tick are one
+     * noise, which is what a salvo sounds like anyway. [SND-04]
+     */
+    if (pMech->iFireTick != s_aiFireWas[i]) {
+      const tMechaWeaponDef *pWeapon = mecha_sound_last_weapon(pMech);
+
+      if (pWeapon && pMech->iFireTick >= 0) {
+        float fRate;
+        int iSample = mecha_sound_gun(pWeapon, &fRate);
+
+        mecha_sound_pitched(iSample, MECHA_SND_GUN_LEVEL, fRate, &place);
+      }
+    }
+    s_aiFireWas[i] = pMech->iFireTick;
+
+    /* And the two warnings, which only the machine being flown gets: they
+     * are its own cockpit, not something the arena can hear. [SND-05] */
+    if (i == iViewMech) {
+      if (pMech->iHitTakenTick != s_aiHitTakenWas[i]
+          && pMech->iHitTakenTick >= 0)
+        mecha_sound_warn(MECHA_SND_WARN_LEVEL, MECHA_SND_WARN_HURT);
+      if (pMech->iDryFireTick != s_aiDryFireWas[i]
+          && pMech->iDryFireTick >= 0)
+        mecha_sound_warn(MECHA_SND_DRY_LEVEL, MECHA_SND_WARN_DRY);
+    }
+    s_aiHitTakenWas[i] = pMech->iHitTakenTick;
+    s_aiDryFireWas[i] = pMech->iDryFireTick;
 
     /* Coming down. The fall speed is read a frame early because by the time
      * the wheels are on the ground it has already been spent. */

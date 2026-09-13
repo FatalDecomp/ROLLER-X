@@ -313,6 +313,24 @@ static void render_now(GameRenderer *pRenderer, int iViewMech)
                        s_aQuads, MECHA_QUAD_CAPACITY);
 }
 
+/*
+ * How far apart two palette entries look, in an opponent-colour space:
+ * brightness, red against green, and blue against the other two. A plain
+ * channel-by-channel distance is no use here -- it calls a saturated blue
+ * and a mid grey close, because every channel is near the middle, which is
+ * exactly the mistake that would let a shot go invisible. [DEF-12]
+ */
+static int mecha_colour_gap(const tColor *pA, const tColor *pB)
+{
+    double dL = (0.30 * pA->byR + 0.59 * pA->byG + 0.11 * pA->byB)
+              - (0.30 * pB->byR + 0.59 * pB->byG + 0.11 * pB->byB);
+    double dRg = ((double)pA->byR - pA->byG) - ((double)pB->byR - pB->byG);
+    double dB = (pA->byB - 0.5 * ((double)pA->byR + pA->byG))
+              - (pB->byB - 0.5 * ((double)pB->byR + pB->byG));
+
+    return (int)sqrt(dL * dL + dRg * dRg + dB * dB);
+}
+
 int main(int argc, char **argv)
 {
     const char *szOutDir = argc > 1 ? argv[1] : NULL;
@@ -581,6 +599,155 @@ int main(int argc, char **argv)
         }
     }
 
+    /*
+     * --- weapon fire has to clear the ground it flies over ---------------
+     *
+     * A green shot over a green field is invisible, which is what happened:
+     * the tracer palette and the meadow's grass were two steps of the same
+     * ramp. This walks every weapon the roster carries against every
+     * arena's own three surfaces and insists on daylight between them, so
+     * neither a retuned arena nor a new gun can quietly go dark. [DEF-12]
+     */
+    {
+        tColor aPalette[256];
+        int iArena;
+        int iWorst = 1 << 20;
+        int iWorstShot = -1;
+        int iWorstGround = -1;
+
+        mecha_render_build_palette(aPalette);
+
+        for (iArena = 0; iArena < mecha_arena_count(); iArena++) {
+            tMechaArena arena;
+            uint8 abyGround[3];
+            int iGround;
+            int iDef;
+
+            mecha_arena_init(&arena, iArena);
+            abyGround[0] = arena.byFloorPalette;
+            abyGround[1] = arena.byGridPalette;
+            abyGround[2] = arena.byWallPalette;
+
+            for (iDef = 0; iDef < mecha_def_count(); iDef++) {
+                const tMechaMechDef *pDef = mecha_def_get(iDef);
+                int iSlot;
+
+                for (iSlot = 0; iSlot < MECHA_WEAPON_SLOTS; iSlot++) {
+                    int iStance;
+
+                    for (iStance = 0; iStance < MECHA_STANCE_COUNT; iStance++) {
+                        uint8 byShot =
+                            pDef->aWeapons[iSlot][iStance].byPalette;
+
+                        if (pDef->aWeapons[iSlot][iStance].fSpeed <= 0.0f)
+                            continue;
+                        /* A blade is held at arm's length, not spotted
+                         * crossing the arena, and steel is the right colour
+                         * for one. Everything that flies is in. [DEF-12] */
+                        if (pDef->aWeapons[iSlot][iStance].byKind
+                            == MECHA_PROJ_MELEE)
+                            continue;
+                        for (iGround = 0; iGround < 3; iGround++) {
+                            const tColor *pA = &aPalette[byShot];
+                            const tColor *pB = &aPalette[abyGround[iGround]];
+                            int iDist = mecha_colour_gap(pA, pB);
+
+                            if (iDist < iWorst) {
+                                iWorst = iDist;
+                                iWorstShot = byShot;
+                                iWorstGround = abyGround[iGround];
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        printf("   closest shot to ground: index %d against %d, %d apart\n",
+               iWorstShot, iWorstGround, iWorst);
+        /*
+         * Fifty. The set as painted bottoms out at 56, and the green shot
+         * that started this scored 36 over the meadow it was fired across.
+         */
+        CHECK(iWorst >= 50);
+    }
+
+    /*
+     * --- one shot of every colour, over the field ------------------------
+     *
+     * A reference frame rather than an assertion: the meadow is the arena
+     * that started the complaint, and this is the whole weapon palette
+     * flying across it at three ranges. [DEF-12]
+     */
+    {
+        static const uint8 abyFire[] = { 171, 207, 195, 183, 219, 231 };
+        static const float afAt[] = { 40.0f, 110.0f, 200.0f };
+        int iShot = 0;
+        int iBand;
+        size_t iHue;
+
+        tMechaInput aStage[MECHA_MAX_MECHS];
+
+        mecha_sim_init(&s_World, 3, 0xF12Eu, 2);   /* COLDWATER MEADOW */
+        iPlayer = mecha_sim_add_mech(&s_World, 0, MECHA_CONTROL_HUMAN, 0);
+        CHECK(mecha_sim_add_mech(&s_World, 2, MECHA_CONTROL_AI, 1) >= 0);
+        mecha_sim_begin_match(&s_World);
+        mecha_camera_reset(&s_Camera);
+        /* Past READY, or the banner is drawn across the middle of the
+         * frame and over half the shots. */
+        memset(aStage, 0, sizeof(aStage));
+        run_to_fight(aStage);
+        mecha_camera_update(&s_Camera, &s_World, iPlayer);
+
+        for (iBand = 0; iBand < 3; iBand++) {
+            for (iHue = 0; iHue < sizeof(abyFire) / sizeof(abyFire[0]);
+                 iHue++) {
+                tMechaProjectile *pShot = &s_World.aProjectiles[iShot++];
+                /* Out along where the camera is actually looking, which
+                 * is the machine's own heading. */
+                float fFwdX = mecha_sin(s_World.aMechs[iPlayer].iFacing);
+                float fFwdZ = mecha_cos(s_World.aMechs[iPlayer].iFacing);
+                float fAhead = MECHA_M(afAt[iBand]);
+                float fAcross = ((float)iHue - 2.5f) * MECHA_M(14.0f)
+                                * (afAt[iBand] / 60.0f);
+
+                memset(pShot, 0, sizeof(*pShot));
+                pShot->bActive = true;
+                pShot->byKind = MECHA_PROJ_BULLET;
+                pShot->fRadius = MECHA_M(0.8f);
+                pShot->byPalette = abyFire[iHue];
+                pShot->fX = s_World.aMechs[iPlayer].fX
+                            + fFwdX * fAhead + fFwdZ * fAcross;
+                /* Above the machine's own head, so nothing in the middle
+                 * of the frame stands in front of the middle of the row. */
+                pShot->fY = MECHA_M(20.0f) + MECHA_M(afAt[iBand]) * 0.06f;
+                pShot->fZ = s_World.aMechs[iPlayer].fZ
+                            + fFwdZ * fAhead - fFwdX * fAcross;
+                pShot->fPrevX = pShot->fX - fFwdX * MECHA_M(3.0f);
+                pShot->fPrevY = pShot->fY;
+                pShot->fPrevZ = pShot->fZ - fFwdZ * MECHA_M(3.0f);
+            }
+        }
+
+        render_now(pRenderer, iPlayer);
+        dump_frame(szOutDir, "arena_fire.png");
+
+        /* Every one of them reached the screen. */
+        {
+            int aiFire[256];
+
+            histogram(s_aFrame, aiFire);
+            printf("   fire over the meadow, px per colour:");
+            for (iHue = 0; iHue < sizeof(abyFire) / sizeof(abyFire[0]);
+                 iHue++)
+                printf(" %d:%d", abyFire[iHue], aiFire[abyFire[iHue]]);
+            printf("\n");
+            for (iHue = 0; iHue < sizeof(abyFire) / sizeof(abyFire[0]);
+                 iHue++)
+                CHECK(aiFire[abyFire[iHue]] > 0);
+        }
+    }
+
     /* --- the player's own machine is on screen --------------------------- */
     {
         const tMechaMechDef *pDef = mecha_def_get(0);
@@ -620,12 +787,68 @@ int main(int argc, char **argv)
         /* Every colour a weapon paints its shots in. Kept in step with the
          * PAL_TRACER_* set by the palette assertions further up, which walk
          * the roster rather than trusting this list. */
-        iTracer = aiLater[231] + aiLater[255] + aiLater[206] + aiLater[192]
-                + aiLater[34] + aiLater[171] + aiLater[218] + aiLater[143];
+        iTracer = aiLater[171] + aiLater[207] + aiLater[195] + aiLater[183]
+                + aiLater[148] + aiLater[219] + aiLater[231] + aiLater[143];
         CHECK(iTracer > 0);
 
         /* The camera followed the fight rather than staying put. */
         CHECK(memcmp(aiCounts, aiLater, sizeof(aiCounts)) != 0);
+    }
+
+    /*
+     * --- HIT, over the clock ---------------------------------------------
+     *
+     * The word is drawn from the tick the sim recorded rather than from any
+     * state of the HUD's own, so this can be posed: put a hit on the record
+     * and the next frame has to carry it, and a frame far enough past it
+     * has to not. [REND-14]
+     */
+    {
+        int aiOff[256];
+        int aiOn[256];
+        int iRow;
+        int iHitPixels = 0;
+        int iBelow = 0;
+
+        render_now(pRenderer, iPlayer);
+        histogram(s_aFrame, aiOff);
+
+        s_World.aMechs[iPlayer].iHitDealtTick = s_World.iTick;
+        render_now(pRenderer, iPlayer);
+        histogram(s_aFrame, aiOn);
+        dump_frame(szOutDir, "arena_hit.png");
+
+        /* Red, and more of it than the frame had a moment ago. */
+        CHECK(aiOn[231] > aiOff[231]);
+
+        /*
+         * And in the right place: above the clock, which sits in the bottom
+         * 24 scaled rows. Anything painted over the clock itself would be
+         * the one thing the player still has to be able to read.
+         */
+        for (iRow = 0; iRow < FRAME_H; iRow++) {
+            int iCol;
+
+            for (iCol = 0; iCol < FRAME_W; iCol++) {
+                if (s_aFrame[iRow * FRAME_W + iCol] != 231)
+                    continue;
+                if (iRow >= FRAME_H - 38 * (FRAME_W / 320)
+                    && iRow < FRAME_H - 24 * (FRAME_W / 320))
+                    iHitPixels++;
+                else if (iRow >= FRAME_H - 24 * (FRAME_W / 320))
+                    iBelow++;
+            }
+        }
+        printf("   HIT drew %d px above the clock, %d below it\n",
+               iHitPixels, iBelow);
+        CHECK(iHitPixels > 0);
+
+        /* Gone again once the flash has run out. */
+        s_World.aMechs[iPlayer].iHitDealtTick =
+            s_World.iTick - MECHA_SEC(2.0f);
+        render_now(pRenderer, iPlayer);
+        histogram(s_aFrame, aiOn);
+        CHECK(aiOn[231] <= aiOff[231]);
     }
 
     /*

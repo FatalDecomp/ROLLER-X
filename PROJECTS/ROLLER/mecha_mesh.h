@@ -97,9 +97,9 @@ typedef struct
 #define MECHA_TEX_STRUCT  3   /* building bank: block faces */
 /* The effect bank again, recoloured so a crossfire is readable. Falls back
  * to the blue one when there is no data to recolour. [REND-13] */
-#define MECHA_TEX_EFFECT_WARM   4
-#define MECHA_TEX_EFFECT_VIOLET 5
-#define MECHA_TEX_EFFECT_GREEN  6
+#define MECHA_TEX_EFFECT_WARM    4
+#define MECHA_TEX_EFFECT_MAGENTA 5
+#define MECHA_TEX_EFFECT_ROSE    6
 /* The gun car's own skin: xzizin.bm, the same file the race game paints the
  * Zizin with, loaded into a car texture slot of its own. */
 #define MECHA_TEX_CAR           7
@@ -224,8 +224,12 @@ int mecha_bolt_bank(uint8_t byPalette);
 float mecha_quad_depth_key(const tMechaQuad *pQuad, const float afEye[3],
                            const float afForward[3]);
 
+/* Shots take the eye position as well as the camera's heading: each one is
+ * turned to face the eye rather than the view plane, and each is held to a
+ * minimum apparent size so a small round stays visible across the arena.
+ * [MESH-48] */
 void mecha_mesh_projectiles(tMechaQuadList *pList, const tMechaWorld *pWorld,
-                            int iCameraYaw);
+                            int iCameraYaw, const float afEye[3]);
 void mecha_mesh_effects(tMechaQuadList *pList, const tMechaWorld *pWorld,
                         int iCameraYaw);
 

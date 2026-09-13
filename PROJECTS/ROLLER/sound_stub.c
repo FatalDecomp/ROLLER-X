@@ -368,6 +368,14 @@ void pannedsample(int iSampleIdx, int iHandle, int iPan)
   (void)iPan;
 }
 
+void pitchedsample(int iSampleIdx, int iVolume, int iPitch, int iPan)
+{
+  (void)iSampleIdx;
+  (void)iVolume;
+  (void)iPitch;
+  (void)iPan;
+}
+
 void speechonly(int iSampleIdx, int iVolume, int iDelay, int iCarIdx)
 {
   (void)iSampleIdx;

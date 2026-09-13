@@ -3465,12 +3465,22 @@ static void mecha_add_blade(tMechaQuadList *pList, float fX, float fY,
  * camera. This is what makes a fast round readable at 60 Hz instead of a dot
  * that teleports across the arena. */
 static void mecha_add_tracer(tMechaQuadList *pList, int iCameraYaw,
+                             const float afEye[3],
                              float fX0, float fY0, float fZ0,
                              float fX1, float fY1, float fZ1,
                              float fWidth, uint8_t byPalette)
 {
-  float fForwardX = mecha_sin(iCameraYaw);
-  float fForwardZ = mecha_cos(iCameraYaw);
+  /*
+   * The line from the eye to the streak, not the direction the camera
+   * happens to be pointing. Those agree only at the centre of the screen;
+   * off to one side the old vector widened the quad along a direction that
+   * was not square to the eye and the streak foreshortened away to a
+   * hairline exactly where it was hardest to see. [MESH-48]
+   */
+  float fForwardX = (fX0 + fX1) * 0.5f - afEye[0];
+  float fForwardY = (fY0 + fY1) * 0.5f - afEye[1];
+  float fForwardZ = (fZ0 + fZ1) * 0.5f - afEye[2];
+  float fForwardLen = mecha_length3(fForwardX, fForwardY, fForwardZ);
   float fAxisX = fX1 - fX0;
   float fAxisY = fY1 - fY0;
   float fAxisZ = fZ1 - fZ0;
@@ -3489,12 +3499,21 @@ static void mecha_add_tracer(tMechaQuadList *pList, int iCameraYaw,
   fAxisX /= fLength;
   fAxisY /= fLength;
   fAxisZ /= fLength;
+  if (fForwardLen > 1e-4f) {
+    fForwardX /= fForwardLen;
+    fForwardY /= fForwardLen;
+    fForwardZ /= fForwardLen;
+  } else {
+    fForwardX = mecha_sin(iCameraYaw);
+    fForwardY = 0.0f;
+    fForwardZ = mecha_cos(iCameraYaw);
+  }
 
   /* Perpendicular to both the flight path and the view direction, so the
    * streak keeps its width whatever angle it is seen from. */
-  fSideX = fAxisY * fForwardZ - fAxisZ * 0.0f;
+  fSideX = fAxisY * fForwardZ - fAxisZ * fForwardY;
   fSideY = fAxisZ * fForwardX - fAxisX * fForwardZ;
-  fSideZ = fAxisX * 0.0f - fAxisY * fForwardX;
+  fSideZ = fAxisX * fForwardY - fAxisY * fForwardX;
   fSideLength = mecha_length3(fSideX, fSideY, fSideZ);
   if (fSideLength < 1e-4f) {
     /* Flying straight at or away from the camera. */
@@ -3518,24 +3537,25 @@ static void mecha_add_tracer(tMechaQuadList *pList, int iCameraYaw,
 //-------------------------------------------------------------------------------------------------
 
 /*
- * The roster paints its tracers in six colours (mecha_defs.c names them
+ * The roster paints its tracers in eight colours (mecha_defs.c names them
  * PAL_TRACER_*), and a bolt is drawn from whichever recoloured copy of the
- * plasma frames sits nearest to that. Anything unrecognised keeps the blue
- * the frames were drawn in.
+ * plasma frames sits nearest to that. Three recoloured banks cover the warm
+ * half of the set; anything blue, cyan or white keeps the blue the frames
+ * were drawn in. [MESH-47]
  */
 int mecha_bolt_bank(uint8_t byPalette)
 {
   switch (byPalette) {
-  case 171:                       /* orange */
-  case 206:                       /* amber  */
-  case 34:                        /* sand   */
+  case 171:                       /* orange  */
+  case 207:                       /* yellow  */
+  case 231:                       /* red     */
     return MECHA_TEX_EFFECT_WARM;
-  case 192:                       /* violet */
-    return MECHA_TEX_EFFECT_VIOLET;
-  case 255:                       /* green  */
-    return MECHA_TEX_EFFECT_GREEN;
+  case 195:                       /* magenta */
+    return MECHA_TEX_EFFECT_MAGENTA;
+  case 183:                       /* rose    */
+    return MECHA_TEX_EFFECT_ROSE;
   default:
-    return MECHA_TEX_EFFECT;      /* cyan and white are close enough to it */
+    return MECHA_TEX_EFFECT;      /* blue, cyan and white are near enough */
   }
 }
 
@@ -3808,20 +3828,65 @@ void mecha_mesh_clouds(tMechaQuadList *pList, const tMechaWorld *pWorld)
 
 //-------------------------------------------------------------------------------------------------
 
+/*
+ * The smallest angle a shot is allowed to subtend, and the most it may be
+ * inflated to get there. The projection puts a world half-extent of h at a
+ * distance d on screen at h * 200 / d pixels in the 320-wide reference
+ * frame, so this floor is a hair over a pixel of half-width -- call it two
+ * and a half pixels across, which is the least a moving dot can be and
+ * still be followed. A 0.8 m round is under that from about 50 m out, which
+ * is inside the range these fights are actually held at. [MESH-48]
+ */
+#define MECHA_SHOT_MIN_ANGLE 0.0065f
+#define MECHA_SHOT_MAX_GROW  3.2f
+
+/* A shot's drawn half-extent: its own, or the floor above, whichever is
+ * larger, and never more than a few times its own so a distant round grows
+ * into a dot rather than a balloon. */
+static float mecha_shot_size(float fSize, float fDist)
+{
+  float fFloor = fDist * MECHA_SHOT_MIN_ANGLE;
+  float fCeil = fSize * MECHA_SHOT_MAX_GROW;
+
+  if (fFloor <= fSize)
+    return fSize;
+  return fFloor > fCeil ? fCeil : fFloor;
+}
+
+/* The heading from the eye to a point, which is what a sprite standing at
+ * that point has to be turned to. Using the camera's own heading instead
+ * leaves everything away from the middle of the screen turned slightly off
+ * the viewer. [MESH-48] */
+static int mecha_shot_yaw(const float afEye[3], float fX, float fZ)
+{
+  return mecha_atan2_angle(fX - afEye[0], fZ - afEye[2]);
+}
+
+static float mecha_shot_dist(const float afEye[3], float fX, float fY,
+                             float fZ)
+{
+  return mecha_length3(fX - afEye[0], fY - afEye[1], fZ - afEye[2]);
+}
+
 void mecha_mesh_projectiles(tMechaQuadList *pList, const tMechaWorld *pWorld,
-                            int iCameraYaw)
+                            int iCameraYaw, const float afEye[3])
 {
   mecha_quads_part(pList, MECHA_PART_NONE);
   int i;
 
-  if (!pList || !pWorld)
+  if (!pList || !pWorld || !afEye)
     return;
 
   for (i = 0; i < MECHA_MAX_PROJECTILES; i++) {
     const tMechaProjectile *pShot = &pWorld->aProjectiles[i];
+    float fDist;
+    int iFaceYaw;
 
     if (!pShot->bActive)
       continue;
+
+    fDist = mecha_shot_dist(afEye, pShot->fX, pShot->fY, pShot->fZ);
+    iFaceYaw = mecha_shot_yaw(afEye, pShot->fX, pShot->fZ);
 
     switch (pShot->byKind) {
     case MECHA_PROJ_MINE: {
@@ -3850,7 +3915,7 @@ void mecha_mesh_projectiles(tMechaQuadList *pList, const tMechaWorld *pWorld,
       int iPuff;
 
       if (!s_bSprites) {
-        mecha_add_billboard(pList, iCameraYaw, pShot->fX, pShot->fY,
+        mecha_add_billboard(pList, iFaceYaw, pShot->fX, pShot->fY,
                             pShot->fZ, pShot->fRadius, pShot->byPalette);
         break;
       }
@@ -3867,7 +3932,7 @@ void mecha_mesh_projectiles(tMechaQuadList *pList, const tMechaWorld *pWorld,
         afDir[0] = mecha_cos(iElevation) * mecha_sin(iAzimuth);
         afDir[1] = mecha_sin(iElevation);
         afDir[2] = mecha_cos(iElevation) * mecha_cos(iAzimuth);
-        mecha_add_billboard(pList, iCameraYaw,
+        mecha_add_billboard(pList, iFaceYaw,
                             pShot->fX + afDir[0] * pShot->fRadius,
                             pShot->fY + afDir[1] * pShot->fRadius,
                             pShot->fZ + afDir[2] * pShot->fRadius,
@@ -3897,12 +3962,13 @@ void mecha_mesh_projectiles(tMechaQuadList *pList, const tMechaWorld *pWorld,
     case MECHA_PROJ_BEAM:
       /* Streak plus head. The streak stays flat and keeps the weapon's own
        * colour, which is how a player reads whose fire it is. [MESH-27] */
-      mecha_add_tracer(pList, iCameraYaw, pShot->fPrevX, pShot->fPrevY,
+      mecha_add_tracer(pList, iCameraYaw, afEye, pShot->fPrevX, pShot->fPrevY,
                        pShot->fPrevZ, pShot->fX, pShot->fY, pShot->fZ,
-                       pShot->fRadius, pShot->byPalette);
+                       mecha_shot_size(pShot->fRadius, fDist),
+                       pShot->byPalette);
       if (s_bSprites) {
-        mecha_add_billboard(pList, iCameraYaw, pShot->fX, pShot->fY,
-                            pShot->fZ, pShot->fRadius * 1.8f,
+        mecha_add_billboard(pList, iFaceYaw, pShot->fX, pShot->fY, pShot->fZ,
+                            mecha_shot_size(pShot->fRadius * 1.8f, fDist),
                             pShot->byPalette);
         mecha_tag_texture(pList, mecha_bolt_bank(pShot->byPalette),
                           mecha_plasma_frame(pShot->iAge));
@@ -3910,10 +3976,20 @@ void mecha_mesh_projectiles(tMechaQuadList *pList, const tMechaWorld *pWorld,
       break;
 
     case MECHA_PROJ_BULLET:
-      /* Solid rounds stay solid: a slug is not made of light. */
-      mecha_add_tracer(pList, iCameraYaw, pShot->fPrevX, pShot->fPrevY,
+      /*
+       * Solid rounds stay solid: a slug is not made of light, so it gets no
+       * plasma frame. It does get a head, which it did not before -- a bare
+       * streak is one tick of travel long and vanishes the moment the round
+       * is far enough away for that to be short, which is why these were
+       * the shots that could not be seen coming. [MESH-48]
+       */
+      mecha_add_tracer(pList, iCameraYaw, afEye, pShot->fPrevX, pShot->fPrevY,
                        pShot->fPrevZ, pShot->fX, pShot->fY, pShot->fZ,
-                       pShot->fRadius, pShot->byPalette);
+                       mecha_shot_size(pShot->fRadius, fDist),
+                       pShot->byPalette);
+      mecha_add_billboard(pList, iFaceYaw, pShot->fX, pShot->fY, pShot->fZ,
+                          mecha_shot_size(pShot->fRadius, fDist),
+                          pShot->byPalette);
       break;
 
     default:
@@ -3923,8 +3999,10 @@ void mecha_mesh_projectiles(tMechaQuadList *pList, const tMechaWorld *pWorld,
        * flat square they replace: most of a keyed frame is background, so
        * the same quad reads smaller once it is textured.
        */
-      mecha_add_billboard(pList, iCameraYaw, pShot->fX, pShot->fY, pShot->fZ,
-                          pShot->fRadius * (s_bSprites ? 2.0f : 1.4f),
+      mecha_add_billboard(pList, iFaceYaw, pShot->fX, pShot->fY, pShot->fZ,
+                          mecha_shot_size(pShot->fRadius
+                                            * (s_bSprites ? 2.0f : 1.4f),
+                                          fDist),
                           pShot->byPalette);
       mecha_tag_texture(pList, mecha_bolt_bank(pShot->byPalette),
                         mecha_plasma_frame(pShot->iAge));
