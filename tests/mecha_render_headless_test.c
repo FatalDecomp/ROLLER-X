@@ -857,11 +857,12 @@ int main(int argc, char **argv)
      * figure slabs the screen. [TEST-03]
      */
     {
-        /* Machine 2's accent is the one colour on the roster that no HUD
-         * element also paints in, so the blast can simply be counted across
-         * the whole frame with nothing to subtract. */
+        /* A burning machine is painted in fire rather than in its own
+         * livery [SIM-27], and the hot end of that ramp is an index no HUD
+         * element paints in -- so the blast can still be counted across the
+         * whole frame with nothing to subtract. */
         tMechaInput aInputs[MECHA_MAX_MECHS];
-        uint8 byBlast = mecha_def_get(2)->abyPalette[3];
+        uint8 byBlast = MECHA_PAL_BURN_HOT;
         int aiPeak[256];
         int iPeak = 0;
         int i;
@@ -890,6 +891,25 @@ int main(int argc, char **argv)
             if (i == MECHA_TICK_HZ / 6)
                 dump_frame(szOutDir, "arena_blast.png");
             mecha_sim_tick(&s_World, aInputs, MECHA_MAX_MECHS);
+        }
+
+        /*
+         * And it is still burning a couple of seconds later, which is the
+         * whole difference between a kill and a wreck. [SIM-27]
+         */
+        {
+            int aiLate[256];
+            int iLate;
+
+            for (i = 0; i < MECHA_TICK_HZ * 2; i++)
+                mecha_sim_tick(&s_World, aInputs, MECHA_MAX_MECHS);
+            render_now(pRenderer, iPlayer);
+            dump_frame(szOutDir, "arena_wreck.png");
+            histogram(s_aFrame, aiLate);
+            iLate = aiLate[byBlast];
+            printf("   still burning two seconds on: %d px\n", iLate);
+            CHECK(s_World.aMechs[iPlayer].byMove == MECHA_MOVE_DESTROYED);
+            CHECK(s_World.aMechs[iPlayer].iBurnTicks > 0);
         }
 
         /* Every colour the cooling debris walks through has to have one of

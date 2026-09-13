@@ -133,6 +133,10 @@ on the stick, and pick what to spend the next round on.
   rather than a number, a shot that lands and a shot that misses otherwise look
   identical.
 
+- **A destroyed machine burns.** Four seconds of continuous fire and thrown
+  debris, the way a dead car does in the race game, rather than one flash. The
+  round is usually over before it stops.
+
 - **Every trigger is four attacks.** Each of the three weapons has a separate
   definition for standing, crouching, dashing and airborne, so the same button
   is a different attack depending on how you are moving. That is the central
@@ -989,8 +993,8 @@ a mecha. What separates one noise from another is mostly pitch.
   down. A gun's weight sets its pitch, so the same sample is a rifle at one end
   of the roster and a siege gun at the other.
 
-- **Two cockpit warnings.** A low buzz when something lands on you, the same
-  buzz higher when you pull a trigger on an empty gun. Neither is placed or
+- **Two cockpit warnings.** A low buzz when something lands on you, and a dead
+  mechanical clunk when you pull a trigger on an empty gun. Neither is placed or
   attenuated -- they are your machine talking to you, not something in the arena
   -- and only the machine you are flying gets them.
 

@@ -107,14 +107,36 @@ class ArenaSoundTests(unittest.TestCase):
         self.assertIn("iHitTakenTick", warn)
         self.assertIn("iDryFireTick", warn)
 
-    def test_the_two_warnings_are_the_same_sample_at_two_pitches(self):
+    def test_the_two_warnings_are_not_the_same_noise(self):
+        """They started as one sample at two pitches, and the high one was a
+        car horn -- which is what a bright broadband sample pitched up sounds
+        like. The dry trigger is a different sample now. [SND-05]"""
         sound = read(SOUND)
-        self.assertIn("MECHA_SND_WARN_HURT", sound)
-        self.assertIn("MECHA_SND_WARN_DRY", sound)
-        hurt = float(re.search(r"MECHA_SND_WARN_HURT\s+([\d.]+)f", sound)[1])
-        dry = float(re.search(r"MECHA_SND_WARN_DRY\s+([\d.]+)f", sound)[1])
-        self.assertLess(hurt, 1.0)
-        self.assertGreater(dry, 1.0)
+        self.assertIn("MECHA_SFX_WARN", sound)
+        self.assertIn("MECHA_SFX_DRY", sound)
+        hurt = re.search(r"#define MECHA_SFX_WARN\s+(\S+)", sound)[1]
+        dry = re.search(r"#define MECHA_SFX_DRY\s+(\S+)", sound)[1]
+        self.assertNotEqual(hurt, dry)
+
+    def test_the_squeal_is_not_taken_above_the_rate_it_was_cut_at(self):
+        """It ran to 2.7x at an ordinary dash and 4.6x at the quickest,
+        which is a whistle rather than a tyre. [SND-06]"""
+        sound = read(SOUND)
+        rest = float(re.search(r"MECHA_SND_SKID_REST\s+([\d.]+)f", sound)[1])
+        rise = float(re.search(r"MECHA_SND_SKID_RISE\s+([\d.]+)f", sound)[1])
+        self.assertLess(rest, 1.0)
+        self.assertLessEqual(rest + rise, 1.75)
+
+    def test_a_kill_is_heard_once_and_blasts_are_held_apart(self):
+        """A burning wreck throws an explosion every few ticks [SIM-27], and
+        pannedsample keys its handle on the sample -- so without a gap the
+        channel is one sample being restarted forever. [SND-08]"""
+        sound = read(SOUND)
+        self.assertIn("MECHA_SND_BLAST_GAP", sound)
+        self.assertIn("s_abWreckedWas", sound)
+        self.assertIn("MECHA_MOVE_DESTROYED", sound)
+        # The size heuristic it replaced could never fire for a machine.
+        self.assertNotRegex(sound, r"\bbWreck\b")
 
     def test_the_events_it_reads_are_ticks_the_sim_leaves_behind(self):
         """A frame can run several ticks, so a flag set inside one would be

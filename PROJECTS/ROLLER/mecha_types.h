@@ -539,6 +539,13 @@ typedef struct
    * the hit, so a whole volley still counts. [SIM-04] */
   int   iDownTick;
 
+  /* How much of the wreck's burn is left. Set when the machine is destroyed
+   * and counted down; a wreck throws fire for as long as it runs. It is its
+   * own field rather than a reading off iStateTicks because a destroyed
+   * machine is no longer moved and nothing else advances a clock for it.
+   * [SIM-27] */
+  int   iBurnTicks;
+
   /*
    * When each of the things worth hearing or announcing last happened, as
    * ticks. The simulation writes them and never reads them back; sound and

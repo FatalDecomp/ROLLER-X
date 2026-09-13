@@ -39,12 +39,13 @@
 #define MECHA_SFX_LAUNCH  SOUND_SAMPLE_LIGHTLAN /* pods and lobbed charges       */
 #define MECHA_SFX_LAY     SOUND_SAMPLE_BUTTON   /* a mine going down             */
 /*
- * Both cockpit warnings, one sample at two pitches: the low one is the
- * machine being hit, the high one a trigger pulled on an empty gun. They
- * have to be told apart in the middle of a fight without being separate
- * enough to sound like two unrelated events. [SND-05]
+ * The two cockpit warnings. Being hit is a buzz taken below the rate it was
+ * cut at; a trigger pulled on an empty gun is a dead mechanical clunk, not
+ * a beep. The same buzz taken up instead was a car horn, which is what it
+ * sounds like when a bright broadband sample is pitched up. [SND-05]
  */
 #define MECHA_SFX_WARN    SOUND_SAMPLE_BRP
+#define MECHA_SFX_DRY     SOUND_SAMPLE_BANK
 
 /*
  * Inverse-square with a floor, exactly as enginesound() has it: the constant
@@ -62,9 +63,16 @@
 /* A walker's servos are a narrower band than an engine: it is a hum that
  * rises as it moves, not a rev range. */
 #define MECHA_SND_SERVO_SPAN  34000.0f
-/* The skid sample's own base, and the speed that doubles its pitch. */
-#define MECHA_SND_SKID_BASE   65536.0f
-#define MECHA_SND_SKID_SPEED  6400.0f
+/*
+ * The scrub's rate at a standstill, what the quickest machine on the roster
+ * adds to it, and the speed that counts as quickest. The old pair ran the
+ * sample to 2.7x at an ordinary dash and 4.6x at the fastest, which is not
+ * a tyre -- it is a whistle. They were set for a slide at walking pace and
+ * never revisited when the squeal moved onto the boost. [SND-06]
+ */
+#define MECHA_SND_SKID_REST   0.80f
+#define MECHA_SND_SKID_RISE   0.70f
+#define MECHA_SND_SKID_TOP    MECHA_MPS(92.0f)
 /* Sound travels at 343 m/s here as anywhere else. */
 #define MECHA_SND_MACH        MECHA_MPS(343.0f)
 /*
@@ -104,12 +112,19 @@
 #define MECHA_SND_GUN_HIGH    1.30f
 #define MECHA_SND_GUN_LOW     0.72f
 #define MECHA_SND_GUN_LEVEL   0.72f
-/* And the two warnings, one sample either side of the rate it was cut at.
- * [SND-05] */
+/* And the two warnings. [SND-05] */
 #define MECHA_SND_WARN_HURT   0.80f
-#define MECHA_SND_WARN_DRY    1.45f
+#define MECHA_SND_WARN_DRY    1.30f
 #define MECHA_SND_WARN_LEVEL  0.85f
-#define MECHA_SND_DRY_LEVEL   0.55f
+#define MECHA_SND_DRY_LEVEL   0.80f
+/*
+ * Two blasts inside a sixth of a second are not two blasts. pannedsample
+ * keys its handle on the sample index alone, so the second stops the first
+ * part way through and what comes out is a stutter rather than a bang. A
+ * burning wreck throws one every few ticks [SIM-27], so the channel has to
+ * be held open between them. [SND-08]
+ */
+#define MECHA_SND_BLAST_GAP   MECHA_SEC(0.17f)
 
 //-------------------------------------------------------------------------------------------------
 
@@ -126,6 +141,12 @@ static bool  s_abSkidOn[MECHA_MAX_MECHS];
 static int   s_aiFireWas[MECHA_MAX_MECHS];
 static int   s_aiDryFireWas[MECHA_MAX_MECHS];
 static int   s_aiHitTakenWas[MECHA_MAX_MECHS];
+/* Which machines were already wrecked last frame, so a kill sounds once
+ * rather than every frame it is dead for. [SND-08] */
+static bool  s_abWreckedWas[MECHA_MAX_MECHS];
+/* And when the blast sample last started, so a burning wreck is a roll of
+ * explosions rather than one sample restarted forever. [SND-08] */
+static int   s_iBlastTick;
 static bool  s_bActive;
 
 //-------------------------------------------------------------------------------------------------
@@ -241,7 +262,7 @@ void mecha_sound_enter(void)
     MECHA_SFX_ENGINE, MECHA_SFX_SKID, MECHA_SFX_LAND,
     MECHA_SFX_BLAST, MECHA_SFX_WRECK, MECHA_SFX_HIT,
     MECHA_SFX_SLUG, MECHA_SFX_BOLT, MECHA_SFX_LAUNCH,
-    MECHA_SFX_LAY, MECHA_SFX_WARN,
+    MECHA_SFX_LAY, MECHA_SFX_WARN, MECHA_SFX_DRY,
   };
   size_t i;
 
@@ -258,9 +279,11 @@ void mecha_sound_enter(void)
     s_aiDryFireWas[i] = -1;
     s_aiHitTakenWas[i] = -1;
   }
+  s_iBlastTick = -MECHA_SND_BLAST_GAP;
+  memset(s_abWreckedWas, 0, sizeof(s_abWreckedWas));
   s_bActive = true;
 
-  /* The race loads the whole set when it starts; the arena wants eleven of
+  /* The race loads the whole set when it starts; the arena wants twelve of
    * them, and a sample already in memory is not loaded twice. */
   for (i = 0; i < sizeof(aiSamples) / sizeof(aiSamples[0]); i++)
     if (!SamplePtr[aiSamples[i]])
@@ -402,8 +425,15 @@ static void mecha_sound_machine(const tMechaWorld *pWorld, int iMechIdx,
     fLevel = MECHA_SND_BOOST_LEVEL * (fRatio > 1.0f ? 1.0f : fRatio);
   }
   iVolume = mecha_sound_volume(fLevel, &place, SFXVolume);
-  iPitch = (int)((fSpeed / MECHA_SND_SKID_SPEED + 1.0f) * MECHA_SND_SKID_BASE
-                 * place.fDoppler);
+  {
+    float fScrub = fSpeed / MECHA_SND_SKID_TOP;
+
+    if (fScrub > 1.0f)
+      fScrub = 1.0f;
+    iPitch = (int)((float)MECHA_SND_NATIVE
+                   * (MECHA_SND_SKID_REST + MECHA_SND_SKID_RISE * fScrub)
+                   * place.fDoppler);
+  }
   loopsample(iMechIdx, MECHA_SFX_SKID, iVolume, iPitch, place.iPan);
   s_abSkidOn[iMechIdx] = iVolume > 0;
 }
@@ -425,7 +455,7 @@ static void mecha_sound_pitched(int iSample, float fLevel, float fRate,
 
 /* A cockpit warning: the player's own machine talking to the player, so it
  * is neither placed nor attenuated -- it is not in the arena. [SND-05] */
-static void mecha_sound_warn(float fLevel, float fRate)
+static void mecha_sound_warn(int iSample, float fLevel, float fRate)
 {
   float fVolume = fLevel * (float)MECHA_SND_FULL
                   * ((float)SFXVolume / 127.0f);
@@ -434,7 +464,7 @@ static void mecha_sound_warn(float fLevel, float fRate)
     return;
   if (fVolume > (float)MECHA_SND_FULL)
     fVolume = (float)MECHA_SND_FULL;
-  pitchedsample(MECHA_SFX_WARN, (int)fVolume,
+  pitchedsample(iSample, (int)fVolume,
                 (int)((float)MECHA_SND_NATIVE * fRate), 0x8000);
 }
 
@@ -538,13 +568,28 @@ void mecha_sound_update(const tMechaWorld *pWorld, const tMechaCamera *pCamera,
     if (i == iViewMech) {
       if (pMech->iHitTakenTick != s_aiHitTakenWas[i]
           && pMech->iHitTakenTick >= 0)
-        mecha_sound_warn(MECHA_SND_WARN_LEVEL, MECHA_SND_WARN_HURT);
+        mecha_sound_warn(MECHA_SFX_WARN, MECHA_SND_WARN_LEVEL,
+                         MECHA_SND_WARN_HURT);
       if (pMech->iDryFireTick != s_aiDryFireWas[i]
           && pMech->iDryFireTick >= 0)
-        mecha_sound_warn(MECHA_SND_DRY_LEVEL, MECHA_SND_WARN_DRY);
+        mecha_sound_warn(MECHA_SFX_DRY, MECHA_SND_DRY_LEVEL,
+                         MECHA_SND_WARN_DRY);
     }
     s_aiHitTakenWas[i] = pMech->iHitTakenTick;
     s_aiDryFireWas[i] = pMech->iDryFireTick;
+
+    /*
+     * A machine coming apart. Once, on the frame it happens, and loudly:
+     * this is the only thing in the arena that gets the big crash sample.
+     * [SND-08]
+     */
+    {
+      bool bWrecked = pMech->byMove == MECHA_MOVE_DESTROYED;
+
+      if (bWrecked && !s_abWreckedWas[i])
+        mecha_sound_shot(MECHA_SFX_WRECK, 1.0f, &place);
+      s_abWreckedWas[i] = bWrecked;
+    }
 
     /* Coming down. The fall speed is read a frame early because by the time
      * the wheels are on the ground it has already been spent. */
@@ -576,14 +621,20 @@ void mecha_sound_update(const tMechaWorld *pWorld, const tMechaCamera *pCamera,
 
     {
       tMechaSoundPlace place;
-      /* Scale is how big the blast is; the biggest of them are a machine
-       * coming apart and get the wreck sample instead. */
-      bool bWreck = pFx->fScale >= MECHA_M(4.0f);
 
+      /*
+       * Every one of these is a blast. Which one is a machine coming apart
+       * is not a question the effect table can answer -- it was asked by
+       * size, and no machine's death blast was ever big enough to count,
+       * so the wreck sample only ever played for a large missile. The
+       * machines themselves are asked instead, above. [SND-08]
+       */
+      if (pWorld->iTick - s_iBlastTick < MECHA_SND_BLAST_GAP)
+        continue;
       mecha_sound_place(pCamera, pFx->fX, pFx->fY, pFx->fZ,
                         pFx->fVelX, pFx->fVelY, pFx->fVelZ, &place);
-      mecha_sound_shot(bWreck ? MECHA_SFX_WRECK : MECHA_SFX_BLAST,
-                       bWreck ? 1.0f : 0.8f, &place);
+      mecha_sound_shot(MECHA_SFX_BLAST, 0.8f, &place);
+      s_iBlastTick = pWorld->iTick;
     }
   }
 }

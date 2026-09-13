@@ -89,7 +89,7 @@ python3 tools/check_roller_core_manifest.py
 mdformat --check docs/
 ```
 
-At the time of writing that is 89 sim test groups and 311 python tests, all
+At the time of writing that is 91 sim test groups and 313 python tests, all
 passing. `zig` is not on a remote session's PATH and its package fetcher cannot
 reach GitHub through the agent proxy; the way round both is in the toolchain
 notes below.
@@ -124,8 +124,9 @@ Modes: duel, survival (sixteen machines, each its own team), team deathmatch
 WORLDS [ARENA-16..19]. Sound runs through Whiplash's mixer \[SND-01..07\]: the
 walk drives the engine loop [SND-07], a ground boost is what squeals [SND-06],
 every weapon has a voice built out of a car noise at a new pitch [SND-04], and
-two cockpit warnings answer a hit taken and a dry trigger [SND-05]. Weapon fire
-is painted in six neon hues the arena is never painted in [DEF-12] and held to a
+two cockpit warnings answer a hit taken and a dry trigger [SND-05]. A destroyed
+machine burns for seconds rather than popping once [SIM-27]. Weapon fire is
+painted in six neon hues the arena is never painted in [DEF-12] and held to a
 minimum apparent size [MESH-48]; a landed hit flashes HIT over the clock
 [REND-14]. Computer pilots get round cover [AI-09], turn a dash mid-burst
 [AI-10], refuse drops [AI-11], get round gaps [AI-12] and follow the arena's
@@ -156,8 +157,10 @@ wins a round holds a pose [MESH-41, MESH-42].
   the mixer's own code [SND-02] and by tests, but nobody has listened to it. The
   sample choices in [SND-04] were made by measuring the `.RAW` files --
   duration, zero crossings, dominant frequency, tonality -- not by ear, and the
-  two warning pitches in [SND-05] are a guess at "slightly different" that only
-  listening can settle.
+  two warning pitches in [SND-05] are a guess that listening has already
+  corrected once -- the dry trigger came out sounding like a car horn -- and the
+  boost squeal's rate has been moved down once for the same reason [SND-06].
+  Expect more of that.
 - **A spectator sees DEFEAT.** `mecha_phase_banner` asks whether the viewer is
   allied with the winner, and a free camera is on nobody's side. Pre-existing,
   never reported as a bug, listed here so it is not rediscovered as one.
@@ -2786,9 +2789,19 @@ ______________________________________________________________________
 ## SND-05 — one warning sample, two pitches
 
 Virtual-On warns you that you are being hit and warns you, differently, that the
-gun you just pulled is empty. The brief said "a slightly different warning
-sound", and that is exactly what one sample at two rates gives: `BRP`, a third
-of a second of buzz, at 0.80x for a hit taken and 1.45x for a dry trigger.
+gun you just pulled is empty.
+
+The first attempt was one sample at two rates — `BRP` at 0.80x and 1.45x — which
+answered the brief's "a slightly different warning sound" literally and sounded,
+at the high end, exactly like a car horn. That is what pitching up a bright
+broadband sample does: `BRP` already peaks between 2.6 and 4.7 kHz, so 1.45x
+puts it at 3.8 to 6.8 kHz and there is nowhere else for it to read as.
+
+The hit warning stays where it was. The dry trigger is a different noise
+entirely now: `BANK`, the barrier impact, a low decaying thud at 1.30x. An empty
+gun is a mechanism working and nothing coming out, which is a clunk rather than
+a beep — and being a different kind of sound rather than a different pitch makes
+it impossible to confuse with the damage buzz in the middle of a fight.
 
 They are **not** placed and **not** attenuated. Everything else in the arena is
 mixed from where the camera stands [SND-02], but a cockpit warning is not in the
@@ -2807,9 +2820,16 @@ every circle-strafe.
 
 What actually scrubs the floor is a ground dash — thrusters lit with the feet
 still down, in any direction. That is now the only thing that squeals, its level
-riding the machine's speed against its own walk speed and its pitch riding
-absolute speed as before. Airborne dashes are silent on this channel, because
-nothing is being scrubbed.
+riding the machine's speed against its own walk speed. Airborne dashes are
+silent on this channel, because nothing is being scrubbed.
+
+**The pitch had to come down with it.** The old pair of constants — a base of
+1.00x and a rise of one octave per 25.6 m/s — were set for a slide at walking
+pace and were never revisited when the trigger moved. Dash speeds on the roster
+run from 43 to 92 m/s, which put the sample at 2.7x for an ordinary dash and
+4.6x for the quickest: not a tyre, a whistle. It is a floor of 0.80x now with
+0.70x added across the full range, so the slowest dash sits at 1.13x and the
+fastest at 1.50x. Those two numbers are the knob if it is still wrong.
 
 ______________________________________________________________________
 
@@ -2951,3 +2971,103 @@ rather than as one continuous word.
 
 Above the clock rather than over it: the clock is in the bottom right [REND-09]
 and is the one number that still has to be readable while HIT is up.
+
+______________________________________________________________________
+
+## SIM-27 — a wreck burns, it does not pop
+
+A kill was one flash and fourteen pieces of debris, over inside a second and a
+half. A Whiplash car does something quite different: `dospray()`'s type-2
+particles respawn for **as long as the car is dead**, most of them small and
+every eighth much larger, with `sfxpend(SOUND_SAMPLE_EXPLO)` every four to seven
+respawns. It is a continuous fire, not a bang.
+
+The arena does the same thing off a clock, because nothing here ever repairs a
+machine and a wreck would otherwise burn until the round ended. Four seconds, an
+eruption every four ticks, every eighth of them big and out of the middle of the
+hull rather than off its shell — measured at fifteen blasts a second, constant
+across the whole burn and nothing before or after it.
+
+The clock is its own field. `iStateTicks` looks like the natural place to read
+it from, but a destroyed machine is no longer moved and nothing advances a clock
+for it, so `iBurnTicks` counts itself down in the emitter.
+
+**Fire is not livery.** The blast took `abyPalette[3]`, the machine's own
+accent, which made a dead Exos 2000 a magenta bonfire. A weapon's blast keeps
+the colour of whoever fired it — that is how a player reads whose it was — but a
+machine coming apart is fire, and it now cycles three steps off the hot end of
+the ramp cooling debris walks down [MESH-29].
+
+______________________________________________________________________
+
+## SIM-28 — a full effect table used to move the fight
+
+Adding the wreck burn changed the outcome of a sixteen-way brawl, which for a
+cosmetic effect should have been impossible. It took a bisect to believe.
+
+`mecha_spawn_burst` draws three values off the **world** RNG per particle and
+then asks for a slot. When the table was full it `return`ed — abandoning the
+rest of the loop, and with it the draws those particles would have taken. So the
+number of values pulled out of the sequence the fight is decided from depended
+on how many cosmetic effects happened to be alive at that moment. A busy screen
+dealt different cards.
+
+It is a `continue` now: the particle is dropped, the draws still happen, and the
+count depends only on the caller's `iCount`.
+
+This is the same class of mistake the private per-machine `spray` RNG exists to
+prevent [SIM-02], arriving by a different door — not a cosmetic thing *reading*
+the shared sequence, but a cosmetic thing changing how much of it gets consumed.
+Worth remembering that allocation failure is a side channel.
+
+The regression test fills all ninety-six effect slots with something that
+outlives the measurement, runs twenty-five seconds of a sixteen-way fight beside
+an untouched copy, and requires every machine's position, facing, armour and
+state to match exactly. It needed a crowd rather than a duel: bursts are thrown
+by kills and blast-radius weapons, and a quiet duel never calls the function at
+all — the first version of the test passed with the bug reintroduced, which is
+the only reason it was caught.
+
+______________________________________________________________________
+
+## TEST-11 — one seed is a coin flip
+
+The causeway test asserted that more than half of sixteen machines survive the
+first ten seconds, measured at one seed. Changing the RNG sequence for an
+unrelated reason [SIM-28] dropped that seed from ten survivors to eight and
+failed the build.
+
+Eight is not a regression. Measured across twelve seeds the same scenario runs
+from eight survivors to fifteen, mean about eleven: the map has a hole in it and
+sixteen machines fighting near an edge is a chaotic system. One seed against a
+threshold near the middle of that spread is a coin flip that fails the day
+anything shifts the sequence.
+
+It runs four seeds now. Each has to clear a third — no single opening may be a
+rout — and the total has to clear half, which is the property actually being
+asserted: a fight on this map is decided by shooting rather than by everybody
+walking off.
+
+______________________________________________________________________
+
+## SND-08 — one bang at a time, and who the big one belongs to
+
+Two things came out of making a wreck burn [SIM-27].
+
+**The blast channel needed a gap.** `pannedsample` keys its handle table on the
+sample index alone, so starting `EXPLO` while `EXPLO` is already playing stops
+the first one part way through. A burning wreck throws an eruption every four
+ticks; without a gap the channel is not a roll of explosions, it is one sample
+being restarted fifteen times a second, which is a stutter. A sixth of a second
+between starts is enough for each to be a bang. Whiplash does the same thing
+with `nExplosionSoundTimer`, four to seven respawns apart.
+
+**The wreck sample was asking the wrong question.** Which explosion was a
+machine coming apart used to be decided by size: `fScale >= 4 m`. A machine's
+death blast is a quarter of its height, which across the whole roster is 2.85 m
+to 4.25 m — so only the tallest machine ever tripped it, and the one thing that
+reliably did was a large missile. `BIGCRASH` was effectively playing for
+missiles and not for kills.
+
+The machines are asked instead. A machine entering `MECHA_MOVE_DESTROYED` gets
+the big crash once, on the frame it happens; every explosion effect is a blast.

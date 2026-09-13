@@ -384,6 +384,32 @@
 /* How far up the machine the damage sits, and how far it drifts. */
 #define MECHA_DAMAGE_HEIGHT    0.62f
 #define MECHA_DAMAGE_RISE      MECHA_MPS(7.0f)
+
+/*
+ * A destroyed machine burns rather than popping once. The race game keeps
+ * respawning its death particles for as long as the car is dead; this is
+ * the same thing on a clock, because an arena wreck is never repaired and
+ * would otherwise burn until the round ended. [SIM-27]
+ */
+#define MECHA_WRECK_BURN       MECHA_SEC(4.0f)
+/* Ticks between eruptions, and how often one of them is a big one -- the
+ * race game's own every-eighth rule. */
+#define MECHA_WRECK_INTERVAL   4
+#define MECHA_WRECK_BIG_EVERY  8
+#define MECHA_WRECK_LIFE       MECHA_SEC(0.5f)
+#define MECHA_WRECK_EMBER_LIFE MECHA_SEC(0.85f)
+#define MECHA_WRECK_THROW      MECHA_MPS(24.0f)
+#define MECHA_WRECK_RISE       MECHA_MPS(9.0f)
+/*
+ * What a burning machine is painted in. Three steps off the hot end of the
+ * ramp cooling debris walks down [MESH-29], cycled so the fire flickers
+ * rather than sitting at one colour. A weapon's blast keeps the colour of
+ * whoever fired it -- that is how a player reads whose it was -- but a
+ * machine coming apart is fire, not livery. [SIM-27]
+ */
+#define MECHA_PAL_BURN_HOT     207
+#define MECHA_PAL_BURN_MID     171
+#define MECHA_PAL_BURN_LOW     230
 /*
  * At rest the whole arm unfolds and hangs: the shoulder stops tracking, the
  * elbow gives up all but this much of its right angle, and the gun ends up

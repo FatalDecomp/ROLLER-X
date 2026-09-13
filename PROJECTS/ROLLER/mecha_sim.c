@@ -321,8 +321,15 @@ static void mecha_spawn_burst(tMechaWorld *pWorld, float fX, float fY,
     pFx = mecha_alloc_effect(pWorld, MECHA_FX_EMBER, fX, fY, fZ,
                              fScale * (0.6f + 0.8f * mecha_rng_unit(&pWorld->rng)),
                              0, iLife);
+    /*
+     * A full table drops the particle and nothing else. It used to stop the
+     * loop, which meant the number of draws taken off the shared RNG
+     * depended on how many effects happened to be alive -- so a busy screen
+     * moved the sequence the fight is decided from. Cosmetics must never do
+     * that. [SIM-28]
+     */
     if (!pFx)
-      return;
+      continue;
     mecha_direction_from_angles(iYaw, iPitch, &fDirX, &fDirY, &fDirZ);
     pFx->fVelX = fDirX * fThis;
     pFx->fVelY = fDirY * fThis;
@@ -398,6 +405,83 @@ static void mecha_emit_damage(tMechaWorld *pWorld, int iMechIdx)
       pFx->fVelX = pMech->fVelX * 0.5f;
       pFx->fVelY = MECHA_DAMAGE_RISE * 0.5f;
       pFx->fVelZ = pMech->fVelZ * 0.5f;
+    }
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+/*
+ * A wreck burning, in the shape of the race game's death spray: while the
+ * car is dead it keeps respawning fire particles, most of them small and
+ * every eighth much bigger, and it never settles into one puff. The arena
+ * runs the same thing off a clock, because nothing here ever repairs a
+ * machine and it would otherwise burn until the round ended. [SIM-27]
+ */
+static void mecha_emit_wreck(tMechaWorld *pWorld, int iMechIdx)
+{
+  tMechaMech *pMech = &pWorld->aMechs[iMechIdx];
+  const tMechaMechDef *pDef = mecha_mech_def(pMech);
+  float fCentreY;
+  float fX;
+  float fY;
+  float fZ;
+  float fSize;
+  int iYaw;
+  int iBlast;
+  bool bBig;
+
+  if (pMech->iBurnTicks <= 0)
+    return;
+  pMech->iBurnTicks--;
+
+  /* Staggered by machine, the same way the damage spray is, so a row of
+   * wrecks does not erupt on one tick and then leave the table idle. */
+  if ((pWorld->iTick + iMechIdx) % MECHA_WRECK_INTERVAL != 0)
+    return;
+
+  /* Which eruption this is, counting from the start of the burn. Every
+   * eighth is the big one. */
+  iBlast = (MECHA_WRECK_BURN - pMech->iBurnTicks) / MECHA_WRECK_INTERVAL;
+  bBig = (iBlast % MECHA_WRECK_BIG_EVERY) == 0;
+
+  fCentreY = pMech->fY + pDef->fHeight * 0.45f;
+  iYaw = mecha_rng_range(&pMech->spray, MECHA_ANGLE_FULL);
+  /* The big ones come out of the middle, the rest off the hull, which is
+   * the race game's split between its two particle sizes. */
+  fX = pMech->fX + mecha_sin(iYaw) * pDef->fRadius * (bBig ? 0.2f : 0.7f);
+  fZ = pMech->fZ + mecha_cos(iYaw) * pDef->fRadius * (bBig ? 0.2f : 0.7f);
+  fY = fCentreY + pDef->fHeight * 0.30f
+       * (mecha_rng_unit(&pMech->spray) - 0.35f);
+  fSize = pDef->fHeight * (bBig ? 0.26f : 0.13f)
+          * (0.8f + 0.5f * mecha_rng_unit(&pMech->spray));
+
+  {
+    static const uint8_t abyBurn[] = {
+      MECHA_PAL_BURN_HOT, MECHA_PAL_BURN_MID, MECHA_PAL_BURN_LOW,
+      MECHA_PAL_BURN_MID
+    };
+
+    mecha_sim_spawn_effect(pWorld, MECHA_FX_EXPLOSION, fX, fY, fZ, fSize,
+                           abyBurn[iBlast & 3], MECHA_WRECK_LIFE);
+  }
+
+  /* And it throws pieces the whole time, not just on the first tick. */
+  {
+    tMechaEffect *pFx =
+      mecha_alloc_effect(pWorld, MECHA_FX_EMBER, fX, fY, fZ,
+                         pDef->fRadius * (0.10f + 0.12f
+                                          * mecha_rng_unit(&pMech->spray)),
+                         0, MECHA_WRECK_EMBER_LIFE);
+
+    if (pFx) {
+      int iThrow = mecha_rng_range(&pMech->spray, MECHA_ANGLE_FULL);
+      float fSpeed = MECHA_WRECK_THROW
+                     * (0.4f + 0.8f * mecha_rng_unit(&pMech->spray));
+
+      pFx->fVelX = mecha_sin(iThrow) * fSpeed;
+      pFx->fVelY = MECHA_WRECK_RISE * (0.5f + mecha_rng_unit(&pMech->spray));
+      pFx->fVelZ = mecha_cos(iThrow) * fSpeed;
     }
   }
 }
@@ -511,6 +595,8 @@ void mecha_sim_damage(tMechaWorld *pWorld, int iVictimIdx, int iAttackerIdx,
   if (pVictim->fArmour <= 0.0f) {
     pVictim->fArmour = 0.0f;
     pVictim->byMove = MECHA_MOVE_DESTROYED;
+    /* And it burns from here. [SIM-27] */
+    pVictim->iBurnTicks = MECHA_WRECK_BURN;
     pVictim->iStateTicks = 0;
     pVictim->iStunTicks = 0;
     pVictim->fVelX = 0.0f;
@@ -523,7 +609,7 @@ void mecha_sim_damage(tMechaWorld *pWorld, int iVictimIdx, int iAttackerIdx,
      * on the one frame the player most needs to see what happened. */
     mecha_sim_spawn_effect(pWorld, MECHA_FX_EXPLOSION, pVictim->fX,
                            pVictim->fY + pDef->fHeight * 0.5f, pVictim->fZ,
-                           pDef->fHeight * 0.25f, pDef->abyPalette[3],
+                           pDef->fHeight * 0.25f, MECHA_PAL_BURN_HOT,
                            MECHA_SEC(0.9f));
     /* The flash alone was one quad appearing and vanishing. The debris is
      * what makes a kill read as a machine coming apart. */
@@ -1962,6 +2048,7 @@ integrate:
 
   mecha_update_attitude(pWorld, iMechIdx, pInput, bCanAct);
   mecha_emit_damage(pWorld, iMechIdx);
+  mecha_emit_wreck(pWorld, iMechIdx);
 
   {
     float fSpeed = mecha_length2(pMech->fVelX, pMech->fVelZ);
@@ -3190,6 +3277,7 @@ static void mecha_reset_mech_for_round(tMechaWorld *pWorld, int iMechIdx,
   pMech->iRecovery = 0;
   /* No tick is tick -1, so nothing is inside its knockdown grace. */
   pMech->iDownTick = -1;
+  pMech->iBurnTicks = 0;
   /* And nothing has fired, missed a trigger, or been hit yet. [TYPE-09] */
   pMech->iFireTick = -1;
   pMech->iDryFireTick = -1;

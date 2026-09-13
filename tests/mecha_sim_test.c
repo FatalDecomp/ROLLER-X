@@ -7429,29 +7429,51 @@ static int test_the_causeway_map_is_a_causeway(void)
      * have to last the opening while they do.
      */
     {
-        tMechaWorld world;
-        tMechaInput aInputs[MECHA_MAX_MECHS];
-        int iAlive = 0;
-        int iTick;
-        int i;
+        /*
+         * Four seeds, not one. A sixteen-way brawl on a map with a hole in
+         * it spreads from eight survivors to fifteen depending on nothing
+         * but the draw, so one seed against a fixed threshold is a coin
+         * flip that fails the day an unrelated change shifts the sequence.
+         * What is actually being asserted is that the opening is decided by
+         * shooting rather than by everybody walking off, and that is a
+         * property of the average. [TEST-11]
+         */
+        static const uint32_t auiSeeds[] = { 0xFACEu, 0xBEEFu, 0x5555u,
+                                             0x1234u };
+        int iTotal = 0;
+        size_t iSeed;
 
-        mecha_sim_init(&world, iIdx, 0xFACEu, 1);
-        for (i = 0; i < MECHA_MAX_MECHS; i++)
-            mecha_sim_add_mech(&world, i % mecha_def_count(),
-                               MECHA_CONTROL_AI, (uint8_t)(i + 1));
-        mecha_sim_begin_match(&world);
-        memset(aInputs, 0, sizeof(aInputs));
-        /* Everyone is placed on solid ground, not in the hole. */
-        for (i = 0; i < MECHA_MAX_MECHS; i++)
-            CHECK(world.aMechs[i].fY > -MECHA_M(1.0f));
-        for (iTick = 0; iTick < MECHA_TICK_HZ * 10; iTick++)
-            mecha_sim_tick(&world, aInputs, MECHA_MAX_MECHS);
-        for (i = 0; i < MECHA_MAX_MECHS; i++)
-            if (mecha_mech_alive(&world.aMechs[i]))
-                iAlive++;
-        printf("   %d of %d still up after the first ten seconds\n", iAlive,
-               MECHA_MAX_MECHS);
-        CHECK(iAlive > MECHA_MAX_MECHS / 2);
+        for (iSeed = 0; iSeed < sizeof(auiSeeds) / sizeof(auiSeeds[0]);
+             iSeed++) {
+            tMechaWorld world;
+            tMechaInput aInputs[MECHA_MAX_MECHS];
+            int iAlive = 0;
+            int iTick;
+            int i;
+
+            mecha_sim_init(&world, iIdx, auiSeeds[iSeed], 1);
+            for (i = 0; i < MECHA_MAX_MECHS; i++)
+                mecha_sim_add_mech(&world, i % mecha_def_count(),
+                                   MECHA_CONTROL_AI, (uint8_t)(i + 1));
+            mecha_sim_begin_match(&world);
+            memset(aInputs, 0, sizeof(aInputs));
+            /* Everyone is placed on solid ground, not in the hole. */
+            for (i = 0; i < MECHA_MAX_MECHS; i++)
+                CHECK(world.aMechs[i].fY > -MECHA_M(1.0f));
+            for (iTick = 0; iTick < MECHA_TICK_HZ * 10; iTick++)
+                mecha_sim_tick(&world, aInputs, MECHA_MAX_MECHS);
+            for (i = 0; i < MECHA_MAX_MECHS; i++)
+                if (mecha_mech_alive(&world.aMechs[i]))
+                    iAlive++;
+            printf("   seed %04X: %d of %d still up after ten seconds\n",
+                   auiSeeds[iSeed], iAlive, MECHA_MAX_MECHS);
+            iTotal += iAlive;
+            /* No single opening may be a rout, whatever the draw. */
+            CHECK(iAlive > MECHA_MAX_MECHS / 3);
+        }
+        printf("   %d of %d across four openings\n", iTotal,
+               MECHA_MAX_MECHS * 4);
+        CHECK(iTotal > MECHA_MAX_MECHS * 4 / 2);
     }
     return 0;
 }
@@ -7991,6 +8013,137 @@ static int test_a_distant_shot_is_still_worth_a_pixel(void)
     return 0;
 }
 
+/*
+ * A destroyed machine burns instead of popping once, the way a dead car
+ * does in the race game. [SIM-27]
+ */
+static int test_a_wreck_burns_rather_than_popping(void)
+{
+    tMechaWorld world;
+    tMechaInput aInputs[MECHA_MAX_MECHS];
+    int aiBlasts[8];
+    int iSecond;
+    int iBefore = 0;
+    int iDuring = 0;
+    int iAfter = 0;
+    int i;
+
+    start_duel(&world, 0, 0, 0, 0x8B0Eu, 1);
+    memset(aInputs, 0, sizeof(aInputs));
+    memset(aiBlasts, 0, sizeof(aiBlasts));
+
+    /* Count explosions born each second for eight seconds, killing machine
+     * one at the end of the first. */
+    for (iSecond = 0; iSecond < 8; iSecond++) {
+        int iTick;
+
+        if (iSecond == 1)
+            mecha_sim_damage(&world, 1, 0, 100000.0f, 0.0f, 0.0f, 0.0f);
+
+        for (iTick = 0; iTick < MECHA_TICK_HZ; iTick++) {
+            bool abWas[MECHA_MAX_EFFECTS];
+
+            for (i = 0; i < MECHA_MAX_EFFECTS; i++)
+                abWas[i] = world.aEffects[i].bActive;
+            mecha_sim_tick(&world, aInputs, MECHA_MAX_MECHS);
+            for (i = 0; i < MECHA_MAX_EFFECTS; i++)
+                if (world.aEffects[i].bActive && !abWas[i]
+                    && world.aEffects[i].byKind == MECHA_FX_EXPLOSION)
+                    aiBlasts[iSecond]++;
+        }
+    }
+
+    CHECK(world.aMechs[1].byMove == MECHA_MOVE_DESTROYED);
+    for (iSecond = 0; iSecond < 8; iSecond++)
+        printf("   second %d: %d blasts\n", iSecond, aiBlasts[iSecond]);
+
+    iBefore = aiBlasts[0];
+    for (iSecond = 1; iSecond <= MECHA_WRECK_BURN / MECHA_TICK_HZ; iSecond++)
+        iDuring += aiBlasts[iSecond];
+    for (iSecond = (MECHA_WRECK_BURN / MECHA_TICK_HZ) + 2; iSecond < 8;
+         iSecond++)
+        iAfter += aiBlasts[iSecond];
+
+    /* Nothing was going off before it died, it went on going off for
+     * seconds afterwards, and it stopped. */
+    CHECK(iBefore == 0);
+    CHECK(iDuring >= MECHA_WRECK_BURN / MECHA_WRECK_INTERVAL / 2);
+    CHECK(iAfter == 0);
+    /* And the burn is spread out rather than being one tick's worth: every
+     * whole second of it has to carry some. */
+    for (iSecond = 2; iSecond <= MECHA_WRECK_BURN / MECHA_TICK_HZ; iSecond++)
+        CHECK(aiBlasts[iSecond] > 0);
+    return 0;
+}
+
+/*
+ * Cosmetics may not reach into the sequence the fight is decided from. The
+ * effect table is the place that connects them: it is shared, it fills up,
+ * and a full one used to cut a debris burst short -- which changed how many
+ * draws came off the world's RNG and moved every shot after it. [SIM-28]
+ */
+static int test_a_full_effect_table_does_not_move_the_fight(void)
+{
+    tMechaWorld clean;
+    tMechaWorld choked;
+    tMechaInput aInputs[MECHA_MAX_MECHS];
+    int i;
+    int iTick;
+
+    /*
+     * A crowd, not a duel: the burst is thrown by kills and by blast-radius
+     * weapons, so the scenario has to be one where those actually happen or
+     * the test proves nothing. Sixteen machines on the causeway settle it
+     * inside the window.
+     */
+    mecha_sim_init(&clean, mecha_arena_count() - 1, 0x33C1u, 1);
+    mecha_sim_init(&choked, mecha_arena_count() - 1, 0x33C1u, 1);
+    for (i = 0; i < MECHA_MAX_MECHS; i++) {
+        mecha_sim_add_mech(&clean, i % mecha_def_count(), MECHA_CONTROL_AI,
+                           (uint8_t)(i + 1));
+        mecha_sim_add_mech(&choked, i % mecha_def_count(), MECHA_CONTROL_AI,
+                           (uint8_t)(i + 1));
+    }
+    mecha_sim_begin_match(&clean);
+    mecha_sim_begin_match(&choked);
+    memset(aInputs, 0, sizeof(aInputs));
+
+    /* Every slot taken, by something that will outlast the measurement. */
+    for (i = 0; i < MECHA_MAX_EFFECTS; i++) {
+        choked.aEffects[i].bActive = true;
+        choked.aEffects[i].byKind = MECHA_FX_SMOKE;
+        choked.aEffects[i].iLife = MECHA_SEC(600.0f);
+        choked.aEffects[i].fX = MECHA_M(400.0f);
+        choked.aEffects[i].fY = MECHA_M(400.0f);
+        choked.aEffects[i].fZ = MECHA_M(400.0f);
+        choked.aEffects[i].fScale = MECHA_M(0.1f);
+    }
+
+    for (iTick = 0; iTick < MECHA_TICK_HZ * 25; iTick++) {
+        mecha_sim_tick(&clean, aInputs, MECHA_MAX_MECHS);
+        mecha_sim_tick(&choked, aInputs, MECHA_MAX_MECHS);
+    }
+
+    /* The scenario has to have thrown debris, or nothing was tested. */
+    for (i = 0, iTick = 0; i < MECHA_MAX_MECHS; i++)
+        if (clean.aMechs[i].byMove == MECHA_MOVE_DESTROYED)
+            iTick++;
+    printf("   %d machines came apart in the clean world\n", iTick);
+    CHECK(iTick > 0);
+
+    for (i = 0; i < MECHA_MAX_MECHS; i++) {
+        if (!clean.aMechs[i].bActive)
+            continue;
+        CHECK(clean.aMechs[i].fX == choked.aMechs[i].fX);
+        CHECK(clean.aMechs[i].fZ == choked.aMechs[i].fZ);
+        CHECK(clean.aMechs[i].fArmour == choked.aMechs[i].fArmour);
+        CHECK(clean.aMechs[i].iFacing == choked.aMechs[i].iFacing);
+        CHECK(clean.aMechs[i].byMove == choked.aMechs[i].byMove);
+    }
+    printf("   twenty-five seconds with the effect table full: same fight\n");
+    return 0;
+}
+
 //-------------------------------------------------------------------------------------------------
 
 int main(void)
@@ -8009,6 +8162,10 @@ int main(void)
           test_the_sim_leaves_a_record_of_what_was_heard },
         { "a distant shot is still worth a pixel",
           test_a_distant_shot_is_still_worth_a_pixel },
+        { "a wreck burns rather than popping",
+          test_a_wreck_burns_rather_than_popping },
+        { "a full effect table does not move the fight",
+          test_a_full_effect_table_does_not_move_the_fight },
         { "the skirt is attached to the waist",
           test_the_skirt_is_attached_to_the_waist },
         { "a winner holds a pose", test_a_winner_holds_a_pose },
