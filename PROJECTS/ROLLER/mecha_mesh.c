@@ -1603,7 +1603,7 @@ static void mecha_build_setup(tMechaBuild *pB, const tMechaMech *pMech,
    * once the plates were actually joined to the waist, made the hips one
    * slab from one side to the other rather than armour hung on a frame.
    */
-  pB->fFlare = pB->iProfile == MECHA_PROFILE_SLENDER ? 1.45f : 1.0f;
+  pB->fFlare = pB->iProfile == MECHA_PROFILE_SLENDER ? 1.12f : 1.0f;
   pB->fChest = pB->iProfile == MECHA_PROFILE_SLENDER ? 0.82f : 1.0f;
   {
     /*
@@ -1980,6 +1980,22 @@ static void mecha_build_arms_head(tMechaQuadList *pList,
     float fFore = 0.17f * pB->fArmLen;
     /* How far this machine has moved off its aim and into a held pose. */
     float fPosed = mecha_mech_pose_amount(pWorld, iMechIdx);
+    /*
+     * Where the chest actually ends, and therefore where the shoulder is.
+     * The binder is seated against this rather than placed at a multiple of
+     * the machine's radius: scaling its offset by the build, which is how
+     * this was first written, walks its inner face away from the shoulder
+     * it is bolted to and leaves it hanging in the air beside it -- the same
+     * mistake the skirt plates had. [MESH-34]
+     */
+    float fChestW = 0.76f * pB->fRadius * pB->fTorso * pB->fChest;
+    float fBinderHx0 = 0.34f * pB->fRadius * pB->fShoulder;
+    float fBinderHx1 = 0.24f * pB->fRadius * pB->fShoulder;
+    /* Seated so its inner face overlaps the shoulder rather than meeting it
+     * exactly, because two faces in one plane have nothing to sort them
+     * with. [MESH-18] */
+    float fBinderX = fChestW + fBinderHx0 - 0.12f * pB->fRadius;
+    float fArmX = fChestW + 0.14f * pB->fRadius;
     int iProfile = pB->iProfile < MECHA_PROFILE_COUNT ? pB->iProfile
                                                       : MECHA_PROFILE_STANDARD;
 
@@ -2013,24 +2029,24 @@ static void mecha_build_arms_head(tMechaQuadList *pList,
        * are the first thing anyone reads a machine by, so this is the one
        * frustum that has to be right at every tier.
        */
-      mecha_add_frustum(pList, pTorso, fSide * 1.00f * pB->fRadius * pB->fShoulder,
+      mecha_add_frustum(pList, pTorso, fSide * fBinderX,
                         0.29f * pB->fUpperY, 0.0f,
-                        0.34f * pB->fRadius * pB->fShoulder,
+                        fBinderHx0,
                         0.40f * pB->fRadius * pB->fShoulder,
-                        0.24f * pB->fRadius * pB->fShoulder,
+                        fBinderHx1,
                         0.30f * pB->fRadius * pB->fShoulder,
                         0.09f * pB->fUpperY * pB->fShoulder,
-                        fSide * 0.05f * pB->fRadius * pB->fShoulder, 0.0f,
+                        fSide * (fBinderHx0 - fBinderHx1), 0.0f,
                         pB->byTrim, pB->byTrim, 0);
       /* A lip along the top of it, in the joint colour, so the binder has
        * an edge instead of fading into the shoulder. */
       if (pB->iDetail >= MECHA_DETAIL_FULL) {
         mecha_add_frustum(pList, pTorso,
-                          fSide * 1.02f * pB->fRadius * pB->fShoulder,
+                          fSide * (fBinderX + 0.02f * pB->fRadius),
                           0.38f * pB->fUpperY * pB->fShoulder, 0.0f,
-                          0.24f * pB->fRadius * pB->fShoulder,
+                          fBinderHx1,
                           0.30f * pB->fRadius * pB->fShoulder,
-                          0.19f * pB->fRadius * pB->fShoulder,
+                          0.80f * fBinderHx1,
                           0.24f * pB->fRadius * pB->fShoulder,
                           0.018f * pB->fUpperY, fSide * 0.02f * pB->fRadius, 0.0f,
                           pB->byJoint, pB->byJoint, 0);
@@ -2083,8 +2099,8 @@ static void mecha_build_arms_head(tMechaQuadList *pList,
         iElbowPitch = mecha_blend_angle(iAimElbow, pPose->iElbow, fPosed);
       }
 
-      mecha_pose_child(&shoulder, pTorso,
-                       fSide * 0.98f * pB->fRadius * pB->fShoulder, 0.27f * pB->fUpperY,
+      mecha_pose_child(&shoulder, pTorso, fSide * fArmX,
+                       0.27f * pB->fUpperY,
                        0.0f, iShoulderYaw, 0, iShoulderRoll);
       mecha_pose_child(&upper, &shoulder, 0.0f, 0.0f, 0.0f, 0,
                        iUpperPitch, 0);
@@ -2161,7 +2177,21 @@ static void mecha_build_arms_head(tMechaQuadList *pList,
                                     MECHA_HEAD_PITCH_LIMIT);
 
       mecha_quads_part(pList, MECHA_PART_HEAD);
-      mecha_pose_child(&head, pTorso, 0.0f, 0.37f * pB->fUpperY, 0.0f,
+      /*
+       * A neck, so the head sits on the shoulders rather than in them. It
+       * is drawn on the torso and not on the head, because a neck does not
+       * turn with what it carries. [MESH-44]
+       */
+      if (pB->iDetail >= MECHA_DETAIL_MID) {
+        mecha_add_frustum(pList, pTorso, 0.0f, 0.33f * pB->fUpperY, 0.0f,
+                          0.15f * pB->fRadius * pB->fHead,
+                          0.15f * pB->fRadius * pB->fHead,
+                          0.13f * pB->fRadius * pB->fHead,
+                          0.13f * pB->fRadius * pB->fHead,
+                          0.03f * pB->fUpperY, 0.0f, 0.0f,
+                          pB->byJoint, pB->byJoint, 0);
+      }
+      mecha_pose_child(&head, pTorso, 0.0f, 0.38f * pB->fUpperY, 0.0f,
                        iHeadYaw, -iHeadPitch, 0);
       /* The skull narrows towards the crown and juts at the jaw. */
       mecha_add_frustum(pList, &head, 0.0f, 0.02f * pB->fUpperY,
@@ -2188,16 +2218,21 @@ static void mecha_build_arms_head(tMechaQuadList *pList,
         float fSide = iSide == 0 ? -1.0f : 1.0f;
 
         if (pB->iProfile == MECHA_PROFILE_SLENDER) {
+          /*
+           * Swept back about as far again as the head is deep. It was at
+           * two and a half times that, which from the side is not a crest,
+           * it is a pair of banners the machine is towing. [MESH-35]
+           */
           mecha_add_frustum(pList, &head,
-                            fSide * 0.16f * pB->fRadius * pB->fHead,
-                            0.05f * pB->fUpperY, -0.44f * pB->fRadius * pB->fHead,
+                            fSide * 0.17f * pB->fRadius * pB->fHead,
+                            0.05f * pB->fUpperY, -0.22f * pB->fRadius * pB->fHead,
                             0.07f * pB->fRadius * pB->fHead,
-                            0.52f * pB->fRadius * pB->fHead,
+                            0.28f * pB->fRadius * pB->fHead,
                             0.03f * pB->fRadius * pB->fHead,
-                            0.46f * pB->fRadius * pB->fHead,
+                            0.24f * pB->fRadius * pB->fHead,
                             0.05f * pB->fUpperY * pB->fHead,
-                            fSide * 0.12f * pB->fRadius * pB->fHead,
-                            -0.62f * pB->fRadius * pB->fHead, pB->byGlow, pB->byGlow, 0);
+                            fSide * 0.11f * pB->fRadius * pB->fHead,
+                            -0.24f * pB->fRadius * pB->fHead, pB->byGlow, pB->byGlow, 0);
         } else {
           mecha_add_frustum(pList, &head,
                             fSide * 0.14f * pB->fRadius * pB->fHead,

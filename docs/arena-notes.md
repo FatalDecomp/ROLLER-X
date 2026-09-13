@@ -2318,14 +2318,29 @@ the air a metre and a half either side of it. The top of the plate is skewed
 back in so that edge lands on the waist too, which is what stops the join
 opening up again above.
 
+**The shoulder binder had the same bug, fixed the same way.** It was placed at a
+multiple of the machine's radius scaled by the build, so a wide binder walked
+its own inner face away from the chest it is bolted to; at the build the slender
+frame briefly carried, the armour hung half a metre clear of the shoulder. It is
+seated against where the chest actually ends now, overlapping rather than
+meeting it, because two faces in one plane have nothing to sort them with
+[MESH-18]. The arm hangs from the same place.
+
+That is twice this mistake has been made in one part of the mesh, and its shape
+is always the same: a number meaning "how big" used for "how far out".
+
 ## MESH-35 — the crest is the cheapest identity there is
 
 Two blades off the brow, and at the far tier they are most of what is left of
 the head. They are built at every tier for that reason: a head at a dozen pixels
 tall is a smudge, and a smudge with two spikes on it is a machine you recognise.
 
-The slender frame runs them backwards and much longer instead of up and out,
-which reads differently at any range and costs the same six quads apiece.
+Swept back, a crest reaches about as far again as the head is deep. It was at
+two and a half times that, which from the side is not a crest, it is a pair of
+banners the machine is towing.
+
+The slender frame runs them backwards and longer instead of up and out, which
+reads differently at any range and costs the same six quads apiece.
 
 ## MESH-36 — a carrier reads from behind
 
@@ -2600,3 +2615,13 @@ The test watches rather than times. How long a mine takes to arm is the
 simulation's own business, so what is asserted is the shape: the throw is spent
 to under a fifth of what it was at some point, the mine never touches the floor,
 and afterwards it is closing on somebody.
+
+## MESH-44 — a neck
+
+The head sat straight on the collar, which is what makes a machine read as
+hunched however well the rest of it is proportioned. There is a short one
+between them now.
+
+It is drawn on the torso rather than on the head, because a neck does not turn
+with what it carries -- and this is the one place that distinction shows, the
+head being the only part of a machine that turns on its own [MESH-20].

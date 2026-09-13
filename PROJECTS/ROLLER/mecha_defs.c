@@ -939,11 +939,18 @@ static const tMechaMechDef s_aMechDefs[] = {
    * interceptor at range -- the two were written near enough as twins, and
    * the roster's own silhouette check caught it. [DEF-10]
    */
-  .fBuildShoulder = 0.68f, .fBuildTorso = 0.78f, .fBuildLimb = 0.76f,
-  .fBuildHead = 1.00f, .fBuildGun = 0.80f,
-  /* Hips high and arms short: long legs under a body that is small for
-   * them, which is the figure this frame is meant to cut. [DEF-10] */
-  .fBuildHip = 0.56f, .fBuildArm = 0.86f,
+  /*
+   * Wide across the shoulder armour and narrow through everything it is
+   * bolted to. The two are separate numbers for exactly this: the binders
+   * stand well clear of a torso that is slighter than any other frame's,
+   * which is the contrast the build is made of rather than a machine that
+   * is simply small. [DEF-10]
+   */
+  .fBuildShoulder = 0.86f, .fBuildTorso = 0.74f, .fBuildLimb = 0.76f,
+  .fBuildHead = 0.86f, .fBuildGun = 0.80f,
+  /* Hips high and arms short: long legs under a small body, which is the
+   * figure this frame is meant to cut. [DEF-10] */
+  .fBuildHip = 0.60f, .fBuildArm = 0.88f,
   /*
    * And the smallest thing on two legs in the game. A hip flare is three
    * pixels at the range machines are told apart at, so the difference
