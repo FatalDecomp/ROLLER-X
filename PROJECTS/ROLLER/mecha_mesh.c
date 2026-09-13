@@ -843,9 +843,9 @@ static int mecha_blend_angle(int iFrom, int iTo, float fAmount)
 #define MECHA_STAND_LEAD   MECHA_DEG(5)
 #define MECHA_STAND_KNEE   MECHA_DEG(9)
 #define MECHA_STAND_SPLAY  MECHA_DEG(5)
-#define MECHA_FIGHT_LEAD   MECHA_DEG(13)
+#define MECHA_FIGHT_LEAD   MECHA_DEG(17)
 #define MECHA_FIGHT_KNEE   MECHA_DEG(25)
-#define MECHA_FIGHT_SPLAY  MECHA_DEG(11)
+#define MECHA_FIGHT_SPLAY  MECHA_DEG(18)
 #define MECHA_STANCE_BREATH MECHA_DEG(3)
 /* Boosting on the ground is a skater's problem, not a runner's: knees bent
  * throughout, weight low, one leg pushing while the other glides. [MESH-05] */
@@ -887,10 +887,23 @@ static int mecha_blend_angle(int iFrom, int iTo, float fAmount)
 #define MECHA_SLIM_KNEE    MECHA_DEG(74)
 /* How far the standing hip rolls in under the body. */
 #define MECHA_SLIM_CROSS   MECHA_DEG(14)
+/*
+ * Feet together at ease and apart in a fight, like any other frame -- just
+ * less so. Held at the narrow figure throughout, this one stood in a fight
+ * with its ankles touching, which is a pose for a photograph and not for
+ * being shot at.
+ */
 #define MECHA_SLIM_SPLAY   MECHA_DEG(2)
-/* And how far the hips swing across as it does. */
-#define MECHA_SLIM_SWAY    0.17f
-#define MECHA_SLIM_ROLL    MECHA_DEG(5)
+#define MECHA_SLIM_FIGHT_SPLAY MECHA_DEG(13)
+/*
+ * And what the hips do about it. The first version of this slid the whole
+ * upper body from side to side and rolled it with them, which is not a walk
+ * -- it is a machine wobbling. What actually moves is the pelvis: it tilts,
+ * dropping on the side whose leg is swinging through, and it turns a little
+ * with that leg. The shoulders do neither. They stay level and turn the
+ * other way, and that opposition is what reads as walking. [MESH-46]
+ */
+#define MECHA_SLIM_HIP_ROLL 1.9f
 
 /*
  * What the upper body does about the walk, on every machine that has legs.
@@ -905,8 +918,12 @@ static int mecha_blend_angle(int iFrom, int iTo, float fAmount)
  */
 #define MECHA_WALK_ARM_SWING   MECHA_DEG(20)
 #define MECHA_WALK_ARM_ELBOW   MECHA_DEG(11)
-#define MECHA_WALK_TWIST       MECHA_DEG(8)
+#define MECHA_WALK_TWIST       MECHA_DEG(9)
 #define MECHA_WALK_ROCK        MECHA_DEG(3)
+/* How far the pelvis tilts, and how much of the shoulders' turn it takes
+ * back the other way. */
+#define MECHA_WALK_HIP_ROLL    MECHA_DEG(4)
+#define MECHA_WALK_HIP_TURN    0.45f
 /*
  * How much of all that survives having something to point the guns at. Not
  * none: a machine holding a lock still walks, it just does not swing its arms
@@ -942,7 +959,7 @@ static int mecha_blend_angle(int iFrom, int iTo, float fAmount)
 #define MECHA_WIN_CROSS    MECHA_DEG(13)
 #define MECHA_WIN_SLIM_LEAD  MECHA_DEG(24)
 #define MECHA_WIN_SLIM_KNEE  MECHA_DEG(30)
-#define MECHA_WIN_SLIM_CROSS MECHA_DEG(22)
+#define MECHA_WIN_SLIM_CROSS MECHA_DEG(14)
 
 /*
  * A glide runs on its own clock rather than on ground covered: at boost
@@ -993,9 +1010,11 @@ static void mecha_leg_angles(int iGait, float fPhase, int iSide, int iTick,
                                                        fCombat)
                                      + iBreath));
     *piKnee = mecha_blend_angle(MECHA_STAND_KNEE, MECHA_FIGHT_KNEE, fCombat);
-    *piRoll = bSlim ? MECHA_SLIM_SPLAY
-                    : mecha_blend_angle(MECHA_STAND_SPLAY, MECHA_FIGHT_SPLAY,
-                                        fCombat);
+    *piRoll = bSlim
+                ? mecha_blend_angle(MECHA_SLIM_SPLAY,
+                                    MECHA_SLIM_FIGHT_SPLAY, fCombat)
+                : mecha_blend_angle(MECHA_STAND_SPLAY, MECHA_FIGHT_SPLAY,
+                                    fCombat);
     return;
   }
 
@@ -1092,6 +1111,25 @@ static float mecha_leg_reach(int iThigh, int iKnee, float fThighLen,
 {
   return fThighLen * mecha_cos(iThigh)
        + fShinLen * mecha_cos(mecha_angle_wrap(iThigh - iKnee));
+}
+
+//-------------------------------------------------------------------------------------------------
+
+/*
+ * The knee that puts this leg's ankle exactly fReach below the hip, which is
+ * the inverse of the function above. Used to make two legs standing on the
+ * same floor reach it the same way. [MESH-45]
+ */
+static int mecha_leg_knee_for_reach(int iThigh, float fReach,
+                                    float fThighLen, float fShinLen)
+{
+  float fRest;
+
+  if (fShinLen < 1e-4f)
+    return 0;
+  fRest = (fReach - fThighLen * mecha_cos(iThigh)) / fShinLen;
+  return iThigh + (int)(acosf(mecha_clampf(fRest, -1.0f, 1.0f))
+                        * (float)MECHA_ANGLE_FULL / 6.28318531f);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2717,6 +2755,7 @@ void mecha_mesh_mech(tMechaQuadList *pList, const tMechaWorld *pWorld,
   int iRoll;
   bool bAirborne;
   tMechaPose torso;
+  tMechaPose pelvis;
 
   if (!pList || !pWorld || iMechIdx < 0 || iMechIdx >= MECHA_MAX_MECHS)
     return;
@@ -2838,10 +2877,36 @@ void mecha_mesh_mech(tMechaQuadList *pList, const tMechaWorld *pWorld,
                                          fThighLen, fShinLen);
 
       if (mecha_gait_plants(iGait)) {
-        /* Both feet down: the shorter leg sets the floor and the other
-         * makes up the difference at the hip, not the knee. [MESH-16] */
-        float fFloor = afReach[0] * mecha_cos(aiRoll[0]);
-        float fOther = afReach[1] * mecha_cos(aiRoll[1]);
+        float fFloor;
+        float fOther;
+
+        /*
+         * Both feet down, and the difference between the two legs is taken
+         * out in the knees before anything else. A stance puts one thigh
+         * forward and one back with the same knee on both, which does not
+         * reach the same distance -- and leaving that for the hips to
+         * absorb splays the longer leg right out while the other stands
+         * straight, which is not a stance, it is a machine with one leg
+         * kicked sideways. It scales with leg length, so the frame with the
+         * longest legs wore it worst. [MESH-45]
+         */
+        for (iSide = 0; iSide < 2; iSide++) {
+          float fWantReach = afReach[0] < afReach[1] ? afReach[0]
+                                                     : afReach[1];
+
+          if (afReach[iSide] > fWantReach + 1e-3f) {
+            aiKnee[iSide] = mecha_leg_knee_for_reach(aiThigh[iSide],
+                                                     fWantReach, fThighLen,
+                                                     fShinLen);
+            afReach[iSide] = mecha_leg_reach(aiThigh[iSide], aiKnee[iSide],
+                                             fThighLen, fShinLen);
+          }
+        }
+
+        /* Whatever is left over the hips still answer for, which is what
+         * keeps a machine standing on uneven angles upright. [MESH-16] */
+        fFloor = afReach[0] * mecha_cos(aiRoll[0]);
+        fOther = afReach[1] * mecha_cos(aiRoll[1]);
 
         if (fOther < fFloor)
           fFloor = fOther;
@@ -2997,40 +3062,57 @@ void mecha_mesh_mech(tMechaQuadList *pList, const tMechaWorld *pWorld,
    * sideways with its shoulders still square to you.
    */
   {
-    float fSwayX = 0.0f;
-    int iSwayRoll = 0;
-    int iRecoil = 0;
+    int iHipRoll = 0;
+    int iHipYaw = 0;
     int iTwist = 0;
     int iRock = 0;
+    int iRecoil = 0;
 
     /*
-     * A crossing walk has to be paid for above the waist. The feet come
-     * down on the centreline, so the hips have to travel across to stay
-     * over them and the shoulders roll the other way to keep the machine
-     * upright -- and that counter-roll is most of what anyone actually
-     * reads as the walk. Drawn here rather than simulated, like every other
-     * attitude in the mode. [MESH-40]
+     * What the upper body does about the walk, and the first version of
+     * this had it wrong in a way worth recording: the whole torso slid
+     * from side to side and rolled with the hips, which is not a walk, it
+     * is a machine wobbling.
+     *
+     * What actually moves is the pelvis. It tilts, dropping on the side
+     * whose leg is swinging through, and it turns a little with that leg.
+     * The shoulders do neither -- they stay level and turn the other way,
+     * and it is that opposition between hips and shoulders that reads as
+     * walking rather than as being carried along. [MESH-46]
      */
-    if (build.iProfile == MECHA_PROFILE_SLENDER && fWalkPhase >= 0.0f) {
-      int iSwayAngle = (int)(fWalkPhase * (float)MECHA_ANGLE_FULL)
+    if (fWalkPhase >= 0.0f) {
+      int iWalkAngle = (int)(fWalkPhase * (float)MECHA_ANGLE_FULL)
                        & (MECHA_ANGLE_FULL - 1);
-      float fSway = mecha_sin(iSwayAngle);
+      float fSwing = mecha_sin(iWalkAngle);
+      float fHips = build.iProfile == MECHA_PROFILE_SLENDER
+                      ? MECHA_SLIM_HIP_ROLL : 1.0f;
 
-      fSwayX = MECHA_SLIM_SWAY * fRadius * fSway;
-      iSwayRoll = -(int)((float)MECHA_SLIM_ROLL * fSway);
+      iHipRoll = (int)((float)MECHA_WALK_HIP_ROLL * fSwing * fHips);
+      iHipYaw = (int)((float)MECHA_WALK_TWIST * MECHA_WALK_HIP_TURN * fSwing);
+      iTwist = -(int)((float)MECHA_WALK_TWIST * fSwing);
+      /* Once a footfall rather than once a cycle, which is why it is read
+       * off twice the angle. */
+      iRock = (int)((float)MECHA_WALK_ROCK
+                    * mecha_cos(mecha_angle_wrap(iWalkAngle * 2)));
     }
 
     /*
-     * A held pose settles the weight onto one hip, which is the same lean
+     * A held pose settles the weight onto one hip, which is the same tilt
      * the walk uses held still instead of cycling. Without it the machine
      * stands square with its arm in the air, which reads as a signal rather
      * than as a pose. [MESH-42]
      */
     if (fPosed > 0.0f) {
-      float fWeight = build.iProfile == MECHA_PROFILE_SLENDER ? 1.0f : 0.5f;
-
-      fSwayX += fPosed * fWeight * MECHA_SLIM_SWAY * fRadius;
-      iSwayRoll += (int)(fPosed * fWeight * (float)MECHA_SLIM_ROLL);
+      /*
+       * Small, and it has to be. The pelvis carries the skirt and the legs
+       * hang off the frame above it, so tilting the pelvis tilts the armour
+       * away from the legs it is meant to be sitting over -- a few degrees
+       * is inside the overlap the plates already have [MESH-34], and the
+       * nine this was first given opened a gap you could see daylight
+       * through. The weight shift is in the stance's own lead and cross;
+       * this is only what the hips add to it. [MESH-42]
+       */
+      iHipRoll += (int)(fPosed * (float)MECHA_WALK_HIP_ROLL * 0.6f);
     }
 
     /*
@@ -3043,30 +3125,22 @@ void mecha_mesh_mech(tMechaQuadList *pList, const tMechaWorld *pWorld,
       iRecoil = MECHA_ARM_RECOIL * mecha_clampi(pMech->iRecovery, 0, 8) / 8;
 
     /*
-     * The shoulders twist against the hips and the body rocks fore and aft
-     * with the step. Both are small -- eight degrees and three -- and both
-     * are the difference between a machine walking and a machine being
-     * carried along by its own legs. [MESH-43]
+     * Two frames off the same point: the pelvis, which the skirt hangs on
+     * and which tilts, and the torso, which everything above the waist
+     * hangs on and which does not.
      */
-    if (fWalkPhase >= 0.0f) {
-      int iWalkAngle = (int)(fWalkPhase * (float)MECHA_ANGLE_FULL)
-                       & (MECHA_ANGLE_FULL - 1);
-
-      iTwist = -(int)((float)MECHA_WALK_TWIST * mecha_sin(iWalkAngle));
-      iRock = (int)((float)MECHA_WALK_ROCK
-                    * mecha_cos(mecha_angle_wrap(iWalkAngle * 2)));
-    }
-
-    mecha_pose_child(&torso, &pose, fSwayX, build.fHipY, 0.0f,
+    mecha_pose_child(&pelvis, &pose, 0.0f, build.fHipY, 0.0f,
+                     mecha_angle_delta(pMech->iLegYaw, pMech->iFacing)
+                       + iHipYaw, 0, iHipRoll);
+    mecha_pose_child(&torso, &pose, 0.0f, build.fHipY, 0.0f,
                      mecha_angle_delta(pMech->iLegYaw, pMech->iFacing)
                        + iTwist,
-                     mecha_mesh_lean_pitch(pMech) - iRecoil + iRock,
-                     iSwayRoll);
+                     mecha_mesh_lean_pitch(pMech) - iRecoil + iRock, 0);
   }
 
   build.fWalkPhase = fWalkPhase;
   mecha_build_torso(pList, &build, &torso);
-  mecha_build_skirt(pList, &build, &torso, aiThigh);
+  mecha_build_skirt(pList, &build, &pelvis, aiThigh);
   mecha_build_arms_head(pList, pWorld, iMechIdx, &build, &torso);
   mecha_build_plume(pList, pWorld, &build, &torso);
 }

@@ -5763,6 +5763,93 @@ static int test_a_floating_mine_settles_then_hunts(void)
  * -- at a modest flare nobody notices and at a wide one the machine has its
  * hips hanging in the air either side of it. [MESH-34]
  */
+/*
+ * Both legs stand the same way. A stance puts one thigh forward and one back
+ * with the same knee on both, which do not reach the same distance -- and
+ * leaving the hips to absorb that splays the longer leg right out while the
+ * other stands straight. It scales with leg length, so the longest-legged
+ * frame wore it worst. [MESH-45]
+ */
+static int test_a_stance_stands_on_two_even_legs(void)
+{
+    static tMechaQuad aStorage[MECHA_QUAD_CAPACITY];
+    tMechaQuadList list;
+    tMechaWorld world;
+    int iDef;
+    int iChecked = 0;
+
+    for (iDef = 0; iDef < mecha_def_count(); iDef++) {
+        const tMechaMechDef *pDef = mecha_def_get(iDef);
+        float afOut[2] = { 0.0f, 0.0f };
+        float fCos;
+        float fSin;
+        int iLegQuads = 0;
+        int iSeen = 0;
+        int i;
+        int v;
+
+        if (pDef->byChassis != MECHA_CHASSIS_BIPED)
+            continue;
+        start_duel(&world, 0, iDef, iDef, 0x57A2u, 1);
+        world.aMechs[0].byMove = MECHA_MOVE_STAND;
+        world.aMechs[0].fStepPhase = 0.0f;
+        world.aMechs[0].fCombat = 1.0f;          /* squared up to fight */
+        fCos = mecha_cos(world.aMechs[0].iFacing);
+        fSin = mecha_sin(world.aMechs[0].iFacing);
+
+        mecha_quads_reset(&list, aStorage, MECHA_QUAD_CAPACITY);
+        mecha_mesh_mech(&list, &world, 0, MECHA_DETAIL_FULL);
+
+        /* The legs are emitted one side then the other, so the halfway
+         * point is what tells one leg from the other -- a foot cannot be
+         * attributed by which side of the centreline it lands on when the
+         * question is whether it lands on the right side at all. */
+        for (i = 0; i < list.iCount; i++)
+            if (aStorage[i].byPart == MECHA_PART_LEG)
+                iLegQuads++;
+        CHECK(iLegQuads > 0);
+
+        for (i = 0; i < list.iCount; i++) {
+            if (aStorage[i].byPart != MECHA_PART_LEG)
+                continue;
+            for (v = 0; v < 4; v++) {
+                float fDx = aStorage[i].afVert[v][0] - world.aMechs[0].fX;
+                float fDz = aStorage[i].afVert[v][2] - world.aMechs[0].fZ;
+                float fSide = fDx * fCos - fDz * fSin;
+                int iLeg = iSeen < iLegQuads / 2 ? 0 : 1;
+
+                if (fSide < 0.0f)
+                    fSide = -fSide;
+                if (fSide > afOut[iLeg])
+                    afOut[iLeg] = fSide;
+            }
+            iSeen++;
+        }
+
+        printf("   %-16s legs reach %.2f and %.2f m out\n", pDef->szName,
+               afOut[0] / MECHA_METRE, afOut[1] / MECHA_METRE);
+        CHECK(afOut[0] > 0.0f && afOut[1] > 0.0f);
+        /*
+         * Within a tenth of each other. They are not identical -- one thigh
+         * is forward and one back, so the feet sit at different depths and
+         * present different corners -- but one leg reaching half again as
+         * far as the other is the failure this catches.
+         */
+        {
+            float fBig = afOut[0] > afOut[1] ? afOut[0] : afOut[1];
+            float fGap = afOut[0] > afOut[1] ? afOut[0] - afOut[1]
+                                             : afOut[1] - afOut[0];
+
+            CHECK(fGap < 0.10f * fBig);
+        }
+        iChecked++;
+    }
+    CHECK(iChecked > 0);
+    return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static int test_the_skirt_is_attached_to_the_waist(void)
 {
     static tMechaQuad aStorage[MECHA_QUAD_CAPACITY];
@@ -7750,6 +7837,8 @@ int main(void)
         { "arena geometry", test_arena_geometry },
         { "roster", test_roster },
         { "the worst scene fits", test_the_worst_scene_fits },
+        { "a stance stands on two even legs",
+          test_a_stance_stands_on_two_even_legs },
         { "the skirt is attached to the waist",
           test_the_skirt_is_attached_to_the_waist },
         { "a winner holds a pose", test_a_winner_holds_a_pose },

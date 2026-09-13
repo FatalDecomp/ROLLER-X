@@ -89,7 +89,7 @@ python3 tools/check_roller_core_manifest.py
 mdformat --check docs/
 ```
 
-At the time of writing that is 86 sim test groups and 305 python tests, all
+At the time of writing that is 87 sim test groups and 305 python tests, all
 passing. `zig` is not on a remote session's PATH and its package fetcher cannot
 reach GitHub through the agent proxy; the way round both is in the toolchain
 notes below.
@@ -447,6 +447,9 @@ Without the negation the machine leant away from its direction of travel. A
 machine boosting to its right leans right, as anything on wheels or blades does.
 
 ## MESH-16 — the planting solve opens the hips, not the knees
+
+Since MESH-45 this runs second: the knees equalise the two legs' reach first,
+and what the hips are left to answer for is whatever remains.
 
 Both feet down: the floor is as far as the shorter leg can reach once its own
 hip roll is counted, and the other leg makes up the difference by rolling
@@ -2406,10 +2409,11 @@ they travel along it.
 
 The slender frame puts its feet down near the centreline: the standing hip rolls
 in through the planted half of the cycle, so the body passes over the foot
-rather than beside it. That alone looks like a fault. What makes it a walk is
-paying for it above the waist -- the hips travel across to stay over the planted
-foot, and the shoulders roll the other way to keep the machine upright. The
-counter-roll is most of what anyone actually reads.
+rather than beside it.
+
+What that costs above the waist is MESH-46, and the answer written here first --
+sliding the whole torso from side to side and rolling it with the hips -- was
+the wrong one.
 
 Firing rocks the same waist back. Every other frame kicks only the arm that
 fired; this one adds the body, which is what makes a small machine firing a
@@ -2653,3 +2657,50 @@ it names the offending call when it fires.
 The general lesson is the one worth keeping: a test that calls a drawing
 function directly proves the drawing, and says nothing at all about whether
 anybody asked for it to be shown.
+
+## MESH-45 — two legs standing on one floor reach it with their knees
+
+A stance puts one thigh forward and one back and gives both the same knee. Those
+two legs do not reach the same distance: `cos(lead - knee)` and
+`cos(-lead - knee)` are not the same number, and at a seventeen degree lead with
+a twenty-five degree knee they differ by a fifth of a shin.
+
+The planting solve took that difference out in the hips [MESH-16], which is the
+right answer to the question a hip roll is for and the wrong one here. It
+splayed the longer leg right out and left the other standing straight -- not a
+stance, a machine with one leg kicked sideways. It scales with leg length, so
+the frame with the longest legs wore it worst, and on the shortest it was
+invisible.
+
+The knees go first now: the leg that reaches further is bent until it reaches
+the same as the other, and only what is left over goes to the hips. Both legs
+then keep the splay the gait asked for, which is what makes a stance symmetric.
+
+Worth recording what that did to a test. "Wider with someone to fight" had been
+passing partly on the strength of the bug -- one leg kicked out is a wide stance
+by any measure of width -- so once the legs were even, the fighting splay had to
+go from eleven degrees to eighteen to be honestly wider than standing. The
+assertion was right all along and the pose had been cheating it.
+
+## MESH-46 — hips roll, shoulders turn, and nothing slides
+
+The first version of the walk's upper body slid the whole torso from side to
+side and rolled it with the hips. Everything above the waist moved as one piece,
+and what that reads as is not a machine walking, it is a machine wobbling.
+
+What moves is the pelvis. It tilts, dropping on the side whose leg is swinging
+through, and turns a little with that leg. The shoulders do neither: they stay
+level, and they turn the other way. That opposition between hips and shoulders
+is the walk. The lateral slide was never part of it and is gone.
+
+Two frames off one point carry it: a pelvis that the skirt hangs on and that
+tilts, and a torso that everything above the waist hangs on and that does not.
+The legs stay on the root frame, untouched, so none of this can disturb the
+planting solve.
+
+The tilt has a ceiling, and the reason is the skirt. The plates overlap the
+waist by a fixed amount [MESH-34] while the legs hang off the frame above them,
+so tilting the pelvis tilts the armour away from the legs it is sitting over. A
+few degrees stays inside that overlap; the nine the victory pose was first given
+opened a gap you could see daylight through, which is what "her leg has come
+away from her hip" turned out to be.
