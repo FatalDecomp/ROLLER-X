@@ -317,10 +317,25 @@
 #define MECHA_AI_DRIVE_STRAIGHT MECHA_DEG(4)
 #define MECHA_AI_DRIVE_LIFT     MECHA_DEG(52)
 
+/*
+ * Where the hips sat when every machine had the same figure. Every offset
+ * above the waist in the mesh was written against this, so it is the number
+ * the upper body is rescaled around rather than one anybody may retune.
+ * [TYPE-08]
+ */
+#define MECHA_HIP_CLASSIC      0.47f
+
 #define MECHA_ARM_YAW_LIMIT    MECHA_DEG(46)
 #define MECHA_ARM_PITCH_LIMIT  MECHA_DEG(38)
 #define MECHA_ARM_DROOP        MECHA_DEG(22)
 #define MECHA_ARM_RECOIL       MECHA_DEG(14)
+
+/*
+ * How long a machine takes to settle into the pose it holds when it has won
+ * a round. Long enough to read as moving into it rather than snapping, short
+ * enough to be there before the banner is. [MESH-42]
+ */
+#define MECHA_POSE_EASE_TICKS  MECHA_SEC(0.45f)
 
 /*
  * How long the close-quarters blade is drawn, against the hitbox it

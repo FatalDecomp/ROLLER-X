@@ -89,7 +89,10 @@ python3 tools/check_roller_core_manifest.py
 mdformat --check docs/
 ```
 
-At 0.2.1 that is 82 sim test groups and 300 python tests, all passing.
+At the time of writing that is 87 sim test groups and 305 python tests, all
+passing. `zig` is not on a remote session's PATH and its package fetcher cannot
+reach GitHub through the agent proxy; the way round both is in the toolchain
+notes below.
 
 Notes on the toolchain and the harness:
 
@@ -99,6 +102,14 @@ Notes on the toolchain and the harness:
 - A remote session may have no `zig` on PATH. It can be fetched into the
   scratchpad (the `ziglang` pip package carries the binary) and run with
   `--global-cache-dir`/`--cache-dir` pointing there.
+- **Zig's package fetcher cannot get through the agent proxy.** Every
+  `git+https` dependency fails with "unable to discover remote git server
+  capabilities". Plain `git` works, so the way round is to clone each dependency
+  at its pinned commit, delete its `.git`, and `zig fetch` the local directory:
+  the hashes come out identical to `build.zig.zon`. Two further rounds of the
+  same catch the transitive ones (castholm/SDL, freepats, libsdl-org/SDL_image,
+  SDL_linux_deps). Once they are in the global cache the build is offline and
+  fast.
 - When grabbing render frames, copy the **newest** `mecha_render_headless_test`
   (`ls -t`, not a bare `find`) into a scratch directory and run it there with
   the dump directory as argv[1]. A stale binary has wasted hours.
@@ -110,11 +121,18 @@ Notes on the toolchain and the harness:
 
 Modes: duel, survival (sixteen machines, each its own team), team deathmatch
 (eight a side [MODE-08]) and spectator. Seven arenas, the last being FACING
-WORLDS [ARENA-16..19]. Five machines, one of them wheeled (the ZIZIN, which gets
-its own pilot branch in `mecha_ai_think`). Sound runs through Whiplash's mixer
-[SND-01..03]. Computer pilots get round cover [AI-09], turn a dash mid-burst
-[AI-10], refuse drops [AI-11], get round gaps [AI-12] and follow the arena's
-published ways [AI-13].
+WORLDS [ARENA-16..19]. Sound runs through Whiplash's mixer [SND-01..03].
+Computer pilots get round cover [AI-09], turn a dash mid-burst [AI-10], refuse
+drops [AI-11], get round gaps [AI-12] and follow the arena's published ways
+[AI-13].
+
+Nine machines on four drawn chassis \[TYPE-06\]: five ordinary bipeds, the
+wheeled ZIZIN (which gets its own pilot branch in `mecha_ai_think`), BASTION 88
+on tracks [MESH-38] and Tarant VZ on six legs [MESH-39]. Two of the bipeds wear
+their own trim package [TYPE-07] -- Lilia 07 the slender frame with a crossing
+walk [MESH-33, MESH-40] and Corvid 3 a rack of drone pods [MESH-36]. Machines
+are built at one of three detail tiers by range [MESH-32], and a machine that
+wins a round holds a pose [MESH-41, MESH-42].
 
 ### Known and open, at 0.2.1
 
@@ -429,6 +447,9 @@ Without the negation the machine leant away from its direction of travel. A
 machine boosting to its right leans right, as anything on wheels or blades does.
 
 ## MESH-16 — the planting solve opens the hips, not the knees
+
+Since MESH-45 this runs second: the knees equalise the two legs' reach first,
+and what the hips are left to answer for is whatever remains.
 
 Both feet down: the floor is as far as the shorter leg can reach once its own
 hip roll is counted, and the other leg makes up the difference by rolling
@@ -2183,3 +2204,503 @@ The station table keeps the measurements. The builder scales their half-widths
 by `fWide` (1.6) and nothing else: the bow, the pinch, the climb and the hole
 between the lanes are all the map's own. Falls on FACING WORLDS went from 3.4
 machines a fight to 1.0.
+
+______________________________________________________________________
+
+## TYPE-06 — the chassis is a drawing question, and bWheeled is not
+
+`bWheeled` predates every other body in the mode and answers a physics question:
+whether the machine has one signed speed along its nose instead of a walk and a
+strafe. It is read in eleven places in `mecha_sim.c` alone.
+
+`byChassis` answers a different one -- what the mesh builds -- and the two are
+kept apart on purpose. A tracked machine walks, turns and strafes exactly as a
+biped does; it merely does not look like one, so it takes the biped's physics
+and its own geometry. Folding the two into one field would have meant either
+giving the tank a car's steering or giving the car a biped's, and neither is
+what anyone meant.
+
+They do have to agree in the one place they overlap, and the roster test says
+so: `bWheeled == (byChassis == MECHA_CHASSIS_CAR)`. That assertion exists
+because the first thing that happened after the dispatch moved off `bWheeled`
+was the Zizin coming out as a biped -- silently, with legs, still driving like a
+car.
+
+## TYPE-07 — a profile is trim, not a skeleton
+
+`byProfile` picks what gets hung on the biped's bones and which gait table the
+legs read. It is deliberately not a chassis: all three profiles have the same
+joints in the same places, so anything written for one arm or one knee works for
+all of them.
+
+The split earns itself on the slender frame, which needed a narrower waist, a
+wider skirt, longer head crests, a different walk and a body that rocks when it
+fires -- none of which is a new joint.
+
+## MESH-31 — a frustum costs what a box costs
+
+Every shape in the mode was an axis-aligned box, and the reference art this
+roster is drawn from is mostly not boxes: it is tapered thighs, sloped chest
+plates, shoulder binders cut back at the outer face, and blades.
+
+A box with a separate top size and a top offset covers all of it. Each side
+stays planar, because both of its horizontal edges keep their axis, so it is
+still six quads and it still culls off a stored normal. There is no cheaper way
+to get a taper and no reason to want one.
+
+One thing it will not do is come to a point. A top extent of zero collapses two
+corners of the end face into one, `mecha_quads_add` finds a degenerate normal,
+and the quad falls back to being two-sided and uncullable. Tips keep a little
+width -- which is also what the reference art draws, a fin having a tip rather
+than a mathematical point.
+
+## MESH-32 — detail tiers, and why the outline never goes
+
+Measured on FACING WORLDS with sixteen machines and the camera behind one of
+them, over ninety seconds: the scene peaked at 6706 quads before this pass and
+8946 with every machine built in full. The buffer was 8192, and a frame that
+overflows does not crash -- it stops adding geometry, quietly, wherever it
+happened to get to.
+
+Three tiers, by range to the eye. What falls away is trim that is already
+sub-pixel at the range it falls away at: vents, muzzle rings, heel blocks, calf
+verniers, the rear skirt plate. What never falls away is the outline --
+shoulders, skirt sides, head crest, gun -- because that is the whole of what
+tells one machine from another across an arena, and a machine that changed shape
+as you walked towards it would be worse than one with no detail at all.
+
+With tiers the same scene peaks at 8116. That is what made the detail
+affordable; MESHH-04 is what made 8116 safe.
+
+The thresholds -- 55 m and 130 m -- were picked by rendering the roster in a
+line and finding the range at which each tier stops being visible, not by
+reasoning about pixel sizes.
+
+## MESH-33 — a slender frame is an opposition, not a scale factor
+
+Drawing the whole machine at three quarters produces a smaller machine, which is
+not the read. What produces the read is two things going opposite ways: the
+limbs narrow towards the joints while the skirt flares wider than any other
+frame's. Thin legs under a wide flare.
+
+Three numbers, applied to different pieces on purpose. `fTaper` at 0.74 goes on
+the thighs, shins, upper arms, forearms and the waist. `fFlare` at 1.45 goes
+only on how far the side skirt plates reach past that waist. `fChest` at 0.82
+goes on the chest, the plate over it, the collar, and the pack behind it.
+
+The chest needs a number of its own rather than the limbs': taking 0.74 to the
+torso as well puts the chest narrower than the waist under it, which is not a
+slighter machine, it is an upside-down one. The flare was briefly at 1.9,
+reaching for an outline that would not read as the interceptor's at range --
+which is a job the machine's height does instead [DEF-10], and which made the
+hips one slab from one side to the other as soon as the plates were properly
+joined to the waist.
+
+## MESH-34 — the waist is three shapes, not a column
+
+A machine with a waist has a chest wider than it, a skirt wider than it, and the
+waist between them. Before this the torso was one box from hips to shoulders and
+the machine had no waist at all.
+
+The four skirt plates are what make the hips read, and the two at the sides do
+nearly all of it -- they are what says one machine is broad in the hip and
+another is not -- so those two survive to the far tier and the front and rear
+plates do not.
+
+The front pair hinge on the leg they hang in front of, at just over half that
+leg's swing. Fixed, they had the thigh pass straight through them at the top of
+every stride; at the full swing they stop reading as armour and start reading as
+a second thigh.
+
+**A plate is hung off the waist, not placed beside it.** Its inner edge starts
+at the waist block's own bottom edge, and `fFlare` grows how far past that it
+reaches -- only that. Scaling the plate's centre by the flare instead, which is
+how this was first written, moves the inner edge out along with the rest of it:
+at a flare of one nobody notices, and at 1.9 the machine has its hips hanging in
+the air a metre and a half either side of it. The top of the plate is skewed
+back in so that edge lands on the waist too, which is what stops the join
+opening up again above.
+
+**The shoulder binder had the same bug, fixed the same way.** It was placed at a
+multiple of the machine's radius scaled by the build, so a wide binder walked
+its own inner face away from the chest it is bolted to; at the build the slender
+frame briefly carried, the armour hung half a metre clear of the shoulder. It is
+seated against where the chest actually ends now, overlapping rather than
+meeting it, because two faces in one plane have nothing to sort them with
+[MESH-18]. The arm hangs from the same place.
+
+That is twice this mistake has been made in one part of the mesh, and its shape
+is always the same: a number meaning "how big" used for "how far out".
+
+## MESH-35 — the crest is the cheapest identity there is
+
+Two blades off the brow, and at the far tier they are most of what is left of
+the head. They are built at every tier for that reason: a head at a dozen pixels
+tall is a smudge, and a smudge with two spikes on it is a machine you recognise.
+
+Swept back, a crest reaches about as far again as the head is deep. It was at
+two and a half times that, which from the side is not a crest, it is a pair of
+banners the machine is towing.
+
+The slender frame runs them backwards and longer instead of up and out, which
+reads differently at any range and costs the same six quads apiece.
+
+## MESH-36 — a carrier reads from behind
+
+Eight pods in two raked columns above the pack, and no gun in either hand -- a
+manipulator instead, because a hand cannon says the machine fights by shooting
+and this one does not.
+
+The rack is drawn whether or not anything has been launched. Emptying it as the
+round went on was tried and abandoned: the machine looked like a different
+machine by the end of a round, and the outline is the one thing that has to hold
+still.
+
+## MESH-37 — three chassis, one upper body
+
+A tracked machine is a torso that happens to have no legs under it, and an
+arachnid is the same torso on a hull. Pulling the waist, chest, arms and head
+out of the biped builder is what stopped the second and third of those being
+copies -- and a copy is where the next change only lands in two of the three.
+
+`tMechaBuild` is the bundle that makes it bearable: passing a machine, its
+colours, its build multipliers and its tier as a dozen separate floats is a
+signature nobody would keep in step.
+
+## MESH-38 — what makes a tracked machine read as tracked
+
+Not the tracks. A track drawn as one long box slides across the ground with
+nothing turning on it, and the eye reads that as a building on castors.
+
+What sells it is the road wheels, turning on the same distance counter the walk
+cycle is paced by, so a tracked machine and a walking one agree about how fast
+the world is going past. Four of them a side at full detail, two at mid, none at
+far -- by which range there is nothing to see turning anyway.
+
+The rest is the shape a tank has and a mech does not: an approach angle at the
+front of each unit, a fender over the top, a hull between them and a ring the
+torso turns on.
+
+The barrels were written at twice their length and from the side read as a pair
+of planks the machine was carrying. They are shorter than the machine is wide
+now.
+
+## MESH-39 — an arachnid's knees are above its body
+
+That is the whole of what makes six legs read as an arachnid rather than as a
+table. The body rides at half the machine's height and the femur goes up and out
+from there, so the knee stands above the hull and the tibia comes back down past
+it to the floor.
+
+Which means the tibia is the long bone -- eight tenths of the machine's height
+against the femur's three -- and its angle cannot be picked. It is solved:
+`asin((knee height - foot lift) / tibia)`. Picked instead, at the numbers that
+looked about right, the feet finished three metres above the ground and the
+machine floated.
+
+The fold is against the femur's turn, not with it. Both the same sign and the
+leg comes back up over the body instead of reaching the floor.
+
+## MESH-40 — the crossing walk, and what it costs above the waist
+
+Every machine walked the same way, and how far apart the feet are across the
+line of travel is what separates one walk from another far more than how far
+they travel along it.
+
+The slender frame puts its feet down near the centreline: the standing hip rolls
+in through the planted half of the cycle, so the body passes over the foot
+rather than beside it.
+
+What that costs above the waist is MESH-46, and the answer written here first --
+sliding the whole torso from side to side and rolling it with the hips -- was
+the wrong one.
+
+Firing rocks the same waist back. Every other frame kicks only the arm that
+fired; this one adds the body, which is what makes a small machine firing a
+large weapon read as a small machine firing a large weapon.
+
+## MESH-41 — the arms had one aim between them
+
+Every arm in the mode read the same yaw and the same elevation, because both
+were pointing at the same target. Correct while the machine is fighting, and the
+reason "one arm up and one on the hip" was not a shape this rig could make at
+all -- the only thing either arm owned by itself was its recoil kick.
+
+`tMechaArmPose` is per-arm, and its angles are chosen to be read rather than to
+match the chain: `iUpper` is where the upper arm points, nought hanging straight
+down, a quarter turn negative level and forward, half a turn negative straight
+up.
+
+Making it blendable meant collapsing the two shoulder pitches the aim was split
+across into one. That is the same rotation -- a yaw and then two pitches about
+one axis compose as the yaw and their sum -- and it is what makes an aimed arm
+and a posed arm two values of one number instead of two different chains. The
+gun heights the tests measure came out unchanged to two decimal places, which is
+how that was checked rather than argued.
+
+## MESH-42 — a machine that has won stands like it
+
+A round used to end with the winner standing exactly as it stands at any other
+moment, which is the one moment in a match where a machine has nothing else to
+be doing.
+
+One pose per profile: a salute for the standard frame, an arm up beside the head
+and a hand on the hip for the slender one, both arms low and open for the
+carrier, whose point is the rack on its back. It is held only by a machine that
+is alive, on the winning side, and on the ground.
+
+Under the arms is a stance of its own -- one foot forward and turned across the
+other, the weight settled back. The cross is a yaw at the hip and not a roll,
+and that is not a detail: a planting gait has its hip rolls solved for so that
+both feet finish on the floor [MESH-16], and anything written into the roll is
+overwritten by that solve. A yaw swings the leg across without changing how far
+down the foot reaches, so the solve never notices it.
+
+Eased in over 0.45 s off the phase clock rather than snapped, and off the phase
+rather than off a tick, so a machine that wins on the last shot of a round is
+not thrown into a victory stance by the same frame that killed the loser.
+
+## MESHH-03 — a quad says which part it is
+
+The tests used to name a box by counting how many the builder had emitted before
+it: `MESH_BOX_GUN_LEFT` was 16, and the legs were the first `2 * 4 * 6` quads.
+That was true until the builder emitted a different number, and then it did not
+fail -- it quietly measured a different box and went on passing.
+
+`byPart` costs one byte on a 68-byte struct and is set once per section rather
+than per call, through the list rather than through every helper. Nothing in the
+renderer reads it. What reads it is anything that wants to find a part without
+knowing the order they are built in: the gait comparison, the gun height, and
+the block-facing check, which was catching a machine's own legs whenever the
+machine was standing inside a keep.
+
+Every top-level builder sets it on entry, including the ones that set it to
+`MECHA_PART_NONE`. Leaving it to whatever the last builder happened to set makes
+it depend on call order, which is exactly the fragility it exists to remove.
+
+## MESHH-04 — the buffer is sized to the worst scene, not to a round number
+
+FACING WORLDS is 4346 quads of arena before a single machine stands in it, which
+is over half of what 8192 was. Sixteen machines on it peaked at 8116 with the
+detail tiers doing their work -- ninety-nine per cent, which is not a margin.
+One more effect and the frame starts dropping geometry.
+
+12288 leaves it at sixty-six per cent. It costs 272 KB of BSS once, for the
+whole mode, and the test asserts the peak stays under three quarters so that the
+next thing anyone adds to a machine has somewhere to come from.
+
+## DEF-08 — BASTION 88, and why it can still jump
+
+A tracked machine that could not leave the ground at all would be locked out of
+the jump weapons and the jump cancel, which is a quarter of the mode. So it
+hops: seventeen metres a second against the interceptor's thirty-three, at three
+times the gauge cost, which buys the stance weapons and buys nothing else.
+
+## DEF-09 — Tarant VZ pays for six legs in the gauge
+
+The trade is not in the mesh. It holds a burst for a third of a second and
+drains at 620 a second against the roster's usual 300, so three dashes empty it:
+this machine crosses ground by walking fast on six legs, not by throwing itself
+about on thrusters.
+
+## DEF-10 — Lilia 07 is the lightest thing on the roster
+
+760 armour against the tracked gun's 2000, carried by the longest dash and the
+highest turn rate. It is the frame the slender profile was written for and the
+one that most needs the profile to be legible, because at that armour a player
+has to recognise it before it reaches them.
+
+## DEF-11 — the carrier's mines do not fall
+
+`fArcGravity` of zero, which the flight code already handles: it only pulls a
+shot down when that figure is above zero, and `mecha_arc_pitch` returns level
+for it rather than dividing by it. So a mine laid with no gravity hangs exactly
+where it was put -- a field at chest height instead of one on the floor.
+
+The roster test used to forbid it, requiring gravity on both arcs and mines.
+That was written before a floating mine was a thing anyone wanted. An arc still
+has to have something to fall under, because an arc with no gravity is a flat
+shot wearing the wrong kind; a mine does not.
+
+## TEST-09 — a silhouette measured against the arena behind it
+
+Counting pixels that are not the sky counts the arena. The machine is measured
+by rendering the frame twice, once with it and once with it switched off, and
+taking what differs -- which is the machine and nothing else, whatever it is
+standing in front of.
+
+Three numbers come out: how wide the outline is, how tall, and how much of its
+own box it fills. Two machines matching on all three within a tenth is the
+failure this catches, which is a new machine shipping as an old one with the
+numbers changed. It is a weak test of a strong claim -- two different shapes can
+cover the same ink -- and it is the strongest claim a number can make about a
+silhouette.
+
+The machines are stood in the middle of the arena with the cover taken away.
+Left where their pilots walked them, half the roster was measured from behind a
+block.
+
+## TEST-10 — the frames that exist to be looked at
+
+A walk is the one thing about a machine no still frame can show, so the render
+test steps the cycle round in eight and dumps each one, then pulls a trigger and
+dumps the recoil settling, then wins a round and dumps the pose easing in.
+
+None of it is asserted. The numbers that pin the rig live in the sim tests;
+these are for a human to look at, which is the only way anyone has ever found
+out whether a walk reads as a walk.
+
+## TYPE-08 — the hips move both halves of the figure
+
+`fBuildHip` says where the hips sit as a fraction of the machine's height, and
+raising it does two things at once because it has to. The legs run from the hip
+to the floor, so they get longer; every offset above the waist was written
+against the hips being at `MECHA_HIP_CLASSIC`, so the upper body is redrawn at
+`(1 - hip) / (1 - 0.47)` and gets shorter by exactly as much.
+
+Left as one number the machine simply grows taller than its own height, which
+then breaks the camera framing, the muzzle heights and the silhouette check
+together. Moving both halves off one figure is what keeps `fHeight` meaning what
+it says.
+
+Every machine that does not declare one comes out bit-identical: at the classic
+hip the upper scale is exactly one, which is how the change was checked -- the
+gun heights the arm tests measure did not move.
+
+`fBuildArm` is separate and only shortens the bones, because an arm's length and
+a torso's are not the same question: the slender frame wanted short arms on a
+short body, and the standard frame wants neither.
+
+## MESH-43 — the upper body answers the legs
+
+Every machine carried its torso and its arms as though it were standing still
+while its legs moved underneath it. That does not read as stiffness so much as
+it reads as a doll being slid along the floor, and it was true of the whole
+roster rather than of any one frame.
+
+Three things, on every chassis that has a stride:
+
+- **The arms swing against the legs.** The left arm goes forward as the left leg
+  goes back, which is the half-turn offset being on the side rather than on the
+  phase. The elbow follows at about half, because an arm swinging from a locked
+  shoulder is a pendulum and not an arm.
+- **The shoulders twist against the hips**, eight degrees of it.
+- **The body rocks fore and aft**, three degrees, at twice the stride rate --
+  once per footfall rather than once per cycle.
+
+A machine holding a lock keeps 30% of all of it. Not none: a machine with
+somebody to shoot at still walks, it just does not swing its arms like one out
+for a stroll. Dropping it to nothing meant the swing appeared and vanished as
+the lock came and went, which is worse than either.
+
+The stride reaches the arms through `tMechaBuild`, set by whichever chassis
+builder knows which gait the legs are running. A tracked machine never sets it
+and never swings: there is no stride to answer.
+
+## SIM-26 — a floating mine has to be stopped, and can be sent
+
+A mine only ever stopped by landing. That was fine while every mine fell, and
+wrong the moment one was given no gravity to fall under: it flew straight at its
+throwing speed until its life ran out. The notes for the carrier said its mines
+hung where they were put. They did not -- they were very slow bullets.
+
+A mine with no gravity now bleeds its throw off while it arms, at 0.86 a tick,
+which takes thirty-odd metres a second to near enough nothing over the arming
+time and leaves the charge hanging where the throw carried it.
+
+Then, if it has a homing rate, it goes looking. The speed has to be handed back
+before the steering runs, because `mecha_home_projectile` turns the direction of
+a velocity and a stationary mine has no direction to turn; from a dead stop it
+is pointed at whoever it was laid against and the steering takes it from there.
+A third of the throwing speed, because a mine that chases at bullet speed is a
+missile and this machine already has missiles.
+
+The test watches rather than times. How long a mine takes to arm is the
+simulation's own business, so what is asserted is the shape: the throw is spent
+to under a fifth of what it was at some point, the mine never touches the floor,
+and afterwards it is closing on somebody.
+
+## MESH-44 — a neck
+
+The head sat straight on the collar, which is what makes a machine read as
+hunched however well the rest of it is proportioned. There is a short one
+between them now.
+
+It is drawn on the torso rather than on the head, because a neck does not turn
+with what it carries -- and this is the one place that distinction shows, the
+head being the only part of a machine that turns on its own [MESH-20].
+
+## MODE-09 — a screen that is drawn and never presented
+
+Selecting VIEW CONTROLS on the briefing softlocked the game, and none of it was
+in the controls page. Its drawing was correct, and the headless render test
+already checked its pixels -- by calling `mecha_render_controls` itself, which
+is precisely the call that was fine.
+
+What the page did not do was open a renderer frame. `game_render_end_frame` is
+what puts the buffer on the screen; the branch drew into `scrbuf` and returned
+without it. So the page was rendered into memory and never shown: the briefing
+stayed up, the mode went on running behind it with its input working, and from
+the player's side the button did nothing, forever.
+
+The fix is one begin/end pair around the whole of `mecha_mode_draw` rather than
+one per branch. Wrapping each branch would have fixed this instance and left the
+next screen free to make the same mistake; wrapping the function means a branch
+cannot be the one that forgets.
+
+The test is a source test, in the same vein as the palette one \[the arena exit
+scene\]: it reads the function, and asserts one frame opened, one closed,
+nothing drawn outside them, no return between them to strand one, and a branch
+for every screen the mode declares. It was checked by putting the bug back, and
+it names the offending call when it fires.
+
+The general lesson is the one worth keeping: a test that calls a drawing
+function directly proves the drawing, and says nothing at all about whether
+anybody asked for it to be shown.
+
+## MESH-45 — two legs standing on one floor reach it with their knees
+
+A stance puts one thigh forward and one back and gives both the same knee. Those
+two legs do not reach the same distance: `cos(lead - knee)` and
+`cos(-lead - knee)` are not the same number, and at a seventeen degree lead with
+a twenty-five degree knee they differ by a fifth of a shin.
+
+The planting solve took that difference out in the hips [MESH-16], which is the
+right answer to the question a hip roll is for and the wrong one here. It
+splayed the longer leg right out and left the other standing straight -- not a
+stance, a machine with one leg kicked sideways. It scales with leg length, so
+the frame with the longest legs wore it worst, and on the shortest it was
+invisible.
+
+The knees go first now: the leg that reaches further is bent until it reaches
+the same as the other, and only what is left over goes to the hips. Both legs
+then keep the splay the gait asked for, which is what makes a stance symmetric.
+
+Worth recording what that did to a test. "Wider with someone to fight" had been
+passing partly on the strength of the bug -- one leg kicked out is a wide stance
+by any measure of width -- so once the legs were even, the fighting splay had to
+go from eleven degrees to eighteen to be honestly wider than standing. The
+assertion was right all along and the pose had been cheating it.
+
+## MESH-46 — hips roll, shoulders turn, and nothing slides
+
+The first version of the walk's upper body slid the whole torso from side to
+side and rolled it with the hips. Everything above the waist moved as one piece,
+and what that reads as is not a machine walking, it is a machine wobbling.
+
+What moves is the pelvis. It tilts, dropping on the side whose leg is swinging
+through, and turns a little with that leg. The shoulders do neither: they stay
+level, and they turn the other way. That opposition between hips and shoulders
+is the walk. The lateral slide was never part of it and is gone.
+
+Two frames off one point carry it: a pelvis that the skirt hangs on and that
+tilts, and a torso that everything above the waist hangs on and that does not.
+The legs stay on the root frame, untouched, so none of this can disturb the
+planting solve.
+
+The tilt has a ceiling, and the reason is the skirt. The plates overlap the
+waist by a fixed amount [MESH-34] while the legs hang off the frame above them,
+so tilting the pelvis tilts the armour away from the legs it is sitting over. A
+few degrees stays inside that overlap; the nine the victory pose was first given
+opened a gap you could see daylight through, which is what "her leg has come
+away from her hip" turned out to be.

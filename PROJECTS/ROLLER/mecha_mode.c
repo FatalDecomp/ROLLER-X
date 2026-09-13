@@ -903,28 +903,33 @@ void mecha_mode_draw(void)
   if (!s_bActive || !scrbuf)
     return;
 
+  /*
+   * One renderer frame around the whole of it, whichever screen is up.
+   * Ending the frame is what puts the buffer on the screen, so a branch
+   * that draws outside the pair draws into nothing: the controls page did
+   * exactly that, and the result was a briefing that stayed on screen while
+   * the mode ran happily behind it -- input working, nothing presenting,
+   * and a game that read as hung. Wrapping the function rather than each
+   * branch is what stops the next screen doing it again. [MODE-09]
+   */
+  game_render_begin_frame(g_pGameRenderer);
+
   if (s_eScreen == MECHA_SCREEN_CONTROLS) {
     mecha_render_controls(scrbuf, XMAX, YMAX);
-    return;
-  }
-
-  if (s_eScreen == MECHA_SCREEN_BRIEFING) {
+  } else if (s_eScreen == MECHA_SCREEN_BRIEFING) {
     tMechaBriefing brief;
 
     mecha_mode_build_briefing(&brief);
-    game_render_begin_frame(g_pGameRenderer);
     mecha_render_briefing(&brief, scrbuf, XMAX, YMAX);
-    game_render_end_frame(g_pGameRenderer);
-    return;
+  } else {
+    /* A spectator has no machine, and the frame is drawn with no view mech
+     * at all: the scene is the same, the HUD is somebody else's business.
+     * Not drawing it at all leaves the last briefing frame on screen, which
+     * reads as a hung game. [MODE-07] */
+    mecha_render_frame(g_pGameRenderer, &s_World, &s_Camera, s_iPlayerIdx,
+                       scrbuf, XMAX, YMAX, s_aQuads, MECHA_QUAD_CAPACITY);
   }
 
-  /* A spectator has no machine, and the frame is drawn with no view mech at
-   * all: the scene is the same, the HUD is somebody else's business. Not
-   * drawing it at all leaves the last briefing frame on screen, which reads
-   * as a hung game. [MODE-07] */
-  game_render_begin_frame(g_pGameRenderer);
-  mecha_render_frame(g_pGameRenderer, &s_World, &s_Camera, s_iPlayerIdx,
-                     scrbuf, XMAX, YMAX, s_aQuads, MECHA_QUAD_CAPACITY);
   game_render_end_frame(g_pGameRenderer);
 }
 

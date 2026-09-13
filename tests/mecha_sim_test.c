@@ -11,6 +11,9 @@
 #include "mecha_mesh.h"
 #include "mecha_sim.h"
 
+/* The simulation's own mine arming time, which is private to it. */
+#define MECHA_MINE_ARM_TICKS_TEST 24
+
 #include <stdlib.h>
 #include <math.h>
 #include <stdio.h>
@@ -176,6 +179,15 @@ static int test_roster(void)
         CHECK(pDef->fMass > 0.0f);
         CHECK(pDef->iBoostMax > 0);
         CHECK(pDef->iDashTicks > 0 && pDef->iLandTicks > 0);
+        /*
+         * The chassis has to be one the mesh knows how to build, and the
+         * car chassis and the wheeled physics go together: either alone is
+         * a machine that drives like a car and walks like a biped, or the
+         * other way about, and neither is a thing anyone meant. [TYPE-06]
+         */
+        CHECK(pDef->byChassis < MECHA_CHASSIS_COUNT);
+        CHECK(pDef->byProfile < MECHA_PROFILE_COUNT);
+        CHECK(pDef->bWheeled == (pDef->byChassis == MECHA_CHASSIS_CAR));
         if (pDef->bWheeled) {
             /*
              * A machine on wheels has none of the gauge rules, because it
@@ -211,8 +223,15 @@ static int test_roster(void)
                 CHECK(pWeapon->iAmmo > 0);
                 CHECK(pWeapon->iReloadTicks > 0);
                 CHECK(pWeapon->iLifeTicks > 0);
-                if (pWeapon->byKind == MECHA_PROJ_ARC
-                    || pWeapon->byKind == MECHA_PROJ_MINE)
+                /*
+                 * An arc is a lob and has to have something to fall under,
+                 * or it is a flat shot wearing the wrong kind. A mine does
+                 * not: zero gravity there is a mine that hangs where it was
+                 * put instead of dropping to the floor, which the flight
+                 * code already does the right thing with and which is a
+                 * weapon in its own right rather than a field left blank.
+                 */
+                if (pWeapon->byKind == MECHA_PROJ_ARC)
                     CHECK(pWeapon->fArcGravity > 0.0f);
                 if (pWeapon->byKind == MECHA_PROJ_HOMING)
                     CHECK(pWeapon->iHomingRate > 0);
@@ -1231,7 +1250,7 @@ static int test_legs_walk_on_jointed_knees(void)
 
         world.aMechs[0].fStepPhase = (float)iStep / 12.0f;
         mecha_quads_reset(&list, aStorage, MECHA_QUAD_CAPACITY);
-        mecha_mesh_mech(&list, &world, 0);
+        mecha_mesh_mech(&list, &world, 0, MECHA_DETAIL_FULL);
         CHECK(list.iCount > 0);
 
         /* Ankle height and below: the feet. Their fore and aft spread is the
@@ -1266,12 +1285,12 @@ static int test_legs_walk_on_jointed_knees(void)
         world.aMechs[0].fStepPhase = 0.0f;
         world.aMechs[0].byMove = MECHA_MOVE_STAND;
         mecha_quads_reset(&list, aStorage, MECHA_QUAD_CAPACITY);
-        mecha_mesh_mech(&list, &world, 0);
+        mecha_mesh_mech(&list, &world, 0, MECHA_DETAIL_FULL);
         fStandHead = mesh_highest(&list) - world.aMechs[0].fY;
 
         world.aMechs[0].byMove = MECHA_MOVE_GUARD;
         mecha_quads_reset(&list, aStorage, MECHA_QUAD_CAPACITY);
-        mecha_mesh_mech(&list, &world, 0);
+        mecha_mesh_mech(&list, &world, 0, MECHA_DETAIL_FULL);
         fGuardHead = mesh_highest(&list) - world.aMechs[0].fY;
         mesh_band_centroid(&list, &world.aMechs[0], 0.0f,
                            0.09f * pDef->fHeight, &fX, &fZ, &fBendDrop);
@@ -1313,7 +1332,7 @@ static int test_legs_walk_on_jointed_knees(void)
         world.aMechs[0].byMove = MECHA_MOVE_WALK;
         world.aMechs[0].fStepPhase = 0.0f;
         mecha_quads_reset(&list, aStorage, MECHA_QUAD_CAPACITY);
-        mecha_mesh_mech(&list, &world, 0);
+        mecha_mesh_mech(&list, &world, 0, MECHA_DETAIL_FULL);
         fCos = mecha_cos(world.aMechs[0].iFacing);
         fSin = mecha_sin(world.aMechs[0].iFacing);
 
@@ -1332,9 +1351,17 @@ static int test_legs_walk_on_jointed_knees(void)
             }
             if (fX > 0.0f)
                 continue;                       /* the left leg only */
-            if (fY < 0.35f * pDef->fHeight
+            /*
+             * The knee joint block, and only it. Joint colour below the
+             * waist used to name exactly one thing; the leg now also wears
+             * joint-coloured armour at the ankle and a joint-coloured heel,
+             * both of which sit near the floor, so the band has a bottom to
+             * it as well as a top. The knee itself is a thigh's length below
+             * the hip, near enough a quarter of the machine's height.
+             */
+            if (fY > 0.17f * pDef->fHeight && fY < 0.35f * pDef->fHeight
                 && aStorage[i].byPalette == pDef->abyPalette[2]) {
-                fKneeZ += fZ;                   /* the knee joint block */
+                fKneeZ += fZ;
                 iKnee++;
             }
             if (fY < 0.09f * pDef->fHeight) {
@@ -1374,7 +1401,7 @@ static float gait_reach(tMechaWorld *pWorld, int iMechIdx,
         pWorld->aMechs[iMechIdx].fStepPhase = (float)iStep / 16.0f;
         pWorld->iTick = iStep * 3;
         mecha_quads_reset(&list, paStorage, MECHA_QUAD_CAPACITY);
-        mecha_mesh_mech(&list, pWorld, iMechIdx);
+        mecha_mesh_mech(&list, pWorld, iMechIdx, MECHA_DETAIL_FULL);
         mesh_foot_extent(&list, &pWorld->aMechs[iMechIdx],
                          pWorld->aMechs[iMechIdx].fY + 0.16f * pDef->fHeight,
                          bAcross, &fLow, &fHigh);
@@ -1401,19 +1428,19 @@ static int gait_capture(tMechaWorld *pWorld, int iMechIdx,
     int v;
 
     /*
-     * The legs are the first thing the builder emits -- two of them, four
-     * boxes apiece, six faces a box -- and taking them by position rather
-     * than by height is what keeps the count identical across poses. A
-     * height cutoff sounds tidier and is not: a thigh swinging about the
-     * hip moves its own top vertices across any line drawn near it, so the
-     * two poses being compared come back with different numbers of points
-     * in them.
+     * The running gear, taken by its part tag. Taking it by height instead
+     * sounds tidier and is not: a thigh swinging about the hip moves its
+     * own top vertices across any line drawn near it, so the two poses
+     * being compared come back with different numbers of points in them.
+     * Counting emitted boxes was what this did before, and that silently
+     * measured a different set the moment the builder emitted a different
+     * number of them. [MESHH-03]
      */
     mecha_quads_reset(&list, paStorage, MECHA_QUAD_CAPACITY);
-    mecha_mesh_mech(&list, pWorld, iMechIdx);
-    if (list.iCount < 2 * 4 * 6)
-        return 0;
-    for (i = 0; i < 2 * 4 * 6; i++) {
+    mecha_mesh_mech(&list, pWorld, iMechIdx, MECHA_DETAIL_FULL);
+    for (i = 0; i < list.iCount; i++) {
+        if (paStorage[i].byPart != MECHA_PART_LEG)
+            continue;
         for (v = 0; v < 4; v++) {
             float fY = paStorage[i].afVert[v][1] - pMech->fY;
             float fDx = paStorage[i].afVert[v][0] - pMech->fX;
@@ -1451,39 +1478,50 @@ static float gait_apart(const float *pafA, const float *pafB, int iCount)
 //-------------------------------------------------------------------------------------------------
 
 /*
- * The boxes the arm chain emits, in the order the builder emits them: two
- * legs of four boxes each, four for the torso, then five a side for the
- * arms -- pauldron, upper, elbow, forearm, gun. Taking the gun by its place
- * in that order is the same trick gait_capture uses and rests on the same
- * thing: the builder emits a fixed skeleton in a fixed order, so a box can
- * be named by counting.
+ * Where one part of a machine sits, in the machine's own frame, averaged
+ * over every quad carrying that tag. iSideSign picks a flank: -1 the left,
+ * +1 the right, 0 both. This used to name a box by counting how many the
+ * builder had emitted before it, which stopped being true the moment the
+ * builder emitted a different number. [MESHH-03]
  */
-#define MESH_BOX_GUN_LEFT  16
-#define MESH_BOX_GUN_RIGHT 21
-
-/* Where a named box sits, in the machine's own frame. */
-static void mesh_box_centre(const tMechaQuadList *pList,
-                            const tMechaMech *pMech, int iBox, float *pfY,
-                            float *pfForward)
+static void mesh_part_centre(const tMechaQuadList *pList,
+                             const tMechaMech *pMech, uint8_t byPart,
+                             int iSideSign, float *pfY, float *pfForward)
 {
     float fCos = mecha_cos(pMech->iFacing);
     float fSin = mecha_sin(pMech->iFacing);
     float fY = 0.0f;
     float fZ = 0.0f;
+    int iTaken = 0;
     int i;
     int v;
 
-    for (i = iBox * 6; i < iBox * 6 + 6 && i < pList->iCount; i++) {
+    for (i = 0; i < pList->iCount; i++) {
+        float fSideSum = 0.0f;
+
+        if (pList->paQuads[i].byPart != byPart)
+            continue;
+        for (v = 0; v < 4; v++) {
+            float fDx = pList->paQuads[i].afVert[v][0] - pMech->fX;
+            float fDz = pList->paQuads[i].afVert[v][2] - pMech->fZ;
+
+            fSideSum += fDx * fCos - fDz * fSin;
+        }
+        if (iSideSign < 0 && fSideSum >= 0.0f)
+            continue;
+        if (iSideSign > 0 && fSideSum <= 0.0f)
+            continue;
         for (v = 0; v < 4; v++) {
             float fDx = pList->paQuads[i].afVert[v][0] - pMech->fX;
             float fDz = pList->paQuads[i].afVert[v][2] - pMech->fZ;
 
             fY += pList->paQuads[i].afVert[v][1] - pMech->fY;
             fZ += fDx * fSin + fDz * fCos;
+            iTaken++;
         }
     }
-    *pfY = fY / 24.0f;
-    *pfForward = fZ / 24.0f;
+    *pfY = iTaken > 0 ? fY / (float)iTaken : 0.0f;
+    *pfForward = iTaken > 0 ? fZ / (float)iTaken : 0.0f;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1510,12 +1548,11 @@ static int test_a_machine_at_ease_lowers_its_arms(void)
         /* Guns up, then guns down; nothing else about the machine changes. */
         world.aMechs[0].fCombat = iPass == 0 ? 1.0f : 0.0f;
         mecha_quads_reset(&list, aStorage, MECHA_QUAD_CAPACITY);
-        mecha_mesh_mech(&list, &world, 0);
-        CHECK(list.iCount > MESH_BOX_GUN_RIGHT * 6 + 6);
-        mesh_box_centre(&list, &world.aMechs[0], MESH_BOX_GUN_LEFT,
-                        &afLeft[0], &afLeft[1]);
-        mesh_box_centre(&list, &world.aMechs[0], MESH_BOX_GUN_RIGHT,
-                        &afY[iPass], &afForward[iPass]);
+        mecha_mesh_mech(&list, &world, 0, MECHA_DETAIL_FULL);
+        mesh_part_centre(&list, &world.aMechs[0], MECHA_PART_GUN, -1,
+                         &afLeft[0], &afLeft[1]);
+        mesh_part_centre(&list, &world.aMechs[0], MECHA_PART_GUN, +1,
+                         &afY[iPass], &afForward[iPass]);
         afY[iPass] = 0.5f * (afY[iPass] + afLeft[0]);
         afForward[iPass] = 0.5f * (afForward[iPass] + afLeft[1]);
     }
@@ -1568,7 +1605,7 @@ static int test_a_machine_with_a_lock_settles_into_it(void)
         for (iTick = 0; iTick < 120; iTick += 5) {
             world.iTick = iTick;
             mecha_quads_reset(&list, aStorage, MECHA_QUAD_CAPACITY);
-            mecha_mesh_mech(&list, &world, 0);
+            mecha_mesh_mech(&list, &world, 0, MECHA_DETAIL_FULL);
             mesh_foot_extent(&list, &world.aMechs[0],
                              world.aMechs[0].fY + 0.09f * pDef->fHeight,
                              true, &fLow, &fHigh);
@@ -1896,11 +1933,11 @@ static int test_torso_turns_off_the_legs(void)
     world.aMechs[0].iLegYaw = 0;
     world.aMechs[0].fStepPhase = 0.0f;
     mecha_quads_reset(&list, aStorage, MECHA_QUAD_CAPACITY);
-    mecha_mesh_mech(&list, &world, 0);
+    mecha_mesh_mech(&list, &world, 0, MECHA_DETAIL_FULL);
 
     world.aMechs[0].iLegYaw = MECHA_DEG(40);
     mecha_quads_reset(&turned, aTurned, MECHA_QUAD_CAPACITY);
-    mecha_mesh_mech(&turned, &world, 0);
+    mecha_mesh_mech(&turned, &world, 0, MECHA_DETAIL_FULL);
     CHECK(turned.iCount == list.iCount);
 
     for (i = 0; i < list.iCount; i++) {
@@ -1958,7 +1995,7 @@ static int test_arms_and_head_follow_the_lock(void)
     world.aMechs[1].fX = -MECHA_M(40.0f);
     world.aMechs[1].fZ = MECHA_M(40.0f);
     mecha_quads_reset(&list, aStorage, MECHA_QUAD_CAPACITY);
-    mecha_mesh_mech(&list, &world, 0);
+    mecha_mesh_mech(&list, &world, 0, MECHA_DETAIL_FULL);
     mesh_band_centroid(&list, &world.aMechs[0], 0.40f * pDef->fHeight,
                        0.62f * pDef->fHeight, &fLeftX, &fZ, NULL);
     mesh_band_centroid(&list, &world.aMechs[0], 0.80f * pDef->fHeight,
@@ -1966,7 +2003,7 @@ static int test_arms_and_head_follow_the_lock(void)
 
     world.aMechs[1].fX = MECHA_M(40.0f);
     mecha_quads_reset(&list, aStorage, MECHA_QUAD_CAPACITY);
-    mecha_mesh_mech(&list, &world, 0);
+    mecha_mesh_mech(&list, &world, 0, MECHA_DETAIL_FULL);
     mesh_band_centroid(&list, &world.aMechs[0], 0.40f * pDef->fHeight,
                        0.62f * pDef->fHeight, &fRightX, &fZ, NULL);
     mesh_band_centroid(&list, &world.aMechs[0], 0.80f * pDef->fHeight,
@@ -2806,7 +2843,7 @@ static int test_the_gun_car_is_a_car_with_a_gun(void)
     world.aMechs[0].byLock = MECHA_LOCK_HELD;
     world.aMechs[0].iTargetIdx = 1;
     mecha_quads_reset(&list, aStorage, MECHA_QUAD_CAPACITY);
-    mecha_mesh_mech(&list, &world, 0);
+    mecha_mesh_mech(&list, &world, 0, MECHA_DETAIL_FULL);
     CHECK(list.iCount > 40);
 
     /* The body's own proportions, so the gun -- which is not attached to it
@@ -2928,7 +2965,7 @@ static int test_the_gun_car_wears_the_games_own_paint(void)
      * texture words rather than out of the machine's palette. */
     mecha_mesh_set_car_skin(true);
     mecha_quads_reset(&list, aStorage, MECHA_QUAD_CAPACITY);
-    mecha_mesh_mech(&list, &world, 0);
+    mecha_mesh_mech(&list, &world, 0, MECHA_DETAIL_FULL);
     CHECK(list.iCount > 50);
 
     for (i = 0; i < list.iCount; i++) {
@@ -2960,7 +2997,7 @@ static int test_the_gun_car_wears_the_games_own_paint(void)
     /* Without the skin, nothing names a bank it cannot have. */
     mecha_mesh_set_car_skin(false);
     mecha_quads_reset(&list, aStorage, MECHA_QUAD_CAPACITY);
-    mecha_mesh_mech(&list, &world, 0);
+    mecha_mesh_mech(&list, &world, 0, MECHA_DETAIL_FULL);
     for (i = 0; i < list.iCount; i++)
         CHECK(aStorage[i].byTexBank == MECHA_TEX_NONE);
     return 0;
@@ -3267,7 +3304,7 @@ static int lean_side(tMechaWorld *pWorld, int iMechIdx)
     int c;
 
     mecha_quads_reset(&list, aStorage, MECHA_QUAD_CAPACITY);
-    mecha_mesh_mech(&list, pWorld, iMechIdx);
+    mecha_mesh_mech(&list, pWorld, iMechIdx, MECHA_DETAIL_FULL);
     /* The body, not what it is carrying. The gun car's weapon is as long as
      * the car and floats clear of it, so it reaches lower than either flank
      * and answers a question about how the gun is held rather than how the
@@ -3608,7 +3645,7 @@ static bool mesh_widest_side(tMechaWorld *pWorld, int iMechIdx,
     int c;
 
     mecha_quads_reset(&list, paStorage, MECHA_QUAD_CAPACITY);
-    mecha_mesh_mech(&list, pWorld, iMechIdx);
+    mecha_mesh_mech(&list, pWorld, iMechIdx, MECHA_DETAIL_FULL);
     if (list.iCount <= 0)
         return false;
     for (i = 0; i < list.iCount; i++)
@@ -3711,7 +3748,7 @@ static int test_the_gun_car_spins_and_rolls(void)
         int c;
 
         mecha_quads_reset(&list, aStorage, MECHA_QUAD_CAPACITY);
-        mecha_mesh_mech(&list, &world, 0);
+        mecha_mesh_mech(&list, &world, 0, MECHA_DETAIL_FULL);
         CHECK(list.iCount > 0);
         /* The body only: the gun is not attached to it and is carried
          * differently depending on whether it has just been fired. */
@@ -4237,7 +4274,7 @@ static int test_a_full_arena_fights_itself_out(void)
             mecha_mesh_arena(&list, &world.arena);
             for (i = 0; i < MECHA_MAX_MECHS; i++)
                 if (mecha_mech_alive(&world.aMechs[i]))
-                    mecha_mesh_mech(&list, &world, i);
+                    mecha_mesh_mech(&list, &world, i, MECHA_DETAIL_FULL);
             mecha_mesh_projectiles(&list, &world, 0);
             mecha_mesh_effects(&list, &world, 0);
             if (list.iCount > iPeak)
@@ -4293,11 +4330,11 @@ static int test_paint_schemes_repaint_the_machine(void)
 
         start_duel(&world, 0, iDef, iDef, 0x7A17u, 1);
         mecha_quads_reset(&plain, aPlain, MECHA_QUAD_CAPACITY);
-        mecha_mesh_mech(&plain, &world, 0);
+        mecha_mesh_mech(&plain, &world, 0, MECHA_DETAIL_FULL);
 
         world.aMechs[0].byScheme = 1;
         mecha_quads_reset(&painted, aPainted, MECHA_QUAD_CAPACITY);
-        mecha_mesh_mech(&painted, &world, 0);
+        mecha_mesh_mech(&painted, &world, 0, MECHA_DETAIL_FULL);
 
         CHECK(painted.iCount == plain.iCount);
         for (i = 0; i < plain.iCount; i++)
@@ -5602,29 +5639,488 @@ static int test_a_boost_up_a_slope_leaves_the_ground(void)
 
 //-------------------------------------------------------------------------------------------------
 
+/*
+ * The worst scene the mode can actually reach, held against the buffer it
+ * has to fit in. Sixteen machines in a team deathmatch on FACING WORLDS,
+ * whose arena alone is over four thousand quads, with the camera where the
+ * player's eye is -- which is what decides how much detail each machine is
+ * built at. A frame that overflows does not crash: it silently stops adding
+ * geometry, so this has to be a number rather than a hope. [MESHH-04]
+ */
+/*
+ * The win pose, and the thing about it that is actually new: the two arms
+ * are in different places. Every arm in the mode read one aim between them
+ * until now, so "one arm up and one at the hip" was not a shape this rig
+ * could make at all. [MESH-41]
+ */
+/*
+ * A mine with no gravity in it. It has to settle -- otherwise it is not a
+ * mine that hangs, it is a very slow bullet that flies until its life runs
+ * out, which is what the first version of this actually did -- and then it
+ * has to go after whoever it was laid against. [SIM-26]
+ */
+static int test_a_floating_mine_settles_then_hunts(void)
+{
+    tMechaWorld world;
+    tMechaInput aInputs[2];
+    const tMechaProjectile *pMine = NULL;
+    int iCarrier = -1;
+    int iDef;
+    int i;
+    int t;
+
+    for (iDef = 0; iDef < mecha_def_count(); iDef++) {
+        if (mecha_def_get(iDef)->byProfile == MECHA_PROFILE_CARRIER) {
+            iCarrier = iDef;
+            break;
+        }
+    }
+    CHECK(iCarrier >= 0);
+    start_duel(&world, 0, iCarrier, 0, 0x11E5u, 1);
+    CHECK(clear_runway(&world, 0));
+    memset(aInputs, 0, sizeof(aInputs));
+
+    /* Well apart, so the mine has somewhere to travel. */
+    world.aMechs[1].fX = world.aMechs[0].fX;
+    world.aMechs[1].fZ = world.aMechs[0].fZ + MECHA_M(70.0f);
+    world.aMechs[0].byLock = MECHA_LOCK_HELD;
+    world.aMechs[0].iTargetIdx = 1;
+    world.aMechs[0].byMove = MECHA_MOVE_STAND;
+
+    /* An outer trigger waits out the pairing window before it fires on its
+     * own, so the press has to be held through it. [SIM-23] */
+    aInputs[0].bFireRight = true;
+    run_ticks(&world, aInputs, 2, MECHA_FIRE_PAIR_TICKS + 1);
+    aInputs[0].bFireRight = false;
+    for (i = 0; i < MECHA_MAX_PROJECTILES; i++) {
+        if (world.aProjectiles[i].bActive
+            && world.aProjectiles[i].byKind == MECHA_PROJ_MINE) {
+            pMine = &world.aProjectiles[i];
+            break;
+        }
+    }
+    CHECK(pMine != NULL);
+    CHECK(pMine->fArcGravity == 0.0f);
+    CHECK(pMine->iHomingRate > 0);
+
+    /*
+     * Watched rather than timed. How long a mine takes to arm is the
+     * simulation's own business, so what this asserts is the shape: the
+     * throw is spent to near enough nothing at some point, and afterwards
+     * the mine is moving again and moving towards somebody.
+     */
+    {
+        float fLaunch = mecha_length3(pMine->fVelX, pMine->fVelY,
+                                      pMine->fVelZ);
+        float fSlowest = fLaunch;
+        float fStartGap;
+        float fBestGap;
+
+        CHECK(fLaunch > MECHA_MPS(10.0f));
+        fStartGap = mecha_length2(world.aMechs[1].fX - pMine->fX,
+                                  world.aMechs[1].fZ - pMine->fZ);
+        fBestGap = fStartGap;
+
+        for (t = 0; t < MECHA_TICK_HZ * 3 && pMine->bActive; t++) {
+            float fSpeed;
+            float fGap;
+
+            mecha_sim_tick(&world, aInputs, 2);
+            if (!pMine->bActive)
+                break;
+            fSpeed = mecha_length3(pMine->fVelX, pMine->fVelY,
+                                   pMine->fVelZ);
+            fGap = mecha_length2(world.aMechs[1].fX - pMine->fX,
+                                 world.aMechs[1].fZ - pMine->fZ);
+            if (fSpeed < fSlowest)
+                fSlowest = fSpeed;
+            if (fGap < fBestGap)
+                fBestGap = fGap;
+            /* It must never reach the floor: that is the whole of what
+             * makes this a field at chest height. */
+            if (pMine->bActive)
+                CHECK(pMine->fY > MECHA_M(1.0f));
+        }
+
+        printf("   mine thrown at %.1f m/s, settled to %.1f, closed"
+               " %.1f m to %.1f m\n",
+               fLaunch / MECHA_METRE, fSlowest / MECHA_METRE,
+               fStartGap / MECHA_METRE, fBestGap / MECHA_METRE);
+        /* It stopped. */
+        CHECK(fSlowest < fLaunch * 0.2f);
+        /* And then it went after somebody. */
+        CHECK(fBestGap < fStartGap - MECHA_M(10.0f));
+    }
+    return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+/*
+ * Skirt armour is bolted to the waist, not parked beside it. The flare that
+ * makes one machine's hips wider than another's used to scale the whole
+ * plate's offset, which moves its inner edge out along with everything else
+ * -- at a modest flare nobody notices and at a wide one the machine has its
+ * hips hanging in the air either side of it. [MESH-34]
+ */
+/*
+ * Both legs stand the same way. A stance puts one thigh forward and one back
+ * with the same knee on both, which do not reach the same distance -- and
+ * leaving the hips to absorb that splays the longer leg right out while the
+ * other stands straight. It scales with leg length, so the longest-legged
+ * frame wore it worst. [MESH-45]
+ */
+static int test_a_stance_stands_on_two_even_legs(void)
+{
+    static tMechaQuad aStorage[MECHA_QUAD_CAPACITY];
+    tMechaQuadList list;
+    tMechaWorld world;
+    int iDef;
+    int iChecked = 0;
+
+    for (iDef = 0; iDef < mecha_def_count(); iDef++) {
+        const tMechaMechDef *pDef = mecha_def_get(iDef);
+        float afOut[2] = { 0.0f, 0.0f };
+        float fCos;
+        float fSin;
+        int iLegQuads = 0;
+        int iSeen = 0;
+        int i;
+        int v;
+
+        if (pDef->byChassis != MECHA_CHASSIS_BIPED)
+            continue;
+        start_duel(&world, 0, iDef, iDef, 0x57A2u, 1);
+        world.aMechs[0].byMove = MECHA_MOVE_STAND;
+        world.aMechs[0].fStepPhase = 0.0f;
+        world.aMechs[0].fCombat = 1.0f;          /* squared up to fight */
+        fCos = mecha_cos(world.aMechs[0].iFacing);
+        fSin = mecha_sin(world.aMechs[0].iFacing);
+
+        mecha_quads_reset(&list, aStorage, MECHA_QUAD_CAPACITY);
+        mecha_mesh_mech(&list, &world, 0, MECHA_DETAIL_FULL);
+
+        /* The legs are emitted one side then the other, so the halfway
+         * point is what tells one leg from the other -- a foot cannot be
+         * attributed by which side of the centreline it lands on when the
+         * question is whether it lands on the right side at all. */
+        for (i = 0; i < list.iCount; i++)
+            if (aStorage[i].byPart == MECHA_PART_LEG)
+                iLegQuads++;
+        CHECK(iLegQuads > 0);
+
+        for (i = 0; i < list.iCount; i++) {
+            if (aStorage[i].byPart != MECHA_PART_LEG)
+                continue;
+            for (v = 0; v < 4; v++) {
+                float fDx = aStorage[i].afVert[v][0] - world.aMechs[0].fX;
+                float fDz = aStorage[i].afVert[v][2] - world.aMechs[0].fZ;
+                float fSide = fDx * fCos - fDz * fSin;
+                int iLeg = iSeen < iLegQuads / 2 ? 0 : 1;
+
+                if (fSide < 0.0f)
+                    fSide = -fSide;
+                if (fSide > afOut[iLeg])
+                    afOut[iLeg] = fSide;
+            }
+            iSeen++;
+        }
+
+        printf("   %-16s legs reach %.2f and %.2f m out\n", pDef->szName,
+               afOut[0] / MECHA_METRE, afOut[1] / MECHA_METRE);
+        CHECK(afOut[0] > 0.0f && afOut[1] > 0.0f);
+        /*
+         * Within a tenth of each other. They are not identical -- one thigh
+         * is forward and one back, so the feet sit at different depths and
+         * present different corners -- but one leg reaching half again as
+         * far as the other is the failure this catches.
+         */
+        {
+            float fBig = afOut[0] > afOut[1] ? afOut[0] : afOut[1];
+            float fGap = afOut[0] > afOut[1] ? afOut[0] - afOut[1]
+                                             : afOut[1] - afOut[0];
+
+            CHECK(fGap < 0.10f * fBig);
+        }
+        iChecked++;
+    }
+    CHECK(iChecked > 0);
+    return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int test_the_skirt_is_attached_to_the_waist(void)
+{
+    static tMechaQuad aStorage[MECHA_QUAD_CAPACITY];
+    tMechaQuadList list;
+    tMechaWorld world;
+    int iDef;
+    int iChecked = 0;
+
+    for (iDef = 0; iDef < mecha_def_count(); iDef++) {
+        const tMechaMechDef *pDef = mecha_def_get(iDef);
+        float fWaistOut = 0.0f;
+        float fSideIn = 1e9f;
+        int iTorso = 0;
+        int i;
+        int v;
+
+        if (pDef->byChassis != MECHA_CHASSIS_BIPED)
+            continue;                   /* only a biped wears one */
+        start_duel(&world, 0, iDef, iDef, 0x5C1Au, 1);
+        world.aMechs[0].iFacing = 0;
+        world.aMechs[0].iLegYaw = 0;
+        world.aMechs[0].byMove = MECHA_MOVE_STAND;
+        world.aMechs[0].fStepPhase = 0.0f;
+        mecha_quads_reset(&list, aStorage, MECHA_QUAD_CAPACITY);
+        mecha_mesh_mech(&list, &world, 0, MECHA_DETAIL_FULL);
+
+        for (i = 0; i < list.iCount; i++) {
+            if (aStorage[i].byPart == MECHA_PART_TORSO)
+                iTorso++;
+            for (v = 0; v < 4; v++) {
+                float fX = aStorage[i].afVert[v][0] - world.aMechs[0].fX;
+                float fOut = fX < 0.0f ? -fX : fX;
+
+                /*
+                 * The waist is the first box the torso builder emits, and it
+                 * is what the skirt hangs off -- not the chest, which is
+                 * wider than either by design.
+                 */
+                if (aStorage[i].byPart == MECHA_PART_TORSO && iTorso <= 6
+                    && fOut > fWaistOut)
+                    fWaistOut = fOut;
+                /*
+                 * And the side plates are the ones out past the centreline;
+                 * the front pair straddle it, so a plain minimum would find
+                 * those instead.
+                 */
+                if (aStorage[i].byPart == MECHA_PART_SKIRT
+                    && fOut > 0.3f * MECHA_METRE && fOut < fSideIn)
+                    fSideIn = fOut;
+            }
+        }
+
+        CHECK(fWaistOut > 0.0f);
+        CHECK(fSideIn < 1e8f);
+        printf("   %-16s waist %.2f m, skirt starts %.2f m\n", pDef->szName,
+               fWaistOut / MECHA_METRE, fSideIn / MECHA_METRE);
+        /* Touching or overlapping. A positive gap is a floating plate. */
+        CHECK(fSideIn <= fWaistOut);
+        iChecked++;
+    }
+    CHECK(iChecked > 0);
+    return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int test_a_winner_holds_a_pose(void)
+{
+    static tMechaQuad aStorage[MECHA_QUAD_CAPACITY];
+    tMechaQuadList list;
+    tMechaWorld world;
+    const tMechaMechDef *pDef;
+    float afFightY[2];
+    float afFightZ[2];
+    float afPoseY[2];
+    float afPoseZ[2];
+    int iSlim = -1;
+    int iDef;
+
+    for (iDef = 0; iDef < mecha_def_count(); iDef++) {
+        if (mecha_def_get(iDef)->byProfile == MECHA_PROFILE_SLENDER) {
+            iSlim = iDef;
+            break;
+        }
+    }
+    CHECK(iSlim >= 0);
+    start_duel(&world, 0, iSlim, iSlim, 0x5011u, 1);
+    pDef = mecha_def_get(iSlim);
+    world.aMechs[0].byMove = MECHA_MOVE_STAND;
+    world.aMechs[0].byLock = MECHA_LOCK_HELD;
+    world.aMechs[0].iTargetIdx = 1;
+    world.aMechs[0].fCombat = 1.0f;
+
+    /* Mid-fight: both arms are on the same aim, so they sit level with
+     * each other. */
+    world.match.byPhase = MECHA_PHASE_FIGHT;
+    mecha_quads_reset(&list, aStorage, MECHA_QUAD_CAPACITY);
+    mecha_mesh_mech(&list, &world, 0, MECHA_DETAIL_FULL);
+    mesh_part_centre(&list, &world.aMechs[0], MECHA_PART_GUN, -1,
+                     &afFightY[0], &afFightZ[0]);
+    mesh_part_centre(&list, &world.aMechs[0], MECHA_PART_GUN, +1,
+                     &afFightY[1], &afFightZ[1]);
+    printf("   fighting: left gun %.2f high, right %.2f (of height)\n",
+           afFightY[0] / pDef->fHeight, afFightY[1] / pDef->fHeight);
+    CHECK(fabsf(afFightY[0] - afFightY[1]) < 0.04f * pDef->fHeight);
+
+    /* Round over, and this machine won it. Long enough into the phase to
+     * be all the way there. */
+    world.match.byPhase = MECHA_PHASE_ROUND_OVER;
+    world.match.iWinnerIdx = 0;
+    world.match.iPhaseTicks = MECHA_POSE_EASE_TICKS;
+    mecha_quads_reset(&list, aStorage, MECHA_QUAD_CAPACITY);
+    mecha_mesh_mech(&list, &world, 0, MECHA_DETAIL_FULL);
+    mesh_part_centre(&list, &world.aMechs[0], MECHA_PART_GUN, -1,
+                     &afPoseY[0], &afPoseZ[0]);
+    mesh_part_centre(&list, &world.aMechs[0], MECHA_PART_GUN, +1,
+                     &afPoseY[1], &afPoseZ[1]);
+    printf("   posed:    left gun %.2f high, right %.2f (of height)\n",
+           afPoseY[0] / pDef->fHeight, afPoseY[1] / pDef->fHeight);
+
+    /*
+     * One arm up and one down. A quarter of the machine's own height
+     * between them is not a subtle claim -- it is the difference between a
+     * hand by the head and a hand on the hip.
+     */
+    CHECK(afPoseY[1] > afPoseY[0] + 0.25f * pDef->fHeight);
+    /* And the raised one really is raised, not merely higher than a lowered
+     * one: it ends up above where either arm was while aiming. */
+    CHECK(afPoseY[1] > afFightY[1] + 0.10f * pDef->fHeight);
+
+    /* The loser does not pose. */
+    world.match.iWinnerIdx = 1;
+    mecha_quads_reset(&list, aStorage, MECHA_QUAD_CAPACITY);
+    mecha_mesh_mech(&list, &world, 0, MECHA_DETAIL_FULL);
+    mesh_part_centre(&list, &world.aMechs[0], MECHA_PART_GUN, +1,
+                     &afPoseY[1], &afPoseZ[1]);
+    CHECK(fabsf(afPoseY[1] - afFightY[1]) < 0.04f * pDef->fHeight);
+
+    /* Nor does anyone while the round is still being fought. */
+    world.match.byPhase = MECHA_PHASE_FIGHT;
+    world.match.iWinnerIdx = 0;
+    mecha_quads_reset(&list, aStorage, MECHA_QUAD_CAPACITY);
+    mecha_mesh_mech(&list, &world, 0, MECHA_DETAIL_FULL);
+    mesh_part_centre(&list, &world.aMechs[0], MECHA_PART_GUN, +1,
+                     &afPoseY[1], &afPoseZ[1]);
+    CHECK(fabsf(afPoseY[1] - afFightY[1]) < 0.04f * pDef->fHeight);
+
+    /*
+     * And it is eased into rather than snapped: one tick after the round
+     * ends the arm has started up and is nowhere near where it finishes.
+     */
+    world.match.byPhase = MECHA_PHASE_ROUND_OVER;
+    world.match.iPhaseTicks = 1;
+    mecha_quads_reset(&list, aStorage, MECHA_QUAD_CAPACITY);
+    mecha_mesh_mech(&list, &world, 0, MECHA_DETAIL_FULL);
+    mesh_part_centre(&list, &world.aMechs[0], MECHA_PART_GUN, +1,
+                     &afPoseY[1], &afPoseZ[1]);
+    CHECK(afPoseY[1] < afFightY[1] + 0.06f * pDef->fHeight);
+    return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int test_the_worst_scene_fits(void)
+{
+    static tMechaQuad aStorage[MECHA_QUAD_CAPACITY];
+    tMechaQuadList list;
+    tMechaWorld world;
+    tMechaInput aInputs[MECHA_MAX_MECHS];
+    int iPeak = 0;
+    int iDropped = 0;
+    int iFar = 0;
+    int iFull = 0;
+    int i;
+    int t;
+
+    mecha_sim_init(&world, mecha_arena_count() - 1, 0xB0A7u, 1);
+    for (i = 0; i < MECHA_MAX_MECHS; i++)
+        CHECK(mecha_sim_add_mech(&world, i % mecha_def_count(),
+                                 MECHA_CONTROL_AI, (uint8_t)(i & 1)) >= 0);
+    mecha_sim_begin_match(&world);
+    memset(aInputs, 0, sizeof(aInputs));
+
+    for (t = 0; t < MECHA_TICK_HZ * 60; t++) {
+        float fEyeX;
+        float fEyeY;
+        float fEyeZ;
+
+        mecha_sim_tick(&world, aInputs, MECHA_MAX_MECHS);
+        if (t % 5)
+            continue;
+
+        /* The chase camera's own place: behind mech zero and above it. */
+        fEyeX = world.aMechs[0].fX
+                - MECHA_M(9.0f) * mecha_sin(world.aMechs[0].iFacing);
+        fEyeY = world.aMechs[0].fY + MECHA_M(9.0f);
+        fEyeZ = world.aMechs[0].fZ
+                - MECHA_M(9.0f) * mecha_cos(world.aMechs[0].iFacing);
+
+        mecha_quads_reset(&list, aStorage, MECHA_QUAD_CAPACITY);
+        mecha_mesh_arena(&list, &world.arena);
+        mecha_mesh_shadows(&list, &world);
+        for (i = 0; i < MECHA_MAX_MECHS; i++) {
+            float fDx = world.aMechs[i].fX - fEyeX;
+            float fDy = world.aMechs[i].fY - fEyeY;
+            float fDz = world.aMechs[i].fZ - fEyeZ;
+            int iTier = mecha_mesh_detail_for_range(
+                            mecha_length3(fDx, fDy, fDz));
+
+            if (iTier == MECHA_DETAIL_FAR)
+                iFar++;
+            if (iTier == MECHA_DETAIL_FULL)
+                iFull++;
+            mecha_mesh_mech(&list, &world, i, iTier);
+        }
+        mecha_mesh_projectiles(&list, &world, 0);
+        mecha_mesh_effects(&list, &world, 0);
+        iDropped += list.iDropped;
+        if (list.iCount > iPeak)
+            iPeak = list.iCount;
+    }
+
+    printf("   sixteen machines on %s: peak %d quads of %d (%d%%),"
+           " %d dropped\n", mecha_arena_name(mecha_arena_count() - 1),
+           iPeak, MECHA_QUAD_CAPACITY,
+           iPeak * 100 / MECHA_QUAD_CAPACITY, iDropped);
+    printf("   detail tiers used: %d far, %d full\n", iFar, iFull);
+
+    /* Nothing lost, and a quarter of the buffer still spare -- because the
+     * next thing anyone adds to a machine comes out of this. */
+    CHECK(iDropped == 0);
+    CHECK(iPeak < MECHA_QUAD_CAPACITY * 3 / 4);
+    /*
+     * And the tiers are doing something. If every machine in a
+     * seven-hundred-metre arena came out at full detail the range test
+     * would be broken, and the budget above would be passing by luck.
+     */
+    CHECK(iFar > 0);
+    return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static int test_nothing_is_built_coplanar(void)
 {
     static tMechaQuad aStorage[MECHA_QUAD_CAPACITY];
     tMechaQuadList list;
     tMechaWorld world;
-    int aiPairs[8];
+    int aiPairs[16];
     int iArenas = mecha_arena_count();
+    int iDefs = mecha_def_count();
+    /* Enough passes to cover every arena and every machine, walking the two
+     * lists alongside each other so every body in the game gets held up
+     * against itself somewhere -- the one built out of the race game's own
+     * car plan included -- and every arena gets a machine standing in it.
+     * The two lists are not the same length and neither has to be. */
+    int iPasses = iArenas > iDefs ? iArenas : iDefs;
+    int iPass;
     int iArena;
 
-    CHECK(iArenas <= (int)(sizeof(aiPairs) / sizeof(aiPairs[0])));
-    /* One machine per arena, walking the roster alongside the arenas, so
-     * every body in the game gets held up against itself somewhere -- the
-     * one built out of the race game's own car plan included. */
-    CHECK(iArenas >= mecha_def_count());
-    for (iArena = 0; iArena < iArenas; iArena++) {
-        start_duel(&world, iArena, iArena % mecha_def_count(),
-                   (iArena + 1) % 4, 0xC0D1u, 1);
+    CHECK(iPasses <= (int)(sizeof(aiPairs) / sizeof(aiPairs[0])));
+    for (iPass = 0; iPass < iPasses; iPass++) {
+        iArena = iPass % iArenas;
+        start_duel(&world, iArena, iPass % iDefs,
+                   (iPass + 1) % iDefs, 0xC0D1u, 1);
         mecha_quads_reset(&list, aStorage, MECHA_QUAD_CAPACITY);
         mecha_mesh_arena(&list, &world.arena);
-        mecha_mesh_mech(&list, &world, 0);
-        mecha_mesh_mech(&list, &world, 1);
+        mecha_mesh_mech(&list, &world, 0, MECHA_DETAIL_FULL);
+        mecha_mesh_mech(&list, &world, 1, MECHA_DETAIL_FULL);
         mecha_mesh_shadows(&list, &world);
-        aiPairs[iArena] = coplanar_overlaps(&list);
+        aiPairs[iPass] = coplanar_overlaps(&list);
         /*
          * And it all fits. The walls are cut into panels the size of the
          * floor's tiles, which is a few hundred quads an arena more than
@@ -5649,6 +6145,15 @@ static int test_nothing_is_built_coplanar(void)
                 float fCz = 0.0f;
                 int v;
 
+                /*
+                 * Arena geometry only. A machine standing inside a keep --
+                 * which is where FACING WORLDS starts them -- puts its own
+                 * legs inside a block's footprint, and a leg is under no
+                 * obligation to face away from the wall it is standing
+                 * next to. [MESHH-03]
+                 */
+                if (pQuad->byPart != MECHA_PART_NONE)
+                    continue;
                 if (fabsf(pQuad->afNormal[1]) > 0.5f)
                     continue;                   /* a roof, not a side */
                 for (v = 0; v < 4; v++) {
@@ -5666,18 +6171,19 @@ static int test_nothing_is_built_coplanar(void)
             CHECK(iChecked > 0);
         }
 
-        printf("   arena %d: %d quads, %d dropped\n", iArena, list.iCount,
+        printf("   arena %d with %s: %d quads, %d dropped\n", iArena,
+               mecha_def_get(iPass % iDefs)->szName, list.iCount,
                list.iDropped);
         CHECK(list.iDropped == 0);
         CHECK(list.iCount < MECHA_QUAD_CAPACITY * 3 / 4);
     }
 
-    printf("   coplanar overlapping pairs per arena:");
-    for (iArena = 0; iArena < iArenas; iArena++)
-        printf(" %d", aiPairs[iArena]);
+    printf("   coplanar overlapping pairs per pass:");
+    for (iPass = 0; iPass < iPasses; iPass++)
+        printf(" %d", aiPairs[iPass]);
     printf("\n");
-    for (iArena = 0; iArena < iArenas; iArena++)
-        CHECK(aiPairs[iArena] == 0);
+    for (iPass = 0; iPass < iPasses; iPass++)
+        CHECK(aiPairs[iPass] == 0);
     return 0;
 }
 
@@ -5703,7 +6209,7 @@ static int test_blasts_draw_over_what_they_engulf(void)
     pDef = mecha_def_get((int)world.aMechs[0].byDefIdx);
 
     mecha_quads_reset(&list, aStorage, MECHA_QUAD_CAPACITY);
-    mecha_mesh_mech(&list, &world, 0);
+    mecha_mesh_mech(&list, &world, 0, MECHA_DETAIL_FULL);
     iHullQuads = list.iCount;
     CHECK(iHullQuads > 0);
 
@@ -7176,7 +7682,7 @@ static int test_mesh_geometry(void)
      * from its own centre -- this is the winding table, checked rather than
      * trusted. */
     mecha_quads_reset(&list, aStorage, MECHA_QUAD_CAPACITY);
-    mecha_mesh_mech(&list, &world, 0);
+    mecha_mesh_mech(&list, &world, 0, MECHA_DETAIL_FULL);
     CHECK(list.iCount > 0);
     CHECK(list.iCount % 6 == 0);
     for (i = 0; i + 5 < list.iCount; i += 6) {
@@ -7235,7 +7741,7 @@ static float build_aspect(int iDefIdx, tMechaQuad *paStorage)
 
     start_duel(&world, 0, iDefIdx, 0, 77u, 1);
     mecha_quads_reset(&list, paStorage, MECHA_QUAD_CAPACITY);
-    mecha_mesh_mech(&list, &world, 0);
+    mecha_mesh_mech(&list, &world, 0, MECHA_DETAIL_FULL);
 
     for (i = 0; i < list.iCount; i++) {
         for (v = 0; v < 4; v++) {
@@ -7301,7 +7807,7 @@ static int test_mesh_survives_a_match(void)
         mecha_mesh_arena(&list, &world.arena);
         mecha_mesh_shadows(&list, &world);
         for (iMech = 0; iMech < MECHA_MAX_MECHS; iMech++)
-            mecha_mesh_mech(&list, &world, iMech);
+            mecha_mesh_mech(&list, &world, iMech, MECHA_DETAIL_FULL);
         mecha_mesh_projectiles(&list, &world, world.aMechs[0].iFacing);
         mecha_mesh_effects(&list, &world, world.aMechs[0].iFacing);
 
@@ -7330,6 +7836,14 @@ int main(void)
         { "angles", test_angles },
         { "arena geometry", test_arena_geometry },
         { "roster", test_roster },
+        { "the worst scene fits", test_the_worst_scene_fits },
+        { "a stance stands on two even legs",
+          test_a_stance_stands_on_two_even_legs },
+        { "the skirt is attached to the waist",
+          test_the_skirt_is_attached_to_the_waist },
+        { "a winner holds a pose", test_a_winner_holds_a_pose },
+        { "a floating mine settles then hunts",
+          test_a_floating_mine_settles_then_hunts },
         { "movement and boost", test_movement_and_boost },
         { "arena confines mechs", test_arena_confines_mechs },
         { "stance selects weapon", test_stance_selects_weapon },

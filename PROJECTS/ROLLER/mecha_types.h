@@ -79,6 +79,47 @@ typedef enum
 } eMechaStance;
 
 //-------------------------------------------------------------------------------------------------
+/*
+ * What the machine is built on, which is a question about drawing and
+ * nothing else: how many legs to hang off it and what they do. The physics
+ * asks bWheeled, which is older and answers a different question -- whether
+ * the machine has one signed speed along its nose instead of a walk and a
+ * strafe -- and the two are kept apart deliberately. A tracked machine
+ * walks, turns and strafes like every other biped; it merely does not look
+ * like one. [TYPE-06]
+ */
+typedef enum
+{
+  MECHA_CHASSIS_BIPED    = 0,
+  /* The race game's own car plan, with a gun bolted to it. */
+  MECHA_CHASSIS_CAR      = 1,
+  /* A tank for legs: two track units and a hull slung between them. */
+  MECHA_CHASSIS_TREAD    = 2,
+  /* Six legs off a low body, arched above it. */
+  MECHA_CHASSIS_ARACHNID = 3,
+  MECHA_CHASSIS_COUNT    = 4
+} eMechaChassis;
+
+//-------------------------------------------------------------------------------------------------
+/*
+ * The trim package a biped wears over that skeleton, and how it carries
+ * itself. The bones are the same in all three -- a profile changes what is
+ * bolted to them and which gait table the legs read, not how many joints
+ * there are. [TYPE-07]
+ */
+typedef enum
+{
+  MECHA_PROFILE_STANDARD = 0,
+  /* Narrow waist, flared skirt, tapered limbs, trailing head crests, and a
+   * walk that leads from the hips. */
+  MECHA_PROFILE_SLENDER  = 1,
+  /* A rack of pods across the back and no main gun in either hand: this one
+   * fights by what it puts in the air. */
+  MECHA_PROFILE_CARRIER  = 2,
+  MECHA_PROFILE_COUNT    = 3
+} eMechaProfile;
+
+//-------------------------------------------------------------------------------------------------
 
 /*
  * What the reticle is actually doing. iTargetIdx says who it is pointed at;
@@ -221,6 +262,14 @@ typedef struct
   const char *szClass;
 
   /*
+   * What the mesh builds and what it hangs on it, as eMechaChassis and
+   * eMechaProfile. Drawing only: zero is a standard biped, which is what
+   * every machine written before these existed still gets. [TYPE-06]
+   */
+  uint8_t byChassis;
+  uint8_t byProfile;
+
+  /*
    * Silhouette multipliers, so an archetype reads from across the arena
    * rather than living only in the stat block. Zero means one. [TYPE-02]
    */
@@ -239,6 +288,19 @@ typedef struct
   float fBuildLimb;
   float fBuildHead;
   float fBuildGun;
+  /*
+   * Where the hips sit, as a fraction of the machine's height, and how long
+   * the arms are against the frame they hang off. Zero means the classic
+   * figure -- hips at 0.47 and arms at full length -- which is what every
+   * machine written before these existed still gets.
+   *
+   * Raising the hips lengthens the legs and shortens everything above them
+   * together, because the upper body is then drawn at whatever scale still
+   * puts the head where the machine's height says it goes. One number moves
+   * both halves, which is the only way they stay a figure. [TYPE-08]
+   */
+  float fBuildHip;
+  float fBuildArm;
 
   float fHeight;            /* world units, ground to head */
   float fRadius;            /* collision cylinder */
@@ -537,6 +599,13 @@ typedef struct
   int   iHomingRate;
   int   iTarget;            /* -1 for unguided */
   int   iArmTicks;          /* mines ignore everything until this reaches zero */
+  /*
+   * What a mine that has settled gets back when it goes hunting. A mine with
+   * no gravity in it never lands, so it never stops on its own; it bleeds its
+   * throw off over the arming time instead and then, if it was built to hunt,
+   * moves off at this. [SIM-26]
+   */
+  float fHuntSpeed;
   /*
    * One bit per mech, for a shell: who has already been burned by it. The
    * blast that spawns it hits everyone standing inside at the time, so those

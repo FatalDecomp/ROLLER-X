@@ -162,7 +162,7 @@ on the stick, and pick what to spend the next round on.
   default and settable on the briefing, decided on remaining armour if the clock
   runs out -- or on a deathmatch, not decided until somebody is down.
 
-- **Five arenas, and two of them are terrain.** Three are walled boxes with
+- **Seven arenas, and most of them are terrain.** Three are walled boxes with
   cover in them. COLDWATER MEADOW is an octagon of open country half a kilometre
   across -- seven truncated cones of hill, trees and rocks to fight around, and
   no buildings and no walls. TOWER SEVEN ROOF is a square with no walls either
@@ -439,7 +439,7 @@ on the stick, and pick what to spend the next round on.
   Every track the race game ships is laid at the maximum bar one bonus track, so
   that is the convention: `byGripLevel` zero is the best surface there is, an
   arena that says nothing about grip gets the best of it, and only an arena that
-  wants to be slippery has to declare it. All five are currently at maximum.
+  wants to be slippery has to declare it. All seven are currently at maximum.
   Taking the same corner on the worst grade instead doubles how far the car
   travels off its own nose -- 36 degrees of slip against 74.
 
@@ -926,6 +926,41 @@ on the stick, and pick what to spend the next round on.
   travel, against what its own comment said it was for; that is now negated too,
   so a machine boosting right leans right.
 
+- **Nine machines, on four chassis.** Five are ordinary bipeds. BASTION 88 has a
+  tank for legs -- two track units with road wheels that turn on ground covered,
+  a hull between them and a turret of a torso on top -- and walks, turns and
+  strafes like every other machine while looking like nothing else on the
+  roster. Tarant VZ has six, arched so its knees stand above its body, and pays
+  for them in the gauge: a third of a second of boost and a drain that empties
+  the bar in three of them. The ZIZIN is still the car.
+
+- **Two of the bipeds are not built like the others.** Lilia 07 is the slender
+  frame: narrow waist, wide skirt, tapered limbs, crests swept back off the
+  head, and a walk that puts its feet down on the centreline with the hips
+  travelling across to follow them and the shoulders rolling the other way.
+  Corvid 3 carries a rack of eight pods across its back and no gun in either
+  hand, because what it fights with is drones and mines that hang in the air
+  rather than falling to the floor -- and then go after whoever they were laid
+  against, slowly enough to be seen coming.
+
+- **The upper body answers the legs.** Arms swing against the leg on their own
+  side, the shoulders twist against the hips and the body rocks fore and aft
+  with each footfall. A machine holding a lock keeps a third of it, so the swing
+  does not appear and vanish as the reticle comes and goes.
+
+- **A machine that wins a round stands like it.** One pose per build -- a
+  salute, an arm up beside the head with the other hand on the hip, both arms
+  low and open -- held over a stance with one foot crossed in front of the
+  other, eased in over about half a second. Until this the winner stood exactly
+  as it stands at any other moment.
+
+- **Detail is spent where it is seen.** A machine is built at one of three tiers
+  by how far it is from the eye, and the outline survives all three: shoulders,
+  skirt, crest and gun are there at any range, and what falls away is trim that
+  is already sub-pixel by the time it does. Sixteen machines built in full on
+  the largest arena do not fit in one quad buffer; tiering them is what makes
+  the detail affordable at all.
+
 ## Layout
 
 The mode is split so that the half worth testing has no engine dependencies at
@@ -996,6 +1031,13 @@ zig build test-mecha-render -Dmecha-frames=/tmp/frames
   `mecha_mesh.c` or `mecha_render.c`, so retuning against a different palette
   stays a small edit.
 
+- **Every screen is drawn inside one renderer frame.** Ending the frame is what
+  presents the buffer, so a screen drawn outside the pair is drawn into memory
+  and never shown -- which is what the controls page did, and it read as a
+  softlock rather than as a blank page: the briefing stayed up and the mode kept
+  running behind it. `mecha_mode_draw` opens and closes one frame around all of
+  them.
+
 - **Leaving for the race is a tested path.** `--snapshot-scene arena-exit` boots
   into the arena, takes the exit, and draws the main menu, all headless -- which
   is how the crash behind "exit to Whiplash" was finally caught. It is not in
@@ -1027,7 +1069,19 @@ zig build test-mecha-render -Dmecha-frames=/tmp/frames
 ## Adding a machine
 
 Append an entry to `s_aMechDefs` in `mecha_defs.c`. The roster test checks that
-all twelve weapon entries are filled in, that dashing beats walking, and that
-crouching refills boost faster than standing, so a half-finished machine fails
-the build rather than shipping a trigger that silently does nothing in one
-stance.
+all twelve weapon entries are filled in, that dashing beats walking, that
+crouching refills boost faster than standing, and that the chassis it declares
+is one the mesh knows how to build, so a half-finished machine fails the build
+rather than shipping a trigger that silently does nothing in one stance.
+
+`byChassis` says what gets built -- biped, car, tracks or six legs -- and
+`byProfile` says what gets hung on a biped's bones and how it carries itself.
+Both default to zero, which is the ordinary biped every machine written before
+they existed still gets. `bWheeled` is a separate and older thing: it is the
+physics, and the roster test holds the two together so a wheeled machine cannot
+quietly come out walking.
+
+A new machine also has to be told apart from the ones already there. The
+headless render test stands the whole roster side on at 130 m, measures each
+outline against the arena behind it, and fails if any two cover the same ground
+to within a tenth on all of width, height and fill.

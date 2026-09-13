@@ -17,6 +17,18 @@ static int mecha_car_throttle(const tMechaInput *pInput, bool bCanAct);
 #define MECHA_READY_TICKS  MECHA_SEC(2.0f)
 #define MECHA_ROUND_OVER_TICKS MECHA_SEC(3.2f)
 #define MECHA_MINE_ARM_TICKS 24
+/*
+ * A mine with no gravity in it never reaches the floor, so nothing ever
+ * stopped it: it flew straight at its throwing speed until its life ran out.
+ * It bleeds that throw off over the arming time instead, which is what makes
+ * it a charge left hanging where it was put rather than a very slow bullet.
+ * [SIM-26]
+ */
+#define MECHA_MINE_SETTLE     0.86f
+/* And what one that hunts moves off at once it is armed, as a fraction of
+ * the speed it was thrown at. Slow: a mine that chases at bullet speed is a
+ * missile, and this machine already has missiles. */
+#define MECHA_MINE_HUNT_SCALE 0.30f
 
 /* A knockdown-grade hit that does not floor the mech still interrupts it. */
 #define MECHA_STAGGER_INTERRUPT 30.0f
@@ -2306,6 +2318,7 @@ static void mecha_fire_weapon(tMechaWorld *pWorld, int iMechIdx, int iSlot)
     pShot->iTarget = pTarget ? pMech->iTargetIdx : -1;
     pShot->iArmTicks = pWeapon->byKind == MECHA_PROJ_MINE
                        ? MECHA_MINE_ARM_TICKS : 0;
+    pShot->fHuntSpeed = pWeapon->fSpeed * MECHA_MINE_HUNT_SCALE;
   }
 }
 
@@ -2784,6 +2797,53 @@ static void mecha_update_projectiles(tMechaWorld *pWorld)
 
     if (pShot->byKind == MECHA_PROJ_HOMING)
       mecha_home_projectile(pWorld, pShot);
+
+    /*
+     * A mine with nothing pulling it down. It settles where it was thrown
+     * while it arms, and then -- if it was built to -- goes looking. The
+     * speed has to be handed back before the steering runs, because the
+     * homing works on the direction of a velocity and a stationary mine has
+     * no direction to turn. [SIM-26]
+     */
+    if (bMine && pShot->fArcGravity <= 0.0f) {
+      if (pShot->iArmTicks > 0) {
+        pShot->fVelX *= MECHA_MINE_SETTLE;
+        pShot->fVelY *= MECHA_MINE_SETTLE;
+        pShot->fVelZ *= MECHA_MINE_SETTLE;
+      } else if (pShot->iHomingRate > 0 && pShot->fHuntSpeed > 0.0f) {
+        float fSpeed = mecha_length3(pShot->fVelX, pShot->fVelY,
+                                     pShot->fVelZ);
+
+        if (fSpeed < pShot->fHuntSpeed) {
+          /* Off the mark from a standstill: point it at whoever it was laid
+           * against and let the steering take it from there. */
+          if (fSpeed < 1e-3f) {
+            const tMechaMech *pHunted =
+              (pShot->iTarget >= 0 && pShot->iTarget < MECHA_MAX_MECHS)
+                ? &pWorld->aMechs[pShot->iTarget] : NULL;
+
+            if (pHunted && mecha_mech_alive(pHunted)) {
+              float fDx = pHunted->fX - pShot->fX;
+              float fDz = pHunted->fZ - pShot->fZ;
+              float fFlat = mecha_length2(fDx, fDz);
+
+              if (fFlat > 1e-3f) {
+                pShot->fVelX = fDx / fFlat * pShot->fHuntSpeed;
+                pShot->fVelZ = fDz / fFlat * pShot->fHuntSpeed;
+              }
+            }
+          } else {
+            float fScale = pShot->fHuntSpeed / fSpeed;
+
+            pShot->fVelX *= fScale;
+            pShot->fVelY *= fScale;
+            pShot->fVelZ *= fScale;
+          }
+        }
+        mecha_home_projectile(pWorld, pShot);
+      }
+    }
+
     if (pShot->fArcGravity > 0.0f)
       pShot->fVelY -= pShot->fArcGravity * MECHA_DT;
 
