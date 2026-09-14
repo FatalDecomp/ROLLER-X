@@ -3785,9 +3785,12 @@ to cancel the thigh's and the knee's exactly, so the sole stays parallel to the
 floor whatever the leg does [MESH-19]. Right while the foot is on the ground,
 wrong while it is not -- a boot on the end of a stick.
 
-The flex is a sine of the stride weighted by how far the foot is off the floor.
-Toe down as it pushes off behind the machine, flat at the top of the lift, toe
-up as the leg reaches ahead for the ground.
+The flex is a toe drop weighted by how far the foot is off the floor, and it
+goes one way: the ankle hangs as the leg lifts the foot and comes back to flat
+as the leg puts it down. The first version swung it both ways -- toe down off
+the push, through flat, toe up onto the landing -- and that reads as the ankle
+rolling about underneath the machine rather than as a foot being carried. What
+the foot does is follow the leg.
 
 **Getting the lift right took three goes, and the first two are the note.** The
 obvious weighting is the knee: the gait bends it on the half of the cycle where
@@ -3804,9 +3807,28 @@ the leg that reaches furthest is the one on the floor; how far short the other
 leg falls **is** how high its foot is. Zero clearance is a planted foot and
 comes back exactly flat, by construction rather than by tuning.
 
-Which way round it goes was also measured, by tracking where the swinging foot
-sits fore and aft over a cycle: the sine runs opposite to the travel, so a
-positive sine is a leg behind the machine.
+### Which way is down
+
+Reasoning about the sign got it backwards, twice over, and the correction is
+worth the space. A positive pose pitch swings a limb aft [MESH-04], and the foot
+is the only limb on the machine that points **forwards** rather than down: swing
+it aft and the toe comes **up**. Derived from the rotation instead, the flex was
+added where it should have been subtracted, and every machine on the roster
+walked pointing its toes at the sky.
+
+The reason it survived a full pass of checking is that it is genuinely hard to
+see in a quad list, and the obvious measurement lies. Take the foot as
+everything within a fixed height of the sole, then read its front and back
+vertices: a foot pitched far enough is taller than a flat one, the window clips
+the raised heel, the back vertex lands on something else, and the tilt comes
+back small or reversed. The sample that settled it was the one phase where the
+pitch was shallow enough for the whole foot to fit the window -- and then the
+answer was unambiguous and matched the angle to within a degree.
+
+Two things fix this for next time. Print the angle from inside the builder
+rather than inferring it from the mesh, and draw **one leg**: patching the leg
+loop to a single side removes every ambiguity about which foot is which, and a
+side-on plot of one leg over a cycle shows the whole thing at a glance.
 
 ### Testing it, and what would not work
 
@@ -3820,7 +3842,23 @@ second version of the test passed with the flex compiled out entirely, which is
 the clearest possible statement that it was measuring nothing.
 
 What is tested instead: the rule directly, as a function -- flat at zero
-clearance, toe down trailing, toe up reaching, growing with clearance and
-clamped past the span -- and of the finished machine, the one thing that is
-unambiguous, which is that no part of a leg goes through the floor. That is the
-assertion both bad versions failed.
+clearance, growing one way with clearance, clamped past the span -- and of the
+finished machine, the one thing that is unambiguous, which is that no part of a
+leg goes through the floor. That is the assertion both bad versions failed.
+
+### What the flex broke on the way past
+
+A pitched foot also broke the bird-leg check in `legs walk on jointed knees`,
+which had been reading the ankle as the centroid of everything within 0.09 of
+the machine's height of the floor. That is a fair stand-in for the ankle only
+while feet are rigidly level: cut a pitched foot at a fixed height and you catch
+more of one end of it than the other, and the ankle appears to move. It read 167
+units behind the knee with level feet, 66 with the flex in its wrong-signed form
+-- under the bound of 80, which is how the failure surfaced -- and 535 once the
+sign was right. That last number passes, and it is still a bad measurement: it
+is three times the level reading, so what it mostly reports is how hard the toe
+is pointing.
+
+Widened to everything below the knee -- the shin's bottom and the whole foot, in
+the window however the foot is turned -- it reads 304 level and 287 pitched. The
+claim the test makes did not change; the thing it measures did.

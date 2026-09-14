@@ -1259,15 +1259,14 @@ static void mesh_band_centroid(const tMechaQuadList *pList,
 //-------------------------------------------------------------------------------------------------
 
 /*
- * The ankle rolls over the stride. A foot that stays level while the leg
- * swings under it is a boot on the end of a stick; a real one points its
- * toe as it pushes off and brings it up again to reach for the ground.
+ * The toe points down as the leg picks the foot up. A foot that stays level
+ * while the leg swings under it is a boot on the end of a stick; a real one
+ * hangs off the ankle once there is nothing under it to stand on.
  *
- * Both directions have to happen, and the foot has to be level when it is
- * on the floor -- the flex is the swing's, and a planted foot that is not
- * flat is a machine standing on an edge. [MESH-53]
+ * One way only, and back to flat by the time the sole is down -- a planted
+ * foot that is not flat is a machine standing on an edge. [MESH-53]
  */
-static int test_a_stride_rolls_the_ankle(void)
+static int test_a_stride_points_the_toe(void)
 {
     static tMechaQuad aStorage[MECHA_QUAD_CAPACITY];
     tMechaQuadList list;
@@ -1280,26 +1279,27 @@ static int test_a_stride_rolls_the_ankle(void)
     int iStep;
 
     /* A foot on the floor is flat, whatever its leg is doing. */
-    CHECK(mecha_leg_ankle(0.0f, fSpan, 1.0f, iRange) == 0);
-    CHECK(mecha_leg_ankle(0.0f, fSpan, -1.0f, iRange) == 0);
-    CHECK(mecha_leg_ankle(-MECHA_M(0.5f), fSpan, 1.0f, iRange) == 0);
+    CHECK(mecha_leg_ankle(0.0f, fSpan, iRange) == 0);
+    CHECK(mecha_leg_ankle(-MECHA_M(0.5f), fSpan, iRange) == 0);
 
-    /* Off it, the toe drops as the leg trails and lifts as it reaches. */
-    CHECK(mecha_leg_ankle(fSpan, fSpan, 1.0f, iRange) > 0);
-    CHECK(mecha_leg_ankle(fSpan, fSpan, -1.0f, iRange) < 0);
-    CHECK(mecha_leg_ankle(fSpan, fSpan, 1.0f, iRange) == iRange);
+    /* Off it the toe drops, and only ever downwards. */
+    CHECK(mecha_leg_ankle(fSpan, fSpan, iRange) == iRange);
+    CHECK(mecha_leg_ankle(fSpan / 4.0f, fSpan, iRange) > 0);
 
-    /* Higher is more of it, and past the span it stops growing. */
-    CHECK(mecha_leg_ankle(fSpan / 2.0f, fSpan, 1.0f, iRange)
-          < mecha_leg_ankle(fSpan, fSpan, 1.0f, iRange));
-    CHECK(mecha_leg_ankle(fSpan * 4.0f, fSpan, 1.0f, iRange)
-          == mecha_leg_ankle(fSpan, fSpan, 1.0f, iRange));
+    /* Higher is more of it, all the way up, and past the span it stops
+     * growing rather than folding the foot under the shin. */
+    CHECK(mecha_leg_ankle(fSpan / 4.0f, fSpan, iRange)
+          < mecha_leg_ankle(fSpan / 2.0f, fSpan, iRange));
+    CHECK(mecha_leg_ankle(fSpan / 2.0f, fSpan, iRange)
+          < mecha_leg_ankle(fSpan, fSpan, iRange));
+    CHECK(mecha_leg_ankle(fSpan * 4.0f, fSpan, iRange)
+          == mecha_leg_ankle(fSpan, fSpan, iRange));
 
     /*
      * And in the finished machine, the one thing that is unambiguous: a
-     * foot that rolls while its sole is down puts its toe or its heel
-     * through the ground, which is how the first two attempts at this were
-     * caught, half a metre under.
+     * foot that pitches while its sole is down puts its toe through the
+     * ground, which is how the first two attempts at this were caught,
+     * half a metre under.
      */
     for (iDef = 0; iDef < mecha_def_count(); iDef++) {
         start_duel(&world, iDef, iDef, 0, 0x1E65u, 1);
@@ -1466,7 +1466,16 @@ static int test_legs_walk_on_jointed_knees(void)
                 fKneeZ += fZ;
                 iKnee++;
             }
-            if (fY < 0.09f * pDef->fHeight) {
+            /*
+             * Everything below the knee -- the bottom of the shin and the
+             * whole foot -- rather than a slice of the foot near the floor.
+             * The slice was a fair stand-in for the ankle only while the
+             * feet were rigidly level; once the toe drops on the lift, a
+             * cut at a fixed height catches more toe and less heel and
+             * reads it as the ankle sliding forward. The union moves with
+             * the ankle because the foot turns about it. [MESH-53]
+             */
+            if (fY < 0.17f * pDef->fHeight) {
                 fFootZ += fZ;
                 iFoot++;
             }
@@ -8784,7 +8793,7 @@ int main(void)
           test_the_pilot_turns_a_dash_it_is_already_in },
         { "a floating stage has nothing under it",
           test_a_floating_stage_has_nothing_under_it },
-        { "a stride rolls the ankle", test_a_stride_rolls_the_ankle },
+        { "a stride points the toe", test_a_stride_points_the_toe },
         { "a fort has two floors", test_a_fort_has_two_floors },
         { "the sky turns about a west-east axis",
           test_the_sky_turns_about_a_west_east_axis },

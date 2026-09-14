@@ -1265,10 +1265,10 @@ static int mecha_blend_angle(int iFrom, int iTo, float fAmount)
  */
 #define MECHA_LEG_SWING   MECHA_DEG(41)
 #define MECHA_LEG_KNEE    MECHA_DEG(56)
-/* How far the ankle rolls either side of flat while the foot is off the
- * ground -- toe down off the push, toe up onto the landing -- and how much
- * clearance under the sole counts as fully off it, as a fraction of the
- * leg. A stride lifts a foot about a fifth of its own leg. [MESH-53] */
+/* How far the toe drops below flat once the leg has the foot off the
+ * ground, and how much clearance under the sole counts as fully off it, as
+ * a fraction of the leg. A stride lifts a foot about a fifth of its own
+ * leg. [MESH-53] */
 #define MECHA_LEG_ANKLE   MECHA_DEG(19)
 #define MECHA_ANKLE_CLEAR 0.14f
 /*
@@ -1322,7 +1322,8 @@ static int mecha_blend_angle(int iFrom, int iTo, float fAmount)
  */
 #define MECHA_SLIM_SWING   MECHA_DEG(45)
 #define MECHA_SLIM_KNEE    MECHA_DEG(74)
-/* A deeper knee rolls further over the toe. [MESH-53] */
+/* A deeper knee picks the foot up higher, so the toe drops further.
+ * [MESH-53] */
 #define MECHA_SLIM_ANKLE   MECHA_DEG(24)
 /* How far the standing hip rolls in under the body. */
 #define MECHA_SLIM_CROSS   MECHA_DEG(14)
@@ -1420,14 +1421,20 @@ static bool mecha_gait_plants(int iGait)
  * outwards, which the caller signs for the side it is building.
  */
 /*
- * How far the ankle is off flat: how high the foot is off the floor, times
- * where it is in its swing.
+ * How far the toe drops below flat: how high the leg has picked the foot
+ * up, and nothing else.
  *
  * A foot that stays level while the leg swings under it is a boot on the
  * end of a stick, and it is what every machine on the roster was doing --
  * the ankle was built to cancel the thigh and the knee exactly, so the sole
  * stayed parallel to the floor whatever the leg did. That is right while
  * the foot is on the ground and wrong while it is not.
+ *
+ * It goes one way. The ankle hangs as the leg lifts it and comes back to
+ * flat as the leg puts it down, which is the foot following the leg. A
+ * version that swung both ways instead -- down off the push, through flat,
+ * up onto the landing -- read as the ankle rolling about underneath the
+ * machine rather than as a foot being carried.
  *
  * The lift is what gates it, and it has to be the real one. Two goes at
  * deriving it from the gait's own trig both put a planted toe half a metre
@@ -1437,13 +1444,9 @@ static bool mecha_gait_plants(int iGait)
  * either half. Measured rather than reasoned about, and then taken from the
  * one number that already knows -- how far this leg reaches compared to the
  * leg standing on the floor. Zero clearance is a planted foot and it stays
- * flat, exactly.
- *
- * fSwing is where the leg is in its stride, positive as it trails. Toe down
- * off the push, through flat at the top of the lift, toe up as the leg
- * reaches ahead for the ground. Which is a step. [MESH-53]
+ * flat, exactly. [MESH-53]
  */
-int mecha_leg_ankle(float fClear, float fSpan, float fSwing, int iRange)
+int mecha_leg_ankle(float fClear, float fSpan, int iRange)
 {
   float fLift;
 
@@ -1454,7 +1457,7 @@ int mecha_leg_ankle(float fClear, float fSpan, float fSwing, int iRange)
     return 0;
   if (fLift > 1.0f)
     fLift = 1.0f;
-  return (int)((float)iRange * fLift * fSwing);
+  return (int)((float)iRange * fLift);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -3350,7 +3353,7 @@ void mecha_mesh_mech(tMechaQuadList *pList, const tMechaWorld *pWorld,
      * so the two cannot drift apart. */
     fWalkPhase = (iGait == MECHA_GAIT_WALK) ? fPhase : -1.0f;
     /* Flat unless a stride says otherwise: a machine on both feet, or in
-     * the air with nothing to push off, is not rolling a foot over. */
+     * the air with nothing to push off, is not picking a foot up. */
     aiAnkle[0] = 0;
     aiAnkle[1] = 0;
     if (!bAirborne) {
@@ -3407,7 +3410,7 @@ void mecha_mesh_mech(tMechaQuadList *pList, const tMechaWorld *pWorld,
          * One foot down, which is a stride: the body sits so the leg that
          * reaches furthest is the one on the floor, and how far short the
          * other leg falls is exactly how high its foot is. That is the
-         * number the ankle rolls on. [MESH-53]
+         * number the ankle hangs on. [MESH-53]
          */
         float fFloorReach = afReach[0] > afReach[1] ? afReach[0]
                                                     : afReach[1];
@@ -3415,22 +3418,10 @@ void mecha_mesh_mech(tMechaQuadList *pList, const tMechaWorld *pWorld,
                        ? MECHA_SLIM_ANKLE : MECHA_LEG_ANKLE;
 
         fLift = fFloorReach - fLegSpan;
-        for (iSide = 0; iSide < 2; iSide++) {
-          float fAt = fPhase + 0.5f * (float)iSide;
-          float fSwing = mecha_sin((int)(fAt * (float)MECHA_ANGLE_FULL)
-                                   & (MECHA_ANGLE_FULL - 1));
-
-          /*
-           * Which way round this goes was measured rather than reasoned
-           * about: track where the swinging foot is fore and aft over a
-           * cycle and the sine runs the other way to the travel, so a
-           * positive sine is a leg behind the machine. Toe down there,
-           * which is the push, and toe up as it comes forward to land.
-           */
+        for (iSide = 0; iSide < 2; iSide++)
           aiAnkle[iSide] = mecha_leg_ankle(fFloorReach - afReach[iSide],
                                            MECHA_ANKLE_CLEAR * fLegSpan,
-                                           fSwing, iRange);
-        }
+                                           iRange);
       }
     }
   }
@@ -3538,12 +3529,18 @@ void mecha_mesh_mech(tMechaQuadList *pList, const tMechaWorld *pWorld,
     /*
      * The foot is flat to the floor both ways while it is on it: the
      * pitches cancel by construction and the ankle gives the hip roll back
-     * [MESH-19]. Off it, the ankle carries the stride's own flex on top of
-     * that -- zero on the tick the foot leaves the ground and zero again on
-     * the tick it lands, so the two rules never argue. [MESH-53]
+     * [MESH-19]. Off it, the toe hangs below that -- zero on the tick the
+     * foot leaves the ground and zero again on the tick it lands, so the
+     * two rules never argue.
+     *
+     * Subtracted, not added. A positive pose pitch swings a limb aft
+     * [MESH-04], and the foot is the one limb on the machine that points
+     * forwards rather than down: swinging it aft lifts the toe. Reasoning
+     * from the rotation got this backwards; the sign is the one the mesh
+     * measures, with the toe tip below the heel on a raised foot. [MESH-53]
      */
     mecha_pose_child(&foot, &shin, 0.0f, -fShinLen, 0.0f, 0,
-                     aiThigh[iSide] - aiKnee[iSide] + aiAnkle[iSide],
+                     aiThigh[iSide] - aiKnee[iSide] - aiAnkle[iSide],
                      -(int)(fSide * (float)aiRoll[iSide]));
     mecha_add_frustum(pList, &foot, 0.0f, -0.5f * fAnkle, 0.06f * fRadius,
                       0.27f * fRadius * fLimb, 0.38f * fRadius * fLimb,
