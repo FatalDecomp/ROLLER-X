@@ -2037,6 +2037,13 @@ static const struct
   {  11, 15, 20, 10 },   /* sky                                          */
   { 145,  2, 19, 63 },   /* DrawHorizon's sky, the one index it hardcodes */
   {  18, 46, 39, 34 },   /* iron trim                                    */
+  /* FACING WORLDS, each one the mean colour of the retail tiles it stands
+   * in for, walked onto the nearest index the palette has. [ARENA-28] */
+  {  22, 34, 30, 23 },   /* pale stone: the cover out on the causeways   */
+  {  23, 31, 27, 21 },   /* and the east keep's roof                     */
+  {  25, 25, 23, 16 },   /* the shaded side of that stone                */
+  {  29, 13, 13,  7 },   /* the crags, the lighter check                 */
+  {  47, 12,  8,  4 },   /* the crags, the darker                        */
   {  57, 40, 29, 21 },   /* bark                                         */
   { 105, 21, 21, 27 },   /* mech joints                                  */
   { 115,  5,  5,  5 },   /* HUD frame, the darkest tone used             */

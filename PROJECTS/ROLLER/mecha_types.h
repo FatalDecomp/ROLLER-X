@@ -703,10 +703,25 @@ typedef struct
   uint8_t byKind;           /* eMechaPropKind */
   uint8_t byPalette;
   uint8_t byTrimPalette;
-  /* Tiles in the game's building bank, used when the retail data is there.
-   * The palette entries above stay the fallback and the shading. */
+  /* Tiles in one of the game's texture banks, used when the retail data is
+   * there. The palette entries above stay the fallback and the shading. */
   uint8_t byTile;
   uint8_t byTopTile;
+  /*
+   * Which bank those tiles are in. Cover started out as buildings and the
+   * building bank was the only one it ever wanted; a stage whose structures
+   * are concrete and rock takes them from the track's own bank instead, and
+   * the two banks number their tiles independently. [ARENA-28]
+   */
+  uint8_t byBank;
+  /*
+   * A run of tiles to scatter over the sides of it, so a wall a hundred
+   * panels wide is not a hundred copies of one panel. Zero count is a box
+   * that is all one tile, which is every piece of cover in the roster's
+   * other arenas. [ARENA-28]
+   */
+  uint8_t byDetailFirst;
+  uint8_t byDetailCount;
 } tMechaObstacle;
 
 //-------------------------------------------------------------------------------------------------
@@ -766,6 +781,14 @@ typedef struct
   uint8_t byFloorTile;
   uint8_t byGridTile;
   uint8_t byWallTile;
+  /*
+   * Or a longer cycle than two. A floor is a checkerboard of two tiles
+   * because a floor wants to read as a grid to move over; ground that is
+   * meant to read as rock wants a rotation with no pattern in it short
+   * enough to see. Count zero keeps the pair above. [ARENA-28]
+   */
+  uint8_t abyGroundTile[4];
+  uint8_t byGroundTileCount;
   int   iObstacleCount;
   tMechaObstacle aObstacles[MECHA_MAX_OBSTACLES];
 

@@ -1172,6 +1172,18 @@ int main(int argc, char **argv)
                            FRAME_W, FRAME_H, s_aQuads, MECHA_QUAD_CAPACITY);
         dump_frame(szOutDir, "arena_fort_below.png");
 
+        /* And out on a causeway, where the cover stands: the one place on
+         * this stage a fight actually happens. */
+        s_Camera.fX = -MECHA_M(230.0f);
+        s_Camera.fY = MECHA_M(22.0f);
+        s_Camera.fZ = -MECHA_M(100.0f);
+        s_Camera.iYaw = MECHA_ANGLE_QUARTER;
+        s_Camera.iPitch = -MECHA_DEG(3);
+        s_Camera.bSettled = true;
+        mecha_render_frame(pRenderer, &s_World, &s_Camera, 0, s_aFrame,
+                           FRAME_W, FRAME_H, s_aQuads, MECHA_QUAD_CAPACITY);
+        dump_frame(szOutDir, "arena_causeway.png");
+
         /* And from up on the floor above, looking back down over the
          * opening at the room underneath. */
         s_Camera.fX = -MECHA_M(548.0f);

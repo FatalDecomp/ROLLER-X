@@ -493,6 +493,55 @@ static void mecha_add_floor_quad(tMechaQuadList *pList,
 static void mecha_tag_box(tMechaQuadList *pList, int iFirst, int iBank,
                           int iSide, int iTop);
 static void mecha_tag_texture(tMechaQuadList *pList, int iBank, int iTile);
+static uint32_t mecha_cloud_hash(uint32_t uiValue);
+
+//-------------------------------------------------------------------------------------------------
+
+/*
+ * Which bank a box's tiles are numbered in. Cover started out as buildings
+ * and every arena but one still wants the building bank; zero is what an
+ * arena that never set it leaves behind, and the building bank is what that
+ * has always meant. [ARENA-28]
+ */
+static int mecha_box_bank(const tMechaObstacle *pBox)
+{
+  return pBox->byBank != 0 ? (int)pBox->byBank : MECHA_TEX_STRUCT;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+/*
+ * Breaks up a wall built out of one tile. A keep is a hundred metres of
+ * panelling a side; laid in a single tile it reads as wallpaper, and the
+ * thing that makes a real building out of it is the panel here and there
+ * that is a door, a window, or a piece of machinery bolted on.
+ *
+ * The side faces only -- a roof is not where the detail goes -- and hashed
+ * off the box and the panel, so it is the same wall every frame and every
+ * match rather than something that crawls. A pick that lands on the tile
+ * the wall is already made of is left alone, which is what keeps the body
+ * of the wall the body of the wall. [ARENA-28]
+ */
+static void mecha_scatter_detail(tMechaQuadList *pList, int iFirst,
+                                 const tMechaObstacle *pBox, uint32_t uiSalt)
+{
+  int i;
+
+  if (pBox->byDetailCount == 0)
+    return;
+  for (i = iFirst; i < pList->iCount; i++) {
+    tMechaQuad *pQuad = &pList->paQuads[i];
+    uint32_t uiHash;
+
+    if (pQuad->afNormal[1] > 0.5f || pQuad->afNormal[1] < -0.5f)
+      continue;
+    uiHash = mecha_cloud_hash(uiSalt * 2654435761u + (uint32_t)i * 40503u);
+    if ((uiHash & 3u) != 0u)
+      continue;                       /* about one panel in four */
+    pQuad->byTile = (uint8_t)(pBox->byDetailFirst
+                              + (uiHash >> 8) % pBox->byDetailCount);
+  }
+}
 
 //-------------------------------------------------------------------------------------------------
 
@@ -504,7 +553,8 @@ static void mecha_tag_texture(tMechaQuadList *pList, int iBank, int iTile);
  */
 static void mecha_add_ceiling(tMechaQuadList *pList, float fX, float fZ,
                               float fHalfX, float fHalfZ, float fY,
-                              float fTile, uint8_t byPalette, uint8_t byTile)
+                              float fTile, uint8_t byPalette, int iBank,
+                              uint8_t byTile)
 {
   float fLowX = fX - fHalfX;
   float fLowZ = fZ - fHalfZ;
@@ -530,7 +580,7 @@ static void mecha_add_ceiling(tMechaQuadList *pList, float fX, float fZ,
       afVert[2][0] = fX1; afVert[2][1] = fY; afVert[2][2] = fZ1;
       afVert[3][0] = fX0; afVert[3][1] = fY; afVert[3][2] = fZ1;
       mecha_quads_add(pList, afVert, byPalette, 0);
-      mecha_tag_texture(pList, MECHA_TEX_STRUCT, byTile);
+      mecha_tag_texture(pList, iBank, byTile);
     }
   }
 }
@@ -744,10 +794,26 @@ void mecha_mesh_arena(tMechaQuadList *pList, const tMechaArena *pArena)
       /* The checkerboard survives the texturing: the two tiles alternate
        * the same way the two palette entries do, so a floor with the retail
        * art on it still reads as a grid to move about on rather than as one
-       * flat expanse. */
-      mecha_tag_texture(pList, MECHA_TEX_WORLD,
-                        bAlternate ? pArena->byFloorTile
-                                   : pArena->byGridTile);
+       * flat expanse.
+       *
+       * Unless the arena asked for a longer cycle, in which case the point
+       * is the opposite: a rotation long enough that the eye does not find
+       * the repeat, for ground that is meant to be rock rather than floor.
+       * [ARENA-28] */
+      if (pArena->byGroundTileCount > 0) {
+        int iCycle = pArena->byGroundTileCount;
+
+        if (iCycle > (int)(sizeof(pArena->abyGroundTile)
+                           / sizeof(pArena->abyGroundTile[0])))
+          iCycle = (int)(sizeof(pArena->abyGroundTile)
+                         / sizeof(pArena->abyGroundTile[0]));
+        mecha_tag_texture(pList, MECHA_TEX_WORLD,
+                          pArena->abyGroundTile[(iRow + iCol) % iCycle]);
+      } else {
+        mecha_tag_texture(pList, MECHA_TEX_WORLD,
+                          bAlternate ? pArena->byFloorTile
+                                     : pArena->byGridTile);
+      }
     }
   }
 
@@ -960,6 +1026,7 @@ void mecha_mesh_arena(tMechaQuadList *pList, const tMechaArena *pArena)
          * and eighty wide. [MESH-50] */
         float fNear = 1.0f - fLow * (1.0f - MECHA_SPIRE_TIP);
         float fFar = 1.0f - fHigh * (1.0f - MECHA_SPIRE_TIP);
+        int iFirst = pList->iCount;
 
         mecha_add_frustum(pList, &pose, pBox->fX, (fY0 + fY1) * 0.5f,
                           pBox->fZ,
@@ -973,16 +1040,24 @@ void mecha_mesh_arena(tMechaQuadList *pList, const tMechaArena *pArena)
                           (iTier & 1) ? pBox->byTrimPalette
                                       : pBox->byPalette,
                           pBox->byTrimPalette, 0);
+        /* And the artwork over the lot of it where there is any: a spire
+         * is a roof, so every face of it takes the roof tile rather than
+         * the side-and-top pair a box wants. [ARENA-28] */
+        mecha_tag_box(pList, iFirst, mecha_box_bank(pBox), pBox->byTile,
+                      pBox->byTile);
       }
       break;
     }
 
-    default:
+    default: {
+      int iFirst = pList->iCount;
+
       mecha_add_tiled_box(pList, pBox->fX, pBox->fZ, pBox->fHalfX,
                           pBox->fHalfZ, fBase, fBase + pBox->fHeight, fTile,
-                          MECHA_TEX_STRUCT, pBox->byPalette,
+                          mecha_box_bank(pBox), pBox->byPalette,
                           pBox->byTrimPalette, pBox->byTile,
                           pBox->byTopTile);
+      mecha_scatter_detail(pList, iFirst, pBox, (uint32_t)i);
       /*
        * A box that stands on the floor needs no underside and is not given
        * one. A deck does: it is the ceiling of the room below, and without
@@ -991,9 +1066,10 @@ void mecha_mesh_arena(tMechaQuadList *pList, const tMechaArena *pArena)
       if (pBox->fRise > 0.0f) {
         mecha_add_ceiling(pList, pBox->fX, pBox->fZ, pBox->fHalfX,
                           pBox->fHalfZ, fBase, fTile, pBox->byPalette,
-                          pBox->byTile);
+                          mecha_box_bank(pBox), pBox->byTile);
       }
       break;
+    }
     }
   }
 }

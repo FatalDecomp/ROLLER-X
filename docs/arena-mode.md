@@ -397,6 +397,14 @@ on the stick, and pick what to spend the next round on.
   fires first across four hundred metres of flat deck wins and the walk is a
   formality.
 
+  With the retail data installed the stage wears the game's own artwork, out of
+  the track bank rather than the building one: grey concrete with conduit on the
+  keeps, rust-brown strata on the ground, pale stone on the cover, and a
+  different roof on each keep so the two ends are told apart at a distance. The
+  keeps' walls take a scattered detail tile about one panel in four -- a door, a
+  window, a piece of machinery -- so a wall a hundred metres wide is a building
+  rather than wallpaper.
+
   The two ends are crags rather than slabs. Eight planes cut each platform back,
   every one of them pushed in by an amount of its own and turned a little off
   the even spacing, and each end is cut by its own seed -- so they are two rocks

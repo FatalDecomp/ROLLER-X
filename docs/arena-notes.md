@@ -3546,3 +3546,74 @@ so every other arena's sky drifts exactly as it did.
 Measured rather than asserted: a star's angle about the axle advances 1.1
 degrees a second, and its distance along the axle does not change at all, which
 is the same thing `the sky turns about a west-east axis` guards [MESH-51].
+
+## ARENA-28 — FACING WORLDS gets the retail artwork
+
+Picked by eye off a numbered contact sheet of the decoded banks rather than by
+measuring the banks for uniformity as everything before this was [DEF-04]. The
+stage is concrete and rock, and both live in the track bank.
+
+- **The keeps** are `track1` 240-242, grey concrete with conduit runs on it.
+- **The ground** is 165-167, three courses of rust-brown strata.
+- **The cover** is 168-173, a different pale stone per block.
+- **The roofs** are `building` 23 on the west keep and 17 on the east, so the
+  two ends of the stage are told apart at a distance by the one part of them
+  that has only sky behind it.
+
+Four pieces of machinery came out of it.
+
+**A box can say which bank it is in.** Cover started life as buildings and the
+building bank was the only one it ever wanted, so the mesh had the bank
+hard-coded. `byBank` is per-obstacle, zero meaning the building bank, which is
+what every arena that never set it has always meant. Worth noting what this also
+fixed: `mecha_arena_face_stone` had been setting tile numbers out of the *track*
+bank while the mesh drew them from the *building* bank, so the keeps were
+wearing whatever two facades happened to sit at those indices.
+
+**A wall can have more than one tile on it.** A keep is a hundred metres of
+panelling a side and one tile across all of it is wallpaper. The detail run is a
+range of tiles the mesh scatters over the side faces -- 234-245 here, the doors,
+windows and machinery -- about one panel in four, hashed off the box and the
+panel so it is the same wall every frame rather than something that crawls. A
+pick that lands on the tile the wall is already made of is left alone.
+
+**The ground can cycle more than two tiles.** A floor is a checkerboard because
+a floor wants to read as a grid to move over; rock wants the opposite, a
+rotation long enough that the eye does not find the repeat.
+
+**The cover came down.** Fifteen to twenty-two metres rather than thirty to
+forty-two, and a smaller footprint. The machines are eleven to seventeen metres:
+cover twice the height of the machine behind it is a wall, and a wall is not
+something you fight from. At this height a pilot standing behind one cannot see
+over it and a pilot jumping can.
+
+### The fallback colours, and the one place the measurement loses
+
+Each palette entry beside a tile is the mean colour of the tile itself, walked
+onto the nearest index the palette has -- the same method as REND-12, computed
+rather than guessed. Keeps 123/125, cover 22/25, roofs 128 and 23.
+
+The ground is the exception. Its tiles average a mid rust-brown, and the nearest
+index to that (85) sits 46 from the orange tracer on the opponent-colour metric,
+where the contrast guard wants 50 [DEF-12]. A brown ground and an orange tracer
+are the same conflict the green-shot-over-grass was, and the guard caught it the
+first time it was built. So the crag's fallback walks down the same ramp until
+it clears: 29 and 47, darker and warmer than the tiles they stand in for. The
+guard now reports 56 at its worst pair.
+
+Only the three arena surface palettes are under that guard -- floor, grid and
+wall. Cover, keeps and roofs are obstacle palettes and were free to take their
+measured match.
+
+### Two failures this turned up, neither of them fixed here
+
+Running the headless render test with the retail data present -- which it has
+plainly never had, since CI has none -- fails twice:
+
+- `1 of 3 bolt tints built (textured)` at the tint check. Only one recoloured
+  bank is ever asked for, so the other two are never built and the check that
+  all three are up fails.
+- The red-shot count check further down.
+
+Both are the test's expectations meeting real artwork for the first time. They
+are worth a pass of their own.

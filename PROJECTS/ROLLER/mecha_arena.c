@@ -1,6 +1,7 @@
 #include "mecha_arena.h"
 
 #include "mecha_defs.h"
+#include "mecha_mesh.h"        /* the texture bank numbers */
 
 #include <math.h>
 #include <string.h>
@@ -33,9 +34,50 @@
 /* Nothing at all: the one index the retail palette holds at pure black, for
  * a stage with no horizon behind it. [MESH-49] */
 #define MECHA_PAL_VOID      0
-/* The forts' roofs: the low half of the orange ramp, which is bronze rather
- * than the grey everything else on that stage is, and nowhere near the
- * bright end of the ramp that weapon fire owns. [ARENA-24] */
+/*
+ * FACING WORLDS is built out of the track bank's own concrete and rock
+ * rather than the building bank's facades, and the palette entries beside
+ * each tile are what a checkout with no retail data sees instead: the mean
+ * colour of the tiles themselves, walked onto the nearest index the
+ * palette has. [ARENA-28]
+ */
+/* The keeps: grey concrete with conduit on it, and the loose panels --
+ * doors, windows, machinery -- scattered over the sides of them. */
+#define MECHA_TILE_KEEP_FIRST   240   /* ..242, the body of a wall */
+#define MECHA_TILE_KEEP_COUNT     3
+#define MECHA_TILE_KEEP_TOP     239   /* plain, for what faces the sky */
+#define MECHA_TILE_KEEP_DETAIL  234   /* ..245, a panel in four */
+#define MECHA_TILE_KEEP_SPREAD   12
+#define MECHA_PAL_KEEP          123
+#define MECHA_PAL_KEEP_TOP      125
+/* The crags: rust-brown strata, three of them so the ground has no repeat
+ * short enough to see. */
+#define MECHA_TILE_CRAG_FIRST   165   /* ..167 */
+#define MECHA_TILE_CRAG_COUNT     3
+/*
+ * Darker and warmer than the tiles themselves are, which is the one place
+ * the measurement does not get the last word: the ground is the surface
+ * weapon fire has to stay visible against, and a brown at the tiles' own
+ * brightness sits close enough to the orange tracer to fail the contrast
+ * guard outright. Down the same ramp until it clears. [ARENA-28, DEF-12]
+ */
+#define MECHA_PAL_CRAG          29
+#define MECHA_PAL_CRAG_DARK     47
+/* The cover out on the causeways: pale stone, a different one per block. */
+#define MECHA_TILE_ROCK_FIRST   168   /* ..173 */
+#define MECHA_TILE_ROCK_COUNT     6
+#define MECHA_PAL_ROCK_PALE     22
+#define MECHA_PAL_ROCK_SHADE    25
+/* And a roof apiece, from the building bank, so the two keeps are told
+ * apart at a distance by the one part of them that is all sky behind. */
+#define MECHA_TILE_ROOF_WEST     23
+#define MECHA_PAL_ROOF_WEST     128
+#define MECHA_TILE_ROOF_EAST     17
+#define MECHA_PAL_ROOF_EAST      23
+/* The forts' roofs before the artwork: the low half of the orange ramp,
+ * which is bronze rather than the grey everything else on that stage is,
+ * and nowhere near the bright end of the ramp that weapon fire owns.
+ * [ARENA-24] */
 #define MECHA_PAL_ROOF      166
 #define MECHA_PAL_ROOF_DARK 163
 
@@ -241,6 +283,62 @@ static void mecha_arena_face_stone(tMechaArena *pArena)
 
 //-------------------------------------------------------------------------------------------------
 
+/*
+ * Structure built out of the track's own bank rather than the building one.
+ * FACING WORLDS is concrete and rock, and the tiles for both live in the
+ * track bank; the building bank is facades, which is what the other arenas'
+ * cover is meant to be. byDetail is a run to scatter over the sides, or
+ * zero for something that is all one tile. [ARENA-28]
+ */
+static void mecha_arena_face_world(tMechaArena *pArena, uint8_t byTile,
+                                   uint8_t byTopTile, uint8_t byDetailFirst,
+                                   uint8_t byDetailCount)
+{
+  tMechaObstacle *pBox;
+
+  if (pArena->iObstacleCount <= 0)
+    return;
+  pBox = &pArena->aObstacles[pArena->iObstacleCount - 1];
+  pBox->byBank = MECHA_TEX_WORLD;
+  pBox->byTile = byTile;
+  pBox->byTopTile = byTopTile;
+  pBox->byDetailFirst = byDetailFirst;
+  pBox->byDetailCount = byDetailCount;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+/* A keep's wall: concrete out of the track bank, with the loose panels
+ * scattered over it. [ARENA-28] */
+static void mecha_arena_face_keep(tMechaArena *pArena)
+{
+  int iWhich = pArena->iObstacleCount;
+
+  mecha_arena_face_world(pArena,
+                         (uint8_t)(MECHA_TILE_KEEP_FIRST
+                                   + iWhich % MECHA_TILE_KEEP_COUNT),
+                         MECHA_TILE_KEEP_TOP, MECHA_TILE_KEEP_DETAIL,
+                         MECHA_TILE_KEEP_SPREAD);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+/* And one out of the building bank, for the one thing here that wants a
+ * facade: a roof. [ARENA-28] */
+static void mecha_arena_face_struct(tMechaArena *pArena, uint8_t byTile)
+{
+  tMechaObstacle *pBox;
+
+  if (pArena->iObstacleCount <= 0)
+    return;
+  pBox = &pArena->aObstacles[pArena->iObstacleCount - 1];
+  pBox->byBank = MECHA_TEX_STRUCT;
+  pBox->byTile = byTile;
+  pBox->byTopTile = byTile;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 /* A flat square of ground, for what stands at the ends of a causeway. */
 static void mecha_arena_pad(tMechaArena *pArena, float fX, float fZ,
                             float fHalfX, float fHalfZ, float fY)
@@ -389,6 +487,9 @@ static void mecha_arena_add_box(tMechaArena *pArena,
   pBox->fHalfZ = fHalfZ;
   pBox->fHeight = fHeight;
   pBox->fRise = 0.0f;
+  pBox->byBank = 0;              /* the building bank, as it always was */
+  pBox->byDetailFirst = 0;
+  pBox->byDetailCount = 0;
   pBox->byPalette = byPalette;
   pBox->byTrimPalette = byTrimPalette;
   /* Cover is the one thing out here with a real analogue in the retail art,
@@ -878,10 +979,18 @@ void mecha_arena_init(tMechaArena *pArena, int iArenaIdx)
     pArena->fKillY = -30.0f * m;
     pArena->bySkyFill = MECHA_PAL_VOID;
     pArena->bySkyKind = MECHA_SKY_STARFIELD;
-    pArena->byFloorPalette = MECHA_PAL_FLOOR_B;
-    pArena->byGridPalette = MECHA_PAL_GRID;
-    pArena->byFloorTile = MECHA_TILE_PLATE_A;
-    pArena->byGridTile = MECHA_TILE_PLATE_B;
+    /* Rock, not deck: a three-tile rotation with a two-colour checker under
+     * it, because the checker is what a data-less checkout sees and a flat
+     * brown expanse with no grid in it is a surface with no scale.
+     * [ARENA-28] */
+    pArena->byFloorPalette = MECHA_PAL_CRAG;
+    pArena->byGridPalette = MECHA_PAL_CRAG_DARK;
+    pArena->byFloorTile = MECHA_TILE_CRAG_FIRST;
+    pArena->byGridTile = MECHA_TILE_CRAG_FIRST + 1;
+    pArena->byGroundTileCount = MECHA_TILE_CRAG_COUNT;
+    for (iStep = 0; iStep < MECHA_TILE_CRAG_COUNT; iStep++)
+      pArena->abyGroundTile[iStep] =
+          (uint8_t)(MECHA_TILE_CRAG_FIRST + iStep);
     pArena->byWallTile = MECHA_TILE_CONCRETE;
 
     /*
@@ -1011,18 +1120,18 @@ void mecha_arena_init(tMechaArena *pArena, int iArenaIdx)
       int iSide;
 
       mecha_arena_add_box(pArena, fBack, 0.0f, fSkin, fKeep, fTall,
-                          MECHA_PAL_BLOCK, MECHA_PAL_BLOCK_TOP);
-      mecha_arena_face_stone(pArena);
+                          MECHA_PAL_KEEP, MECHA_PAL_KEEP_TOP);
+      mecha_arena_face_keep(pArena);
       for (iSide = 0; iSide < 2; iSide++) {
         mecha_arena_add_box(pArena, fCentre,
                             (iSide ? 1.0f : -1.0f) * (fKeep - fSkin),
                             fFlank, fSkin, fTall,
-                            MECHA_PAL_BLOCK, MECHA_PAL_BLOCK_TOP);
-        mecha_arena_face_stone(pArena);
+                            MECHA_PAL_KEEP, MECHA_PAL_KEEP_TOP);
+        mecha_arena_face_keep(pArena);
       }
       mecha_arena_add_box(pArena, fFront, 0.0f, fSkin, fPier, fTall,
-                          MECHA_PAL_BLOCK, MECHA_PAL_BLOCK_TOP);
-      mecha_arena_face_stone(pArena);
+                          MECHA_PAL_KEEP, MECHA_PAL_KEEP_TOP);
+      mecha_arena_face_keep(pArena);
 
       /*
        * The floor above: two slabs across the full width and two filling
@@ -1036,29 +1145,34 @@ void mecha_arena_init(tMechaArena *pArena, int iArenaIdx)
         float fAway = iSide ? 1.0f : -1.0f;
 
         mecha_arena_add_deck(pArena, fCentre, fAway * fMid, fInner, fRing,
-                             fHead, fSlab, MECHA_PAL_BLOCK,
-                             MECHA_PAL_BLOCK_TOP);
-        mecha_arena_face_stone(pArena);
+                             fHead, fSlab, MECHA_PAL_KEEP,
+                             MECHA_PAL_KEEP_TOP);
+        mecha_arena_face_keep(pArena);
         mecha_arena_add_deck(pArena, fCentre + fAway * fMid, 0.0f, fRing,
-                             fHole - fJoint, fHead, fSlab, MECHA_PAL_BLOCK,
-                             MECHA_PAL_BLOCK_TOP);
-        mecha_arena_face_stone(pArena);
+                             fHole - fJoint, fHead, fSlab, MECHA_PAL_KEEP,
+                             MECHA_PAL_KEEP_TOP);
+        mecha_arena_face_keep(pArena);
       }
 
       /* The step up, standing under the opening so the climb is two hops
        * rather than one nothing on the roster can make. */
       mecha_arena_add_box(pArena, fCentre + fSign * fStepBack, 0.0f,
                           fStep, fStep, fStepUp,
-                          MECHA_PAL_BLOCK, MECHA_PAL_BLOCK_TOP);
-      mecha_arena_face_stone(pArena);
+                          MECHA_PAL_KEEP, MECHA_PAL_KEEP_TOP);
+      mecha_arena_face_keep(pArena);
 
       /* And the roof over the lot, standing on the walls -- a joint clear
        * of their tops, because the underside of it covers every one of
        * them and two faces in one place is the one thing this arena's
        * geometry is not allowed to have. [MESH-11] */
       mecha_arena_add_spire(pArena, fCentre, 0.0f, fKeep, fKeep,
-                            fTall + fJoint, fRoof, MECHA_PAL_ROOF_DARK,
+                            fTall + fJoint, fRoof,
+                            iEnd ? MECHA_PAL_ROOF_EAST : MECHA_PAL_ROOF_WEST,
                             MECHA_PAL_ROOF);
+      /* One roof each, so the two keeps are told apart at a distance by
+       * the one part of them that has only sky behind it. [ARENA-28] */
+      mecha_arena_face_struct(pArena, iEnd ? MECHA_TILE_ROOF_EAST
+                                           : MECHA_TILE_ROOF_WEST);
     }
 
     /*
@@ -1081,17 +1195,25 @@ void mecha_arena_init(tMechaArena *pArena, int iArenaIdx)
        * sits as a fraction of the lane's half-width. Offset so the two
        * lanes are not mirror images: what is on your left going out is on
        * your right coming back. */
+      /*
+       * The heights are a fraction of what the walls used to stand at, and
+       * they came down: cover twice the height of the machine behind it is
+       * a wall, and a wall is not something you fight from. Fifteen to
+       * twenty-two metres is a machine's own height and a bit, so a pilot
+       * standing behind one cannot see over it and a pilot jumping can.
+       * [ARENA-28]
+       */
       static const struct { int iStation; float fBias; float fHigh; }
       aCover[] = {
-        {  3, -0.34f, 0.62f }, {  5,  0.30f, 0.44f },
-        {  7, -0.28f, 0.52f }, {  9,  0.32f, 0.44f },
-        { 11, -0.30f, 0.58f }, { 13,  0.34f, 0.46f },
+        {  3, -0.34f, 0.32f }, {  5,  0.30f, 0.22f },
+        {  7, -0.28f, 0.27f }, {  9,  0.32f, 0.23f },
+        { 11, -0.30f, 0.30f }, { 13,  0.34f, 0.24f },
       };
       /* Half a block, and the most of a lane's half-width it may occupy.
        * Past about a third of it the margin either side stops being a lane
        * and the block's own footprint starts reaching the drop. */
-      const float fBlockZ = 9.0f * m;
-      const float fBlockX = 7.0f * m;
+      const float fBlockZ = 5.5f * m;
+      const float fBlockX = 4.5f * m;
       const float fClear = 0.34f;
       size_t iBlock;
       int iLane;
@@ -1115,8 +1237,17 @@ void mecha_arena_init(tMechaArena *pArena, int iArenaIdx)
 
           mecha_arena_add_box(pArena, fX, fZ, fBlockX, fThis,
                               aCover[iBlock].fHigh * fCover,
-                              MECHA_PAL_BLOCK, MECHA_PAL_BLOCK_TOP);
-          mecha_arena_face_stone(pArena);
+                              MECHA_PAL_ROCK_PALE, MECHA_PAL_ROCK_SHADE);
+          /* A different stone per block, so six of them along a lane are
+           * six rocks rather than one rock six times. [ARENA-28] */
+          mecha_arena_face_world(pArena,
+                                 (uint8_t)(MECHA_TILE_ROCK_FIRST
+                                           + (iBlock * 2 + iLane)
+                                             % MECHA_TILE_ROCK_COUNT),
+                                 (uint8_t)(MECHA_TILE_ROCK_FIRST
+                                           + (iBlock + iLane)
+                                             % MECHA_TILE_ROCK_COUNT),
+                                 0, 0);
         }
       }
     }
