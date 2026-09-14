@@ -652,13 +652,15 @@ on the stick, and pick what to spend the next round on.
   it does not get the dome the others do. Its sky is cleared to black and hung
   with four hundred stars on the same dome the clouds use, with the elevation
   band taken off -- a starfield has no horizon to crowd against. The dome is
-  then tipped on its side: swapping the frame's vertical and forward axes moves
-  the spin axis from straight up to straight out, so the sky wheels clockwise
-  like a wheel standing in front of the player rather than turning overhead.
-  Hanging in it is the world the stage is named for, a disc of twenty wedges
-  with its limb a shade deeper than its face. All of it is geometry -- no
-  artwork, no texture bank -- so it is there on a checkout with no retail data
-  at all.
+  then tipped on its side and turned flat a quarter anticlockwise: the first
+  move takes the spin axis from straight up to straight out, the second carries
+  it round from north-south to west-east. So the sky is a wheel standing on its
+  edge along the line the causeways run, climbing past a player facing up the
+  stage and face-on to one looking out from either end -- rather than turning
+  overhead like a ceiling fan. Hanging in it is the world the stage is named
+  for, a disc of twenty wedges with its limb a shade deeper than its face. All
+  of it is geometry -- no artwork, no texture bank -- so it is there on a
+  checkout with no retail data at all.
 
 - **The sky is the game's own.** `DrawHorizon` paints it: flat blue above a line
   through the projection, a haze colour below, exactly as it does for the race.
@@ -1036,6 +1038,12 @@ a mecha. What separates one noise from another is mostly pitch.
 
 - **A ground boost squeals.** Thrusters lit with the feet still down, in any
   direction. Strafing does not, and used to.
+
+- **Except on the car, which squeals when it slides.** The gun car has no
+  thrusters to scrub the floor with; what makes a tyre squeal is the tyre going
+  one way while the car points another, which is how Whiplash decides a car is
+  sliding. It is the one machine on the roster that still keys the squeal off
+  the angle between its nose and its travel, and the one where that is right.
 
 - **Every weapon has a voice.** A gear change is a breech clack, a water blip is
   an energy bolt, a light landing is a launch tube, a menu click is a mine going

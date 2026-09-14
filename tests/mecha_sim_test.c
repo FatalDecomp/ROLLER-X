@@ -7320,6 +7320,85 @@ static int test_pilots_walk_a_causeway_to_close(void)
 //-------------------------------------------------------------------------------------------------
 
 /*
+ * The sky turns about a west-east axis. A point on a dome turning about the
+ * X axis keeps its X and moves in Y and Z, so that is the whole test: build
+ * the sky twice, an hour of ticks apart, and see which coordinate stayed
+ * put. [MESH-51]
+ */
+static int test_the_sky_turns_about_a_west_east_axis(void)
+{
+    static tMechaQuad aStorage[MECHA_QUAD_CAPACITY];
+    static tMechaQuad aLater[MECHA_QUAD_CAPACITY];
+    static float afWasX[MECHA_QUAD_CAPACITY];
+    static float afWasY[MECHA_QUAD_CAPACITY];
+    static float afWasZ[MECHA_QUAD_CAPACITY];
+    tMechaWorld world;
+    tMechaQuadList list;
+    tMechaQuadList later;
+    float fDriftX = 0.0f;
+    float fDriftY = 0.0f;
+    float fDriftZ = 0.0f;
+    int iIdx = mecha_arena_count() - 1;
+    int iCount;
+    int i;
+    int v;
+
+    mecha_sim_init(&world, iIdx, 0x5C1Fu, 2);
+    CHECK(world.arena.bySkyKind == MECHA_SKY_STARFIELD);
+
+    world.iTick = 0;
+    mecha_quads_reset(&list, aStorage, MECHA_QUAD_CAPACITY);
+    mecha_mesh_clouds(&list, &world);
+    CHECK(list.iCount > 100);
+    iCount = list.iCount;
+    for (i = 0; i < iCount; i++) {
+        afWasX[i] = 0.0f;
+        afWasY[i] = 0.0f;
+        afWasZ[i] = 0.0f;
+        for (v = 0; v < 4; v++) {
+            afWasX[i] += 0.25f * aStorage[i].afVert[v][0];
+            afWasY[i] += 0.25f * aStorage[i].afVert[v][1];
+            afWasZ[i] += 0.25f * aStorage[i].afVert[v][2];
+        }
+    }
+
+    /* A quarter of an hour on, which is a quarter turn of a dome that goes
+     * round about once an hour. */
+    world.iTick = MECHA_TICK_HZ * 60 * 15;
+    mecha_quads_reset(&later, aLater, MECHA_QUAD_CAPACITY);
+    mecha_mesh_clouds(&later, &world);
+    CHECK(later.iCount == iCount);
+
+    for (i = 0; i < iCount; i++) {
+        float fNowX = 0.0f;
+        float fNowY = 0.0f;
+        float fNowZ = 0.0f;
+
+        for (v = 0; v < 4; v++) {
+            fNowX += 0.25f * aLater[i].afVert[v][0];
+            fNowY += 0.25f * aLater[i].afVert[v][1];
+            fNowZ += 0.25f * aLater[i].afVert[v][2];
+        }
+        if (fabsf(fNowX - afWasX[i]) > fDriftX)
+            fDriftX = fabsf(fNowX - afWasX[i]);
+        if (fabsf(fNowY - afWasY[i]) > fDriftY)
+            fDriftY = fabsf(fNowY - afWasY[i]);
+        if (fabsf(fNowZ - afWasZ[i]) > fDriftZ)
+            fDriftZ = fabsf(fNowZ - afWasZ[i]);
+    }
+    printf("   a quarter turn moves the sky %.0f m east, %.0f m up, "
+           "%.0f m north\n", fDriftX / MECHA_METRE, fDriftY / MECHA_METRE,
+           fDriftZ / MECHA_METRE);
+    /* Nothing moves along the axis, and plenty moves across it. */
+    CHECK(fDriftX < MECHA_M(1.0f));
+    CHECK(fDriftY > MECHA_M(200.0f));
+    CHECK(fDriftZ > MECHA_M(200.0f));
+    return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+/*
  * Two storeys in a fort, and a hole in the first one's ceiling that is the
  * only way to the second. Three things have to hold at once: the room below
  * has to be taller than the machine standing in it, the floor above has to
@@ -8574,6 +8653,8 @@ int main(void)
         { "a floating stage has nothing under it",
           test_a_floating_stage_has_nothing_under_it },
         { "a fort has two floors", test_a_fort_has_two_floors },
+        { "the sky turns about a west-east axis",
+          test_the_sky_turns_about_a_west_east_axis },
         { "the causeway map is a causeway",
           test_the_causeway_map_is_a_causeway },
         { "a causeway publishes a way along it",

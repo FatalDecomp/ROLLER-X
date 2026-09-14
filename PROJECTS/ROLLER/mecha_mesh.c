@@ -3988,9 +3988,22 @@ static bool mecha_sky_frame(int iElevation, int iAzimuth, bool bTipped,
   if (bTipped) {
     float fSwap;
 
+    /* On its side: vertical and forward change places, which stands the
+     * dome on its edge with the spin axis pointing north. */
     fSwap = afDir[1];   afDir[1] = afDir[2];     afDir[2] = fSwap;
     fSwap = afRight[1]; afRight[1] = afRight[2]; afRight[2] = fSwap;
     fSwap = afUp[1];    afUp[1] = afUp[2];       afUp[2] = fSwap;
+
+    /*
+     * And then turned flat, a quarter anticlockwise, which carries that
+     * axis round from north-south to west-east: (x, z) -> (-z, x) takes
+     * north to west. The dome is edge-on to a player facing north now, so
+     * the sky climbs past them rather than wheeling in front of them, and
+     * face-on from the ends of the stage. [MESH-51]
+     */
+    fSwap = afDir[0];   afDir[0] = -afDir[2];     afDir[2] = fSwap;
+    fSwap = afRight[0]; afRight[0] = -afRight[2]; afRight[2] = fSwap;
+    fSwap = afUp[0];    afUp[0] = -afUp[2];       afUp[2] = fSwap;
   }
   return true;
 }

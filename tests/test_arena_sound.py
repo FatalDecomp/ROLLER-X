@@ -23,6 +23,14 @@ def read(path):
     return path.read_text(encoding="utf-8")
 
 
+def squeal_block(sound):
+    """The block that decides how loud the skid loop is, both branches of
+    it: the car's slide and the walker's ground dash."""
+    start = sound.index("fLevel = 0.0f;\n  if (pDef->bWheeled)")
+    return sound[start : sound.index("loopsample(iMechIdx, MECHA_SFX_SKID",
+                                     start)]
+
+
 class ArenaSoundTests(unittest.TestCase):
     def test_mode_drives_the_sound_layer_at_the_right_moments(self):
         mode = read(MODE)
@@ -78,12 +86,25 @@ class ArenaSoundTests(unittest.TestCase):
     def test_the_squeal_belongs_to_the_boost_and_not_to_strafing(self):
         """A mecha strafes for a living: keying the skid loop off the angle
         between facing and travel made walking sideways squeal. [SND-06]"""
-        sound = read(SOUND)
-        self.assertNotIn("MECHA_SND_SLIP_ANGLE", sound)
-        skid = sound[sound.index("fLevel = 0.0f;\n  if (pMech->byMove"):]
-        skid = skid[: skid.index("loopsample(iMechIdx, MECHA_SFX_SKID")]
-        self.assertIn("MECHA_MOVE_DASH", skid)
-        self.assertIn("mecha_mech_is_airborne", skid)
+        skid = squeal_block(read(SOUND))
+        walker = skid[skid.index("} else if"):]
+        self.assertIn("MECHA_MOVE_DASH", walker)
+        self.assertIn("mecha_mech_is_airborne", walker)
+        # A walker never asks which way it is travelling relative to its nose.
+        self.assertNotIn("MECHA_SND_SLIP_ANGLE", walker)
+
+    def test_a_car_squeals_when_it_slides_and_never_on_a_boost(self):
+        """The one machine on the roster that is a car has no thrusters to
+        scrub the floor with. A tyre squeals when it is going one way and
+        the car is pointed another, which is how Whiplash decides it.
+        [SND-09]"""
+        skid = squeal_block(read(SOUND))
+        car = skid[: skid.index("} else if")]
+        self.assertIn("pDef->bWheeled", car)
+        self.assertIn("MECHA_SND_SLIP_ANGLE", car)
+        self.assertIn("mecha_angle_delta", car)
+        # And the boost is not what starts it.
+        self.assertNotIn("MECHA_MOVE_DASH", car)
 
     def test_only_a_machine_with_legs_is_modulated_by_its_gait(self):
         """Wheels and tracks roll; their noise follows road speed and did

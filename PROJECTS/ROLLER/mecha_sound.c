@@ -72,6 +72,15 @@
 #define MECHA_SND_SKID_REST   0.80f
 #define MECHA_SND_SKID_RISE   0.70f
 #define MECHA_SND_SKID_TOP    MECHA_MPS(92.0f)
+/*
+ * And on wheels, where a squeal is a tyre losing grip rather than a
+ * thruster on the floor: how far off its nose a car has to be travelling
+ * before it counts as sliding, where the slide is counted as full, and the
+ * speed below which nothing squeals at all. [SND-09]
+ */
+#define MECHA_SND_SLIP_ANGLE  MECHA_DEG(9)
+#define MECHA_SND_SLIP_FULL   MECHA_DEG(38)
+#define MECHA_SND_SLIP_SPEED  MECHA_MPS(6.0f)
 /* Sound travels at 343 m/s here as anywhere else. */
 #define MECHA_SND_MACH        MECHA_MPS(343.0f)
 /*
@@ -423,12 +432,41 @@ static void mecha_sound_machine(const tMechaWorld *pWorld, int iMechIdx,
   /*
    * The scrub. A ground dash is thrusters lit with the machine still on the
    * floor, whichever way it is pointed and whichever way it is going; that
-   * is what tears at the ground, and it is the one thing in the arena that
-   * should squeal. [SND-06]
+   * is what tears at the ground, and on a machine that walks it is the one
+   * thing in the arena that should squeal. [SND-06]
+   *
+   * A car is the other way round. It has no thrusters to scrub with, and
+   * what makes a tyre squeal is the tyre going one way while the car points
+   * another -- which is how Whiplash decides a car is sliding, comparing
+   * the steered yaw against the one it ended up with. That rule was taken
+   * off everything when the squeal moved to the boost, because a mecha
+   * strafes for a living and walking sideways is not a slide. On the one
+   * machine that is actually a car it was right all along. [SND-09]
    */
   fLevel = 0.0f;
-  if (pMech->byMove == MECHA_MOVE_DASH
-      && !mecha_mech_is_airborne(pWorld, iMechIdx)) {
+  if (pDef->bWheeled) {
+    if (fSpeed > MECHA_SND_SLIP_SPEED
+        && !mecha_mech_is_airborne(pWorld, iMechIdx)) {
+      int iTravel = mecha_atan2_angle(pMech->fVelX, pMech->fVelZ);
+      int iSlip = mecha_angle_delta(pMech->iFacing, iTravel);
+
+      if (iSlip < 0)
+        iSlip = -iSlip;
+      /* Backwards is not sideways: a car reversing is travelling a half
+       * turn off its nose and is not sliding at all. */
+      if (iSlip > MECHA_ANGLE_QUARTER)
+        iSlip = MECHA_ANGLE_HALF - iSlip;
+      if (iSlip > MECHA_SND_SLIP_ANGLE) {
+        fLevel = (float)(iSlip - MECHA_SND_SLIP_ANGLE)
+                 / (float)(MECHA_SND_SLIP_FULL - MECHA_SND_SLIP_ANGLE);
+        if (fLevel > 1.0f)
+          fLevel = 1.0f;
+        /* Faster slides are louder slides. */
+        fLevel *= fRatio > 1.0f ? 1.0f : fRatio;
+      }
+    }
+  } else if (pMech->byMove == MECHA_MOVE_DASH
+             && !mecha_mech_is_airborne(pWorld, iMechIdx)) {
     fLevel = MECHA_SND_BOOST_LEVEL * (fRatio > 1.0f ? 1.0f : fRatio);
   }
   iVolume = mecha_sound_volume(fLevel, &place, SFXVolume);

@@ -3493,3 +3493,38 @@ the stage.
 Zero means none now. The only other open arena sets its own skirt, so nothing
 else changes, and a stage whose ground does not reach its own boundary cuts its
 edge with `fDeckDrop` instead [ARENA-21].
+
+## MESH-51 — the sky's axis, turned flat
+
+The dome was tipped on its side, which put its spin axis along north-south:
+standing at one end of the stage looking up it, the sky wheeled in front of you
+like a wheel facing you. It is turned a further quarter anticlockwise in the
+flat now, `(x, z) -> (-z, x)`, which takes that axis round to west-east.
+
+The sky is edge-on to a player facing up the stage, so it climbs past them
+rather than spinning in front of them, and face-on from either end. The rotation
+itself is unchanged -- only which way the axle points.
+
+Guarded by `the sky turns about a west-east axis`, which builds the sky twice a
+quarter of an hour of ticks apart and asks which coordinate stayed put: a point
+turning about the X axis keeps its X. Nothing moves more than a metre east;
+everything moves two kilometres up and north.
+
+## SND-09 — the one machine that is actually a car
+
+The squeal moved off the angle between a machine's nose and its travel when it
+became a boost sound [SND-06], and that was right for everything that walks: a
+mecha strafes for a living, and walking sideways is not a slide.
+
+The gun car is not one of those. It has no thrusters to scrub the floor with, so
+a boost squeal on it is a noise coming from nothing, and the thing that does
+make a tyre squeal -- the tyre going one way while the car points another -- is
+exactly the rule that was taken away. Whiplash decides the same way, comparing
+the steered yaw against the one the car ended up with.
+
+So the skid loop branches on `bWheeled`, which is true of one machine on the
+roster. The car gets the slip rule back, nine degrees off its nose before it
+counts and thirty-eight for a full slide, with reversing excluded because a car
+travelling a half-turn off its nose is going backwards rather than sliding.
+Everything else keeps the ground dash. The pitch curve is the one the boost
+squeal uses, which is where it was left after being taken down an octave.
