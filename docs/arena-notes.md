@@ -89,8 +89,47 @@ python3 tools/check_roller_core_manifest.py
 mdformat --check docs/
 ```
 
-At the time of writing that is 91 sim test groups and 313 python tests, all
-passing. `zig` is not on a remote session's PATH and its package fetcher cannot
+At the time of writing that is 94 sim test groups and 315 python tests, all
+passing.
+
+### Looking at it with the artwork on
+
+`zig build test-mecha-render` runs against no retail data, which is what CI has
+and what a fresh checkout has, and every frame it dumps is the flat-fill
+fallback. To see the picture a player with the game installed sees, run the
+built test binary from a directory holding the data -- it opens its files by
+relative name, so the working directory is the whole of it:
+
+```
+zig build test-mecha-render                     # builds and runs it flat
+BIN=$(ls -t <cache>/o/*/mecha_render_headless_test | head -1)
+mkdir -p /tmp/wl && cd /tmp/wl                  # lower-case symlinks to FATDATA
+for f in /path/to/FATDATA/*; do ln -sf "$f" "$(basename "$f" | tr 'A-Z' 'a-z')"; done
+"$BIN" /tmp/shots                               # same test, textured
+```
+
+The last line it prints says which of the two it just did. Both have to pass:
+anything that only holds in one of them is a check that has never met the other
+[TEST-18].
+
+### Looking at Whiplash itself
+
+The game renders headlessly through the same PNG writer, and takes either a
+named menu scene or a replay. Frame numbering starts at 1 for a scene:
+
+```
+zig build
+./zig-out/bin/roller --whiplash-root /path/to/FATDATA --no-crash-handler \
+    --snapshot-scene menu-main --frames 1 --out /tmp/wl
+./zig-out/bin/roller --whiplash-root /path/to/FATDATA --no-crash-handler \
+    --snapshot INTRO2.GSS --frames 300,600 --out /tmp/wl
+```
+
+`INTRO1.GSS`..`INTRO7.GSS` are the attract-mode replays, which is the cheapest
+way to get a picture of the race game actually driving. A run costs a couple of
+minutes because the replay plays through to the frame asked for; ask for the
+frames in one run rather than one run each, and keep the highest under about a
+thousand. `zig` is not on a remote session's PATH and its package fetcher cannot
 reach GitHub through the agent proxy; the way round both is in the toolchain
 notes below.
 
@@ -3617,3 +3656,41 @@ plainly never had, since CI has none -- fails twice:
 
 Both are the test's expectations meeting real artwork for the first time. They
 are worth a pass of their own.
+
+## TEST-18 — the render test had never seen the artwork
+
+CI has no retail data and neither does a fresh checkout, so every frame the
+headless render test had ever dumped was the flat-fill fallback. Run against a
+FATDATA the first time, it failed twice, and both failures were the test's own.
+
+**The tint check was measuring nothing.** It draws four bolts, one per
+recoloured copy of the plasma frames, and then insists all three tints are up.
+Its four colours were `{218, 171, 192, 255}` -- the tracer set from before
+DEF-12 repainted them. Three of the four now fall through `mecha_bolt_bank` to
+the same default, so only one tint was ever asked for and the other two were
+never built. The check passed anyway on a data-less run, because with no artwork
+none of them are built and the "or none of them" arm carries it. The colours are
+taken off the bank function now: warm, magenta, rose, and one it leaves blue.
+
+**The HIT check was counting the arena.** It compared how many red pixels the
+whole frame had before and after putting a hit on the record. With the artwork
+loaded the arena has reds of its own and the camera eases between one frame and
+the next, so the count moved by more than a word of text is worth. It counts
+inside the band the word is drawn in now -- which the placement check below it
+was already doing.
+
+That second one was hiding something real: see REND-16.
+
+## REND-16 — HIT was not red for anyone who owns the game
+
+The retail font's glyphs carry their own palette and cannot be tinted; the text
+routine says so and drops the caller's colour on the floor when that font is
+loaded [REND-01]. Everything else on this HUD is fine with that, because its
+colour coding lives in the bars. HIT is not: a word whose whole job is to be red
+came out in the face's own colour, and only for players with the game data
+installed. On a checkout without it, the mode's own glyphs drew it red and it
+looked exactly as intended.
+
+`mecha_render_text_own` draws in the mode's five-by-seven glyphs whether the
+retail face is loaded or not, and HIT uses it. It is the one string on the HUD
+that does.

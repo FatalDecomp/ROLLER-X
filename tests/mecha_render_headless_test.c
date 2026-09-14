@@ -96,6 +96,26 @@ static void histogram_of(const uint8 *pFrame, size_t uCount,
         aiCounts[pFrame[i]]++;
 }
 
+/* How many pixels of one index the frame carries between two rows. Some
+ * things are only drawn in one band, and counting them over the whole frame
+ * measures the arena as well. [TEST-18] */
+static int band_count(uint8 byIndex, int iTop, int iBottom)
+{
+    int iCount = 0;
+    int iRow;
+    int iCol;
+
+    if (iTop < 0)
+        iTop = 0;
+    if (iBottom > FRAME_H)
+        iBottom = FRAME_H;
+    for (iRow = iTop; iRow < iBottom; iRow++)
+        for (iCol = 0; iCol < FRAME_W; iCol++)
+            if (s_aFrame[iRow * FRAME_W + iCol] == byIndex)
+                iCount++;
+    return iCount;
+}
+
 static void histogram(const uint8 *pFrame, int aiCounts[256])
 {
     histogram_of(pFrame, (size_t)FRAME_W * FRAME_H, aiCounts);
@@ -492,9 +512,18 @@ int main(int argc, char **argv)
          * Four bolts in a row, one per recoloured copy of the plasma
          * frames. The tint is built out of the palette at run time, so the
          * only way to know it worked is to look at it.
+         *
+         * One colour per bank, taken off mecha_bolt_bank rather than
+         * guessed: warm, magenta, rose, and one it leaves in the blue the
+         * frames were drawn in. The list this used to carry was the tracer
+         * set from before DEF-12 repainted them, and three of its four
+         * colours had come to mean the same bank -- so two of the three
+         * tints were never asked for, and the check that all three were up
+         * only passed because on a checkout with no artwork none of them
+         * are. [TEST-18]
          */
         {
-            static const uint8 abyTracer[4] = { 218, 171, 192, 255 };
+            static const uint8 abyTracer[4] = { 171, 195, 183, 219 };
             int iShot;
 
             memset(s_World.aProjectiles, 0, sizeof(s_World.aProjectiles));
@@ -807,22 +836,32 @@ int main(int argc, char **argv)
      * has to not. [REND-14]
      */
     {
-        int aiOff[256];
-        int aiOn[256];
         int iRow;
         int iHitPixels = 0;
         int iBelow = 0;
+        int iWasRed;
+        int iNowRed;
 
         render_now(pRenderer, iPlayer);
-        histogram(s_aFrame, aiOff);
+        /*
+         * Counted in the band the word is drawn in rather than over the
+         * whole frame. With the retail artwork loaded the arena is full of
+         * reds of its own and the camera eases a little between one frame
+         * and the next, so a frame-wide count of one index moves by more
+         * than a word of text is worth. [TEST-18]
+         */
+        iWasRed = band_count(231, FRAME_H - 38 * (FRAME_W / 320),
+                             FRAME_H - 24 * (FRAME_W / 320));
 
         s_World.aMechs[iPlayer].iHitDealtTick = s_World.iTick;
         render_now(pRenderer, iPlayer);
-        histogram(s_aFrame, aiOn);
         dump_frame(szOutDir, "arena_hit.png");
+        iNowRed = band_count(231, FRAME_H - 38 * (FRAME_W / 320),
+                             FRAME_H - 24 * (FRAME_W / 320));
 
-        /* Red, and more of it than the frame had a moment ago. */
-        CHECK(aiOn[231] > aiOff[231]);
+        printf("   HIT band: %d red px before, %d after\n", iWasRed, iNowRed);
+        /* Red, and more of it than the band had a moment ago. */
+        CHECK(iNowRed > iWasRed);
 
         /*
          * And in the right place: above the clock, which sits in the bottom
@@ -850,8 +889,8 @@ int main(int argc, char **argv)
         s_World.aMechs[iPlayer].iHitDealtTick =
             s_World.iTick - MECHA_SEC(2.0f);
         render_now(pRenderer, iPlayer);
-        histogram(s_aFrame, aiOn);
-        CHECK(aiOn[231] <= aiOff[231]);
+        CHECK(band_count(231, FRAME_H - 38 * (FRAME_W / 320),
+                         FRAME_H - 24 * (FRAME_W / 320)) <= iWasRed);
     }
 
     /*
@@ -1947,6 +1986,14 @@ int main(int argc, char **argv)
     }
 
     game_render_destroy(pRenderer);
-    printf("mecha render: headless software frames rasterised\n");
+    /*
+     * Which of the two pictures this run was of. The test passes either
+     * way, and has to: CI has no artwork and the machine this is developed
+     * on does. Anything that only holds in one of them is a check that has
+     * never met the other. [TEST-18]
+     */
+    printf("mecha render: headless software frames rasterised (%s)\n",
+           mecha_render_sprites_active() ? "retail artwork"
+                                         : "no artwork, flat fill");
     return 0;
 }

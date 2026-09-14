@@ -400,6 +400,33 @@ int mecha_render_text(uint8 *pScrBuf, int iWidth, int iHeight,
 
 //-------------------------------------------------------------------------------------------------
 
+/*
+ * The same, in the mode's own glyphs whether the retail face is loaded or
+ * not -- which is the only way to get a word out in a colour of the
+ * caller's choosing. The retail face carries its own palette and cannot be
+ * tinted [REND-01], so a word whose whole job is to be red has to be drawn
+ * rather than blitted. [REND-16]
+ */
+int mecha_render_text_own(uint8 *pScrBuf, int iWidth, int iHeight,
+                          int iX, int iY, int iScale, uint8 byColour,
+                          const char *szText)
+{
+  const char *pChar;
+
+  if (!pScrBuf || !szText)
+    return iX;
+  if (iScale < 1)
+    iScale = 1;
+  for (pChar = szText; *pChar; pChar++) {
+    mecha_draw_glyph(pScrBuf, iWidth, iHeight, iX, iY, iScale, byColour,
+                     *pChar);
+    iX += MECHA_GLYPH_ADVANCE * iScale;
+  }
+  return iX;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 
 //-------------------------------------------------------------------------------------------------
 /* Camera */
@@ -1181,11 +1208,15 @@ static void mecha_render_hud(uint8 *pScrBuf, int iWidth, int iHeight,
 
     if (iAge >= 0 && iAge < MECHA_HIT_FLASH_TICKS
         && ((iAge / MECHA_HIT_BLINK_TICKS) & 1) == 0) {
-      mecha_render_text(pScrBuf, iWidth, iHeight,
-                        iWidth - mecha_render_text_width(iScale * 2, "HIT")
-                          - 12 * iScale,
-                        iHeight - 38 * iScale, iScale * 2, MECHA_HUD_HIT,
-                        "HIT");
+      /* In the mode's own glyphs, because this one is a colour: the
+       * retail face cannot be tinted and a white HIT is not a HIT.
+       * [REND-16] */
+      mecha_render_text_own(pScrBuf, iWidth, iHeight,
+                            iWidth - (int)strlen("HIT")
+                              * MECHA_GLYPH_ADVANCE * iScale * 2
+                              - 12 * iScale,
+                            iHeight - 38 * iScale, iScale * 2,
+                            MECHA_HUD_HIT, "HIT");
     }
   }
 

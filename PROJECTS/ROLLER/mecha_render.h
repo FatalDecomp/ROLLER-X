@@ -125,6 +125,16 @@ int mecha_render_text(uint8 *pScrBuf, int iWidth, int iHeight,
 int mecha_render_text_width(int iScale, const char *szText);
 
 /*
+ * The same, in the mode's own five-by-seven glyphs whether the retail face
+ * is loaded or not. The retail face carries its own palette and cannot be
+ * tinted, so a word that has to come out in a particular colour -- HIT, in
+ * red -- is drawn rather than blitted. [REND-16]
+ */
+int mecha_render_text_own(uint8 *pScrBuf, int iWidth, int iHeight,
+                          int iX, int iY, int iScale, uint8 byColour,
+                          const char *szText);
+
+/*
  * The same, in the game's larger sprite face.
  *
  * There are two retail fonts and they are not interchangeable: minitext.bm
