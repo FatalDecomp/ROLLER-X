@@ -682,6 +682,12 @@ on the stick, and pick what to spend the next round on.
   of the call and puts it back. The nine-band sunset gradient this replaced was
   the mode inventing a sky the engine already had.
 
+- **The ankle rolls with the stride.** A foot off the ground points its toe down
+  off the push, comes flat at the top of the lift, and brings the toe up again
+  as the leg reaches for the ground. A foot on the ground stays exactly level:
+  the flex is scaled by how far the sole is clear of the floor, so a planted
+  foot gets none of it by construction.
+
 - **The machines move faster than they animate.** Speeds went up by about a
   third across the roster, and a stride is 5.2 metres of ground rather than two:
   tying the cycle tightly to distance turned the extra speed into a sprint of

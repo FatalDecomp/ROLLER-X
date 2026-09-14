@@ -237,6 +237,20 @@ void mecha_mesh_effects(tMechaQuadList *pList, const tMechaWorld *pWorld,
  * and the only ground contact cue the mode has. */
 void mecha_mesh_shadows(tMechaQuadList *pList, const tMechaWorld *pWorld);
 
+/*
+ * How far a walking machine's ankle is off flat: how high the foot is off
+ * the floor (fClear, over the fSpan that counts as fully up) times where
+ * the leg is in its stride (fSwing, positive as it trails), scaled to
+ * iRange. Zero clearance is a planted foot and comes back exactly flat.
+ *
+ * Public only so it can be tested. Telling the two feet apart in a finished
+ * mesh is harder than the thing being tested -- they cross in a stride and
+ * they are level through the double support -- so the rule is checked here
+ * and the mesh is checked for the one thing that is unambiguous, which is
+ * that no part of a leg goes through the floor. [MESH-53]
+ */
+int mecha_leg_ankle(float fClear, float fSpan, float fSwing, int iRange);
+
 //-------------------------------------------------------------------------------------------------
 /*
  * Enough for the arena, sixteen machines and a full projectile table, with

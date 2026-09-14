@@ -1168,6 +1168,30 @@ static void mesh_foot_extent(const tMechaQuadList *pList,
 
 //-------------------------------------------------------------------------------------------------
 
+/* The lowest any part of a leg gets, relative to the machine's own feet
+ * line: negative is through the floor. [MESH-53] */
+static float mesh_leg_floor(const tMechaQuadList *pList,
+                            const tMechaMech *pMech)
+{
+    float fLowest = 0.0f;
+    int i;
+    int v;
+
+    for (i = 0; i < pList->iCount; i++) {
+        if (pList->paQuads[i].byPart != MECHA_PART_LEG)
+            continue;
+        for (v = 0; v < 4; v++) {
+            float fY = pList->paQuads[i].afVert[v][1] - pMech->fY;
+
+            if (fY < fLowest)
+                fLowest = fY;
+        }
+    }
+    return fLowest;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 /* Fore and aft, which is the one the walk cycle is measured on. */
 static void mesh_foot_span(const tMechaQuadList *pList,
                            const tMechaMech *pMech, float fAnkle,
@@ -1230,6 +1254,76 @@ static void mesh_band_centroid(const tMechaQuadList *pList,
     *pfZ = iCount > 0 ? fSumZ / (float)iCount : 0.0f;
     if (pfMinY)
         *pfMinY = fMinY;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+/*
+ * The ankle rolls over the stride. A foot that stays level while the leg
+ * swings under it is a boot on the end of a stick; a real one points its
+ * toe as it pushes off and brings it up again to reach for the ground.
+ *
+ * Both directions have to happen, and the foot has to be level when it is
+ * on the floor -- the flex is the swing's, and a planted foot that is not
+ * flat is a machine standing on an edge. [MESH-53]
+ */
+static int test_a_stride_rolls_the_ankle(void)
+{
+    static tMechaQuad aStorage[MECHA_QUAD_CAPACITY];
+    tMechaQuadList list;
+    tMechaWorld world;
+    const tMechaMechDef *pDef;
+    const int iRange = MECHA_DEG(20);
+    const float fSpan = MECHA_M(1.0f);
+    float fWorstFloor = 0.0f;
+    int iDef;
+    int iStep;
+
+    /* A foot on the floor is flat, whatever its leg is doing. */
+    CHECK(mecha_leg_ankle(0.0f, fSpan, 1.0f, iRange) == 0);
+    CHECK(mecha_leg_ankle(0.0f, fSpan, -1.0f, iRange) == 0);
+    CHECK(mecha_leg_ankle(-MECHA_M(0.5f), fSpan, 1.0f, iRange) == 0);
+
+    /* Off it, the toe drops as the leg trails and lifts as it reaches. */
+    CHECK(mecha_leg_ankle(fSpan, fSpan, 1.0f, iRange) > 0);
+    CHECK(mecha_leg_ankle(fSpan, fSpan, -1.0f, iRange) < 0);
+    CHECK(mecha_leg_ankle(fSpan, fSpan, 1.0f, iRange) == iRange);
+
+    /* Higher is more of it, and past the span it stops growing. */
+    CHECK(mecha_leg_ankle(fSpan / 2.0f, fSpan, 1.0f, iRange)
+          < mecha_leg_ankle(fSpan, fSpan, 1.0f, iRange));
+    CHECK(mecha_leg_ankle(fSpan * 4.0f, fSpan, 1.0f, iRange)
+          == mecha_leg_ankle(fSpan, fSpan, 1.0f, iRange));
+
+    /*
+     * And in the finished machine, the one thing that is unambiguous: a
+     * foot that rolls while its sole is down puts its toe or its heel
+     * through the ground, which is how the first two attempts at this were
+     * caught, half a metre under.
+     */
+    for (iDef = 0; iDef < mecha_def_count(); iDef++) {
+        start_duel(&world, iDef, iDef, 0, 0x1E65u, 1);
+        pDef = mecha_def_get((int)world.aMechs[0].byDefIdx);
+        if (pDef->byChassis != MECHA_CHASSIS_BIPED)
+            continue;      /* wheels, tracks and spiders have no ankle */
+        world.aMechs[0].byMove = MECHA_MOVE_WALK;
+
+        for (iStep = 0; iStep < 24; iStep++) {
+            float fLowest;
+
+            world.aMechs[0].fStepPhase = (float)iStep / 24.0f;
+            mecha_quads_reset(&list, aStorage, MECHA_QUAD_CAPACITY);
+            mecha_mesh_mech(&list, &world, 0, MECHA_DETAIL_FULL);
+            CHECK(list.iCount > 0);
+            fLowest = mesh_leg_floor(&list, &world.aMechs[0]);
+            if (fLowest < fWorstFloor)
+                fWorstFloor = fLowest;
+        }
+    }
+    printf("   the deepest any sole gets through the floor is %.3f m\n",
+           -fWorstFloor / MECHA_METRE);
+    CHECK(fWorstFloor > -MECHA_M(0.15f));
+    return 0;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -8690,6 +8784,7 @@ int main(void)
           test_the_pilot_turns_a_dash_it_is_already_in },
         { "a floating stage has nothing under it",
           test_a_floating_stage_has_nothing_under_it },
+        { "a stride rolls the ankle", test_a_stride_rolls_the_ankle },
         { "a fort has two floors", test_a_fort_has_two_floors },
         { "the sky turns about a west-east axis",
           test_the_sky_turns_about_a_west_east_axis },

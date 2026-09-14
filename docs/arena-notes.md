@@ -3776,3 +3776,51 @@ boundary, and a patch that stopped short of the edge would hang its rim out over
 the middle of the floor.
 
 Floor 4,267 → 2,690, worst case 68% of the buffer.
+
+## MESH-53 — the ankle
+
+Every machine on the roster walked with its feet rigidly level. That is not an
+oversight so much as an old decision working too well: the foot's pitch is built
+to cancel the thigh's and the knee's exactly, so the sole stays parallel to the
+floor whatever the leg does [MESH-19]. Right while the foot is on the ground,
+wrong while it is not -- a boot on the end of a stick.
+
+The flex is a sine of the stride weighted by how far the foot is off the floor.
+Toe down as it pushes off behind the machine, flat at the top of the lift, toe
+up as the leg reaches ahead for the ground.
+
+**Getting the lift right took three goes, and the first two are the note.** The
+obvious weighting is the knee: the gait bends it on the half of the cycle where
+`cos` is positive, so surely that is the half the foot is up. It is not. The
+knee folds to take the weight as the body passes over the *planted* leg, and the
+airborne half is the straight-legged one. Weighted that way the flex rolled
+planted feet and put a toe half a metre through the floor. Weighted by `-cos`
+instead it did the same thing on the other side, because the lift is not a half
+of the cycle at all -- measured, a foot is meaningfully up for about a third of
+one, in a window centred nowhere near either trig extreme.
+
+So it is taken from the number that already knows. The builder sits the body so
+the leg that reaches furthest is the one on the floor; how far short the other
+leg falls **is** how high its foot is. Zero clearance is a planted foot and
+comes back exactly flat, by construction rather than by tuning.
+
+Which way round it goes was also measured, by tracking where the swinging foot
+sits fore and aft over a cycle: the sine runs opposite to the travel, so a
+positive sine is a leg behind the machine.
+
+### Testing it, and what would not work
+
+Three attempts at measuring this from the finished mesh failed, and the reason
+is worth keeping: **telling the two feet apart in a quad list is harder than the
+thing being tested.** Sorting them by which side of the machine they are on
+breaks because the legs cross in a stride -- exactly at the interesting moment.
+Sorting them by height breaks through the double support, where both soles are
+on the floor and any front-to-back measurement spans both feet at once. The
+second version of the test passed with the flex compiled out entirely, which is
+the clearest possible statement that it was measuring nothing.
+
+What is tested instead: the rule directly, as a function -- flat at zero
+clearance, toe down trailing, toe up reaching, growing with clearance and
+clamped past the span -- and of the finished machine, the one thing that is
+unambiguous, which is that no part of a leg goes through the floor. That is the
+assertion both bad versions failed.
