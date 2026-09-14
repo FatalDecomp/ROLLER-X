@@ -958,15 +958,14 @@ void mecha_arena_init(tMechaArena *pArena, int iArenaIdx)
     pArena->fWallHeight = 0.0f;
     pArena->iTerrainCells = 160;
     /*
-     * Sixty-four across fourteen hundred metres is a tile just under
-     * twenty-two metres. Measured against the quad budget: the whole stage
-     * with sixteen machines on it at full detail came to 9712 of 12288 when
-     * this was chosen, which is where it sat before at half the size; it is
-     * 6738 now that the void under the stage is no longer drawn [ARENA-22].
-     * Seventy-two fitted too and left a quarter of the headroom at the old
-     * figure; eighty did not fit. [ARENA-20]
+     * One floor tile per terrain cell. A tile is drawn or not drawn whole,
+     * and the cell is what decides which, so a tile bigger than a cell can
+     * only be one of the two things it is covering: at sixty-four tiles it
+     * was twenty-two metres across an eight-metre cell, and the difference
+     * was ground you could see and fall through [ARENA-29]. Matched, the
+     * drawn edge is the solid edge.
      */
-    pArena->iFloorTiles = 64;
+    pArena->iFloorTiles = 160;
     /*
      * No boundary skirt. On an arena whose ground fills its own square the
      * skirt is the platform's edge; here the square is empty and the edge is
@@ -975,7 +974,10 @@ void mecha_arena_init(tMechaArena *pArena, int iArenaIdx)
      * stage its edge is fDeckDrop below. [ARENA-20]
      */
     pArena->fSkirt = 0.0f;
-    pArena->fDeckDrop = 3.0f * (2.0f * 350.0f * m / 160.0f);
+    /* Eight cells of rim rather than three: a platform floating in a void
+     * reads as a slab of rock only if it has some depth to it, and at three
+     * it was a tabletop. [ARENA-29] */
+    pArena->fDeckDrop = 8.0f * (2.0f * 350.0f * m / 160.0f);
     pArena->fKillY = -30.0f * m;
     pArena->bySkyFill = MECHA_PAL_VOID;
     pArena->bySkyKind = MECHA_SKY_STARFIELD;

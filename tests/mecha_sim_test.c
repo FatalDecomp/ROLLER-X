@@ -7609,6 +7609,44 @@ static int test_a_floating_stage_has_nothing_under_it(void)
     /* There is still a stage: this must not be passing by drawing none. */
     CHECK(iGround > 400);
     CHECK(iUnder == 0);
+
+    /*
+     * And every piece of floor is floor. A quad lying flat is ground a
+     * player will walk onto, so all four of its corners have to be ground
+     * they can stand on -- not one corner on the deck and three clamped up
+     * out of the hole, which is what sixteen per cent of the drawn ground
+     * used to be. The rim is exempt: it is vertical, and standing on it is
+     * not on offer. [ARENA-29]
+     */
+    {
+        int iFlat = 0;
+        int iPhantom = 0;
+        float fWorst = 0.0f;
+
+        for (i = 0; i < list.iCount; i++) {
+            const tMechaQuad *pQuad = &aStorage[i];
+            int v;
+
+            if ((pQuad->byFlags & MECHA_QUAD_GROUND) == 0)
+                continue;
+            if (fabsf(pQuad->afNormal[1]) < 0.5f)
+                continue;                       /* the rim, not the floor */
+            iFlat++;
+            for (v = 0; v < 4; v++) {
+                if (pQuad->afVert[v][1] > fCut)
+                    continue;
+                iPhantom++;
+                if (fCut - pQuad->afVert[v][1] > fWorst)
+                    fWorst = fCut - pQuad->afVert[v][1];
+                break;
+            }
+        }
+        printf("   %d flat ground quads, %d with a corner over the hole"
+               " (worst %.0f m under the cut)\n", iFlat, iPhantom,
+               fWorst / MECHA_METRE);
+        CHECK(iFlat > 400);
+        CHECK(iPhantom == 0);
+    }
     return 0;
 }
 

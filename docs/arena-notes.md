@@ -3694,3 +3694,85 @@ looked exactly as intended.
 `mecha_render_text_own` draws in the mode's five-by-seven glyphs whether the
 retail face is loaded or not, and HIT uses it. It is the one string on the HUD
 that does.
+
+## ARENA-29 — sixteen per cent of the ground was not there
+
+Measured before anything was changed: sample the stage on a two-metre grid, ask
+each point whether a ground quad covers it and whether the collision calls it
+solid. 94,163 points covered, 78,982 solid, **15,181 covered but not solid** --
+a fringe all round the stage you could see and fall through, in places five
+hundred and seventy metres above nothing at all. Nothing was solid but not
+drawn.
+
+Two causes, both of them the same mistake from opposite ends.
+
+**The floor tiles were bigger than the terrain cells.** 64 tiles across 1400 m
+is 22 m; the terrain is 160 cells, which is 8.75 m. A tile is drawn or not drawn
+whole, and the cell is what decides which, so a tile that is wider than a cell
+can only be one of the two things it is covering. One tile per cell now, and the
+drawn edge is the solid edge.
+
+**And a straddling tile's corners were clamped up.** ARENA-21 pulled the outer
+corners of an edge tile up to the cut, which is what gave the stage its
+thickness -- and what painted flat, solid-looking deck over the hole. There is
+no clamp now: a tile is drawn only if all four of its corners are ground a
+machine could stand on, and the thickness is drawn as its own geometry.
+
+**The rim.** Wherever a drawn tile has no solid tile beside it, a quad drops
+from that edge to `fDeckDrop` below it, following the ground's own height -- so
+the rim under a causeway climbs with the causeway. Eight cells deep rather than
+three, which is the "thicker" half of the request: at three it was a tabletop.
+
+After: 77,672 covered, 79,839 solid, **nothing covered but not solid**. What is
+left is 2,167 points that are solid but not drawn -- about a metre of slope
+inside each edge cell, where the interpolation is still above the cut but the
+cell is not drawn whole. That is the safe direction and it is narrower than a
+machine's own radius.
+
+Two things fell out of the same pass:
+
+- **The wall panels were tied to the floor tiles.** `mecha_mesh_terrain` used
+  one `fTile` for both, so the day the floor went to one tile per cell every
+  wall in every arena went with it -- a keep is 136 m tall, and that turned four
+  panels into thirty-six. Walls have their own panel size now, twenty metres,
+  which is about the closest anything is looked at from.
+- **The road branch ended in an unconditional `continue`.** Everything below it
+  in the tile loop was code that never ran, which included the whole of the
+  texture choice -- so the three-tile ground rotation added in ARENA-28 had
+  never once been used. Rewritten as choose-then-draw.
+
+Guarded by an addition to `a floating stage has nothing under it`: every flat
+ground quad must have all four corners above the cut. Reverting the test to "any
+corner" fails it.
+
+## ARENA-30 — paying for a floor drawn at one tile per cell
+
+One tile per terrain cell quadrupled the floor: 4,267 quads where there had been
+about a thousand, and the sixteen-machine worst case went to 85% of the buffer
+against a bound of 75%. The bound is there because the next thing anyone adds to
+a machine comes out of it, so the floor had to give the space back.
+
+Adjacent tiles that are **level** merge into one quad. Level is the whole of it:
+a quad has four corners and nothing in between, so merging two tiles at
+different heights throws away the step between them, which on a causeway that
+climbs is the causeway. Both crags are flat, and they are most of the ground.
+
+Two limits, each of which cost a pass to learn:
+
+- **Two tiles, not eight.** A merged patch is one quad and one quad wears
+  exactly one tile of artwork. At eight the rock was stretched seventy metres
+  and the checker under it was gone -- and the checker is what tells a player
+  the scale of the ground they are crossing. The first version of this failed
+  the render test's "both checkerboard tones reach pixels" check on a flat
+  square arena, which is that fact arriving as an assertion. At two the artwork
+  lands at 17 m, finer than the 22 m this floor had before any of this.
+- **Only a stage with an edge.** Merging pays for cell-sized tiles, and tiles
+  are that fine only where the drawn edge has to be the solid edge. Everywhere
+  else it would buy nothing and cost the checker.
+
+A merged patch also has to have solid ground on the far side of it, so it can
+never be the thing that meets the drop: the rim comes off a patch's own
+boundary, and a patch that stopped short of the edge would hang its rim out over
+the middle of the floor.
+
+Floor 4,267 → 2,690, worst case 68% of the buffer.

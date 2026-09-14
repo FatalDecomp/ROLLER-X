@@ -67,8 +67,14 @@ static bool s_bCarSkin = false;
 /* A bigger arena needs more of them or every tile comes out stretched, but
  * the ground is most of the quad budget, so there is a ceiling. An arena
  * that is mostly hole draws only the ribbon it has, so it can afford more of
- * them than its area suggests. [ARENA-20] */
-#define MECHA_FLOOR_TILES_MAX 96
+ * them than its area suggests -- and an arena with an edge wants its tiles
+ * the size of its terrain cells, because a tile is drawn or not drawn whole
+ * and the cell is what decides which. [ARENA-20, ARENA-29] */
+#define MECHA_FLOOR_TILES_MAX 160
+/* How wide a panel of wall is. Cover and keeps are cut into panels because
+ * POLYTEX fits exactly one tile to a quad; twenty metres is about the
+ * closest anything is ever looked at from. [ARENA-29] */
+#define MECHA_PANEL_SIZE MECHA_M(20.0f)
 /* How many courses a spire is drawn in, and how much of its base is left
  * at the top of it rather than coming to an exact point. [MESH-50] */
 #define MECHA_SPIRE_TIERS 6
@@ -358,46 +364,35 @@ static void mecha_add_frustum(tMechaQuadList *pList, const tMechaPose *pPose,
 //-------------------------------------------------------------------------------------------------
 
 /*
- * Is this tile the hole rather than the stage?
+ * Is every corner of this tile ground a machine could stand on?
  *
  * A stage that floats is a ribbon of ground inside a square that is mostly
  * void, and the void has a height like anything else -- so drawn honestly
  * it is a second deck, the size of the whole arena, a few hundred metres
- * under the first. Which is exactly what it looked like.
+ * under the first. Drawing only the tiles that touch the deck fixed that,
+ * and left the other half of the same problem: a tile with one corner on
+ * the deck and three over the hole was still drawn, and drawn flat, because
+ * the corners were clamped up to the cut. Sixteen per cent of the ground
+ * you could see was ground you fell through, in places by five hundred
+ * metres.
  *
- * The cut is the same one fDeckDrop makes in the stage's edge, measured
- * from the lowest ground the stage has: a tile whose highest corner is
- * below it has no part of the stage in it. A tile that does touch the deck
- * is still drawn, and still cut to a thickness, which is what keeps the
- * edge solid.
- *
- * Corners, not the middle. The tiles are wider than the terrain's cells, so
- * a tile lying across the drop samples the cliff and comes out at some
- * height between the two -- a shard hanging in space under the stage, which
- * is what the first version of this left behind. [ARENA-22]
+ * So: all four corners, and all four have to be above the cut. What that
+ * leaves drawn is what the collision calls solid, and the edge of the one
+ * is the edge of the other. [ARENA-29]
  */
-static bool mecha_ground_is_void(const tMechaArena *pArena,
-                                 float fX0, float fZ0, float fX1, float fZ1)
+static bool mecha_ground_is_solid(const tMechaArena *pArena,
+                                  float fX0, float fZ0, float fX1, float fZ1)
 {
   float fCut;
-  float fTop;
-  float fCorner;
 
   if (pArena->fDeckDrop <= 0.0f)
-    return false;
+    return true;
 
   fCut = pArena->fDeckY - pArena->fDeckDrop;
-  fTop = mecha_arena_terrain_height(pArena, fX0, fZ0);
-  fCorner = mecha_arena_terrain_height(pArena, fX0, fZ1);
-  if (fCorner > fTop)
-    fTop = fCorner;
-  fCorner = mecha_arena_terrain_height(pArena, fX1, fZ1);
-  if (fCorner > fTop)
-    fTop = fCorner;
-  fCorner = mecha_arena_terrain_height(pArena, fX1, fZ0);
-  if (fCorner > fTop)
-    fTop = fCorner;
-  return fTop < fCut;
+  return mecha_arena_terrain_height(pArena, fX0, fZ0) > fCut
+         && mecha_arena_terrain_height(pArena, fX0, fZ1) > fCut
+         && mecha_arena_terrain_height(pArena, fX1, fZ1) > fCut
+         && mecha_arena_terrain_height(pArena, fX1, fZ0) > fCut;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -407,6 +402,86 @@ static bool mecha_ground_is_void(const tMechaArena *pArena,
  * four corners need not be coplanar, so a slope reads as facets rather than
  * a smooth surface, which is the look rather than a compromise.
  */
+/*
+ * The most tiles across a merged patch of ground may be, and the record of
+ * which tiles a patch has already covered.
+ *
+ * Two, and not more, for two reasons that both come off the same fact: a
+ * merged patch is one quad, and one quad wears exactly one tile of artwork.
+ * Merge eight and the rock is stretched seventy metres and the checker
+ * under it -- which is what tells a player the scale of the ground they are
+ * crossing -- is gone with it. At two the tile lands at seventeen metres,
+ * which is finer than the twenty-two this floor was drawn at before it went
+ * to one tile per cell, and the checker is still a checker. [ARENA-30]
+ */
+#define MECHA_GROUND_MERGE_MAX 2
+static uint8_t s_abyGroundDone[MECHA_FLOOR_TILES_MAX][MECHA_FLOOR_TILES_MAX];
+
+/*
+ * How many tiles square a patch of ground starting here can be drawn as one
+ * quad: as many as are level with the first, solid, and with solid ground
+ * on the far side of them, up to the limit.
+ *
+ * Level is the whole of it. A quad has four corners and nothing in between,
+ * so merging two tiles that are not at the same height throws away the step
+ * between them -- which on a causeway that climbs is the causeway. Ground
+ * that is all one height loses nothing at all, and on this stage that is
+ * both crags, which is most of it.
+ *
+ * Solid on the far side too, so a merged patch never touches an edge: the
+ * rim is drawn off a patch's own boundary, and a patch that stopped short
+ * of the drop would hang its rim out over the middle of the ground.
+ * [ARENA-30]
+ */
+static int mecha_ground_merge(const tMechaArena *pArena, float fX0,
+                              float fZ0, float fTile, int iRoom)
+{
+  float fFirst = mecha_arena_terrain_height(pArena, fX0, fZ0);
+  int iBest = 1;
+  int iSpan;
+
+  /*
+   * Only a stage with an edge. Merging is what pays for a floor drawn at
+   * one tile per terrain cell, and a floor is drawn that finely only where
+   * the drawn edge has to be the solid edge [ARENA-29]. Everywhere else the
+   * tiles are already as coarse as they should be and merging would only
+   * cost the checker.
+   */
+  if (pArena->fDeckDrop <= 0.0f)
+    return 1;
+  if (iRoom > MECHA_GROUND_MERGE_MAX)
+    iRoom = MECHA_GROUND_MERGE_MAX;
+
+  for (iSpan = 2; iSpan <= iRoom; iSpan++) {
+    float fEdge = fTile * (float)iSpan;
+    bool bFlat = true;
+    int i;
+
+    /* Every node along the two new edges, and the corner they meet at. */
+    for (i = 0; i <= iSpan && bFlat; i++) {
+      float fAt = fTile * (float)i;
+
+      bFlat = fabsf(mecha_arena_terrain_height(pArena, fX0 + fAt,
+                                               fZ0 + fEdge) - fFirst) < 1.0f
+              && fabsf(mecha_arena_terrain_height(pArena, fX0 + fEdge,
+                                                  fZ0 + fAt) - fFirst) < 1.0f;
+    }
+    if (!bFlat)
+      break;
+    /* And the ground beyond the patch on both of those sides, so the patch
+     * cannot be the thing that meets the drop. */
+    if (!mecha_ground_is_solid(pArena, fX0, fZ0 + fEdge, fX0 + fEdge,
+                               fZ0 + fEdge + fTile)
+        || !mecha_ground_is_solid(pArena, fX0 + fEdge, fZ0,
+                                  fX0 + fEdge + fTile, fZ0 + fEdge))
+      break;
+    iBest = iSpan;
+  }
+  return iBest;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static void mecha_add_ground_quad(tMechaQuadList *pList,
                                   const tMechaArena *pArena,
                                   float fX0, float fZ0, float fX1, float fZ1,
@@ -424,27 +499,11 @@ static void mecha_add_ground_quad(tMechaQuadList *pList,
   afVert[3][1] = mecha_arena_terrain_height(pArena, fX1, fZ0);
 
   /*
-   * An arena built as an island in a void hands this quads whose inner
-   * corners are the deck and whose outer ones are the bottom of the hole.
-   * Drawn as they are they are a curtain hundreds of metres deep. Cutting
-   * them off a few cells under the deck leaves the stage an edge with a
-   * thickness and nothing below it -- the difference between a platform
-   * floating and a mountain going down out of sight. [ARENA-20]
+   * No clamp. This used to pull a straddling tile's outer corners up to the
+   * cut, which is what gave the stage a thickness and also what painted
+   * solid-looking deck over the hole; the rim is drawn as its own geometry
+   * now and only solid tiles get here at all. [ARENA-29]
    */
-  if (pArena->fDeckDrop > 0.0f) {
-    float fTop = afVert[0][1];
-    float fFloor;
-    int iCorner;
-
-    for (iCorner = 1; iCorner < 4; iCorner++)
-      if (afVert[iCorner][1] > fTop)
-        fTop = afVert[iCorner][1];
-    fFloor = fTop - pArena->fDeckDrop;
-    for (iCorner = 0; iCorner < 4; iCorner++)
-      if (afVert[iCorner][1] < fFloor)
-        afVert[iCorner][1] = fFloor;
-  }
-
   mecha_quads_add(pList, afVert, byPalette,
                   MECHA_QUAD_TWO_SIDED | MECHA_QUAD_GROUND);
 }
@@ -748,17 +807,53 @@ void mecha_mesh_arena(tMechaQuadList *pList, const tMechaArena *pArena)
     iTiles = MECHA_FLOOR_TILES_MAX;
   fTile = fExtent * 2.0f / (float)iTiles;
 
+  /*
+   * Which tiles a patch drawn on an earlier row has already covered. A
+   * merged patch is square, so it eats rows as well as columns, and without
+   * this the rows under it draw the same ground again -- quads in the same
+   * plane, in the same place, which is the one thing this renderer cannot
+   * sort. [ARENA-30]
+   */
+  memset(s_abyGroundDone, 0, sizeof(s_abyGroundDone));
+
   for (iRow = 0; iRow < iTiles; iRow++) {
     int iCol;
 
     for (iCol = 0; iCol < iTiles; iCol++) {
       float fX0 = -fExtent + fTile * (float)iCol;
       float fZ0 = -fExtent + fTile * (float)iRow;
+      /*
+       * A patch of flat ground with flat ground all round it is drawn as
+       * one quad however many tiles across it is. The tiles have to be the
+       * size of a terrain cell for the stage's edge to be honest
+       * [ARENA-29], and at that size the two crags alone are three and a
+       * half thousand quads of ground that is all exactly the same height.
+       * Merged they are two hundred, and the causeways -- which climb, so
+       * no two of their cells are level -- keep every cell they had.
+       * [ARENA-30]
+       */
+      int iMerge;
+      float fSpan;
+
+      if (s_abyGroundDone[iRow][iCol])
+        continue;
+      iMerge = mecha_ground_merge(pArena, fX0, fZ0, fTile,
+                                  iTiles - iCol < iTiles - iRow
+                                    ? iTiles - iCol : iTiles - iRow);
+      fSpan = fTile * (float)iMerge;
+      {
+        int iMarkRow;
+        int iMarkCol;
+
+        for (iMarkRow = iRow; iMarkRow < iRow + iMerge; iMarkRow++)
+          for (iMarkCol = iCol; iMarkCol < iCol + iMerge; iMarkCol++)
+            s_abyGroundDone[iMarkRow][iMarkCol] = 1;
+      }
 
       bool bAlternate = ((iRow + iCol) & 1) != 0;
 
-      float fMidX = fX0 + fTile * 0.5f;
-      float fMidZ = fZ0 + fTile * 0.5f;
+      float fMidX = fX0 + fSpan * 0.5f;
+      float fMidZ = fZ0 + fSpan * 0.5f;
       uint32_t uiSurface = mecha_arena_surface(pArena, fMidX, fMidZ);
 
       /*
@@ -770,49 +865,112 @@ void mecha_mesh_arena(tMechaQuadList *pList, const tMechaArena *pArena)
         continue;
       if (!mecha_arena_contains(pArena, fMidX, fMidZ))
         continue;
-      if (mecha_ground_is_void(pArena, fX0, fZ0, fX0 + fTile, fZ0 + fTile))
+      if (!mecha_ground_is_solid(pArena, fX0, fZ0, fX0 + fSpan, fZ0 + fSpan))
         continue;
 
-      /* A street is drawn in tarmac wherever the arena has marked one,
-       * and keeps the checker so it still reads as ground to move over. */
+      /*
+       * One tile, chosen and then drawn. The road case used to draw and
+       * then `continue`, which made every line below it -- the whole of
+       * the texture choice, including the longer cycle an arena can ask
+       * for [ARENA-28] -- code that never ran. [ARENA-29]
+       */
       {
         bool bRoad = (uiSurface & MECHA_SURF_ROAD) != 0;
+        uint8_t byPalette;
+        uint8_t byTile;
 
-        mecha_add_ground_quad(pList, pArena, fX0, fZ0, fX0 + fTile,
-                              fZ0 + fTile,
-                              bRoad ? (bAlternate ? MECHA_SHADE_ROAD_A
-                                                  : MECHA_SHADE_ROAD_B)
-                                    : (bAlternate ? pArena->byFloorPalette
-                                                  : pArena->byGridPalette));
-        mecha_tag_texture(pList, MECHA_TEX_WORLD,
-                          bRoad ? (bAlternate ? MECHA_TILE_TARMAC_A
-                                              : MECHA_TILE_TARMAC_B)
-                                : (bAlternate ? pArena->byFloorTile
-                                              : pArena->byGridTile));
-        continue;
+        if (bRoad) {
+          /* A street is drawn in tarmac wherever the arena has marked one,
+           * and keeps the checker so it still reads as ground to move
+           * over. */
+          byPalette = bAlternate ? MECHA_SHADE_ROAD_A : MECHA_SHADE_ROAD_B;
+          byTile = bAlternate ? MECHA_TILE_TARMAC_A : MECHA_TILE_TARMAC_B;
+        } else if (pArena->byGroundTileCount > 0) {
+          /*
+           * A rotation longer than two. The checkerboard is what a floor
+           * wants -- a grid to move about on rather than one flat expanse
+           * -- and the opposite of what ground meant to read as rock
+           * wants, which is a cycle long enough that the eye does not find
+           * the repeat. The palette pair still alternates under it, so a
+           * checkout with no artwork keeps the checker. [ARENA-28]
+           */
+          int iCycle = pArena->byGroundTileCount;
+
+          if (iCycle > (int)(sizeof(pArena->abyGroundTile)
+                             / sizeof(pArena->abyGroundTile[0])))
+            iCycle = (int)(sizeof(pArena->abyGroundTile)
+                           / sizeof(pArena->abyGroundTile[0]));
+          byPalette = bAlternate ? pArena->byFloorPalette
+                                 : pArena->byGridPalette;
+          byTile = pArena->abyGroundTile[(iRow + iCol) % iCycle];
+        } else {
+          byPalette = bAlternate ? pArena->byFloorPalette
+                                 : pArena->byGridPalette;
+          byTile = bAlternate ? pArena->byFloorTile : pArena->byGridTile;
+        }
+        mecha_add_ground_quad(pList, pArena, fX0, fZ0, fX0 + fSpan,
+                              fZ0 + fSpan, byPalette);
+        mecha_tag_texture(pList, MECHA_TEX_WORLD, byTile);
       }
-      /* The checkerboard survives the texturing: the two tiles alternate
-       * the same way the two palette entries do, so a floor with the retail
-       * art on it still reads as a grid to move about on rather than as one
-       * flat expanse.
-       *
-       * Unless the arena asked for a longer cycle, in which case the point
-       * is the opposite: a rotation long enough that the eye does not find
-       * the repeat, for ground that is meant to be rock rather than floor.
-       * [ARENA-28] */
-      if (pArena->byGroundTileCount > 0) {
-        int iCycle = pArena->byGroundTileCount;
 
-        if (iCycle > (int)(sizeof(pArena->abyGroundTile)
-                           / sizeof(pArena->abyGroundTile[0])))
-          iCycle = (int)(sizeof(pArena->abyGroundTile)
-                         / sizeof(pArena->abyGroundTile[0]));
-        mecha_tag_texture(pList, MECHA_TEX_WORLD,
-                          pArena->abyGroundTile[(iRow + iCol) % iCycle]);
-      } else {
-        mecha_tag_texture(pList, MECHA_TEX_WORLD,
-                          bAlternate ? pArena->byFloorTile
-                                     : pArena->byGridTile);
+      /*
+       * And the rim, wherever the ground stops. A tile with nothing solid
+       * beside it is an edge, and an edge with no thickness is a sheet of
+       * paper seen from the side -- which is what a stage floating in a
+       * void looks like without this. The top of it follows the ground's
+       * own height, so the rim under a causeway that climbs climbs with
+       * it. [ARENA-29]
+       */
+      if (pArena->fDeckDrop > 0.0f) {
+        static const int aiStep[4][2] = { { 1, 0 }, { -1, 0 },
+                                          { 0, 1 }, { 0, -1 } };
+        int iSide;
+
+        for (iSide = 0; iSide < 4; iSide++) {
+          float fAtX = fX0 + fSpan * (float)aiStep[iSide][0];
+          float fAtZ = fZ0 + fSpan * (float)aiStep[iSide][1];
+          float afEdge[2][2];
+          float afVert[4][3];
+          int iCorner;
+
+          if (mecha_ground_is_solid(pArena, fAtX, fAtZ, fAtX + fSpan,
+                                    fAtZ + fSpan))
+            continue;
+
+          /*
+           * The two corners of this tile that face the missing one, in the
+           * order that leaves the rim looking outwards.
+           */
+          if (aiStep[iSide][0] > 0) {
+            afEdge[0][0] = fX0 + fSpan; afEdge[0][1] = fZ0;
+            afEdge[1][0] = fX0 + fSpan; afEdge[1][1] = fZ0 + fSpan;
+          } else if (aiStep[iSide][0] < 0) {
+            afEdge[0][0] = fX0; afEdge[0][1] = fZ0 + fSpan;
+            afEdge[1][0] = fX0; afEdge[1][1] = fZ0;
+          } else if (aiStep[iSide][1] > 0) {
+            afEdge[0][0] = fX0 + fSpan; afEdge[0][1] = fZ0 + fSpan;
+            afEdge[1][0] = fX0;         afEdge[1][1] = fZ0 + fSpan;
+          } else {
+            afEdge[0][0] = fX0;         afEdge[0][1] = fZ0;
+            afEdge[1][0] = fX0 + fSpan; afEdge[1][1] = fZ0;
+          }
+
+          for (iCorner = 0; iCorner < 2; iCorner++) {
+            float fTop = mecha_arena_terrain_height(pArena,
+                                                    afEdge[iCorner][0],
+                                                    afEdge[iCorner][1]);
+
+            afVert[iCorner][0] = afEdge[iCorner][0];
+            afVert[iCorner][1] = fTop;
+            afVert[iCorner][2] = afEdge[iCorner][1];
+            afVert[3 - iCorner][0] = afEdge[iCorner][0];
+            afVert[3 - iCorner][1] = fTop - pArena->fDeckDrop;
+            afVert[3 - iCorner][2] = afEdge[iCorner][1];
+          }
+          mecha_quads_add(pList, afVert, pArena->byGridPalette,
+                          MECHA_QUAD_TWO_SIDED | MECHA_QUAD_GROUND);
+          mecha_tag_texture(pList, MECHA_TEX_WORLD, pArena->byGridTile);
+        }
       }
     }
   }
@@ -944,6 +1102,17 @@ void mecha_mesh_arena(tMechaQuadList *pList, const tMechaArena *pArena)
       }
     }
   }
+
+  /*
+   * What the things standing on the ground are panelled at, which is not
+   * what the ground is panelled at. They used to share a number, and the
+   * day the floor went to one tile per terrain cell every wall in the
+   * arena went with it -- a keep is a hundred and thirty metres tall and
+   * that turned four panels into thirty-six of them. The floor's tile size
+   * answers to the terrain; a wall's answers to how far away it is looked
+   * at from. [ARENA-29]
+   */
+  fTile = MECHA_PANEL_SIZE;
 
   for (i = 0; i < pArena->iObstacleCount; i++) {
     const tMechaObstacle *pBox = &pArena->aObstacles[i];
