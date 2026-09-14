@@ -1007,9 +1007,9 @@ int main(int argc, char **argv)
              */
             s_Camera.fX = 0.0f;
             s_Camera.fY = s_World.arena.fHalfExtent * 0.75f;
-            s_Camera.fZ = -s_World.arena.fHalfExtent * 1.9f;
+            s_Camera.fZ = -s_World.arena.fHalfExtent * 2.4f;
             s_Camera.iYaw = 0;
-            s_Camera.iPitch = -MECHA_DEG(22);
+            s_Camera.iPitch = -MECHA_DEG(14);
             s_Camera.bSettled = true;
             mecha_render_frame(pRenderer, &s_World, &s_Camera, iPilot,
                                s_aFrame, FRAME_W, FRAME_H, s_aQuads,

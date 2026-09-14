@@ -3456,3 +3456,23 @@ Three changes, each of which makes the test sharper rather than looser:
   can be what it says — nearly horizontal — instead of a guess at how steep a
   side might be. It was 0.5, which excluded a spire's sides (33 degrees off
   vertical) from being checked at all.
+
+## ARENA-26 — the keeps as towers
+
+Walls twice the measured height (68 m to 136 m) and spires half again on top of
+that (220 m to 330 m), so a keep stands 467 m from the rock to the finial. At
+the old proportions the roof was most of the building; now the building is a
+tower with a roof on it, and it is what the stage reads as from either end.
+
+One thing had to be uncoupled to do it. The cover out on the causeways was sized
+as a fraction of the wall height, which is a reasonable thing to measure against
+right up until the wall doubles: cover that grew with the keeps would be a
+sixty-metre wall down the middle of a lane. It has its own constant now, set to
+the wall's old height, so the blocks are exactly what they were.
+
+The second floor and the room under it are unchanged -- both are absolute
+heights the roster decides [ARENA-24], not fractions of the wall. What the
+taller wall buys is headroom above the second floor: 114 m of it rather than 46.
+
+The stage's own survey frame had to pull back (1.9x the half-extent to 2.4x, and
+the pitch off) to fit the spires in. Full load is 7098 quads of 12288.

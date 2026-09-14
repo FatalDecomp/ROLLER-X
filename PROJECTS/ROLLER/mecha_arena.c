@@ -802,7 +802,18 @@ void mecha_arena_init(tMechaArena *pArena, int iArenaIdx)
     const float fBaseZ = 95.0f * m;
     const float fKeep = 45.0f * m;      /* half a keep, wall to wall */
     const float fSkin = 3.0f * m;       /* half the thickness of a wall */
-    const float fTall = 34.0f * m;      /* how high the walls stand */
+    /*
+     * How high the walls stand. Twice what the map was measured at: a keep
+     * with two floors and a spire on it wants to read as a tower rather
+     * than as a yard with a lid, and at the measured height the roof was
+     * most of the building. Nothing outside the keeps is hung off this --
+     * see fCover. [ARENA-26]
+     */
+    const float fTall = 68.0f * m;
+    /* What the cover out on the causeways is measured against, which used
+     * to be the wall and is the wall's old height. Cover that grew with the
+     * keeps would be a wall down the middle of a lane. [ARENA-26] */
+    const float fCover = 34.0f * m;
     const float fPier = 20.0f * m;      /* half the pier the doorways flank */
     const float fReach = 30.0f * m;     /* how far a lane runs onto a base */
     /*
@@ -830,11 +841,11 @@ void mecha_arena_init(tMechaArena *pArena, int iArenaIdx)
      * under the opening. [ARENA-24]
      */
     const float fStepBack = 8.0f * m;
-    /* The spire: three and a bit times the wall it stands on, which on a
-     * fort a hundred and eighty metres across is a roof twice as tall as
-     * it is wide. It is the one thing on this stage you can see from the
-     * other end of it. [ARENA-24] */
-    const float fRoof = 110.0f * m;
+    /* The spire: on a fort a hundred and eighty metres across, a roof three
+     * and a half times as tall as it is wide, standing on a wall half as
+     * tall again as that. It is the one thing on this stage you can see
+     * from the other end of it. [ARENA-24, ARENA-26] */
+    const float fRoof = 165.0f * m;
     /* Walls meet at the corners without touching: two quads in one place
      * have nothing to decide which is in front. [MESH-11] */
     const float fJoint = 0.5f * m;
@@ -1103,7 +1114,7 @@ void mecha_arena_init(tMechaArena *pArena, int iArenaIdx)
                    + fRoom * aCover[iBlock].fBias * (iLane ? -1.0f : 1.0f);
 
           mecha_arena_add_box(pArena, fX, fZ, fBlockX, fThis,
-                              aCover[iBlock].fHigh * fTall,
+                              aCover[iBlock].fHigh * fCover,
                               MECHA_PAL_BLOCK, MECHA_PAL_BLOCK_TOP);
           mecha_arena_face_stone(pArena);
         }

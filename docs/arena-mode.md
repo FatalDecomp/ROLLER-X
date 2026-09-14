@@ -414,10 +414,12 @@ on the stick, and pick what to spend the next round on.
   four metres to sixteen across the roster, and the hop from the plinth is
   thirteen.
 
-  Over the lot stands a spire, two hundred and twenty metres of it on a fort a
-  hundred and eighty across, bronze against the black. It is a real lid, not a
-  decoration -- a machine that jumps off the second floor stops under the roof
-  instead of leaving over the wall, so the way out of a fort is the doorways.
+  The walls stand a hundred and thirty-six metres and the spire over them three
+  hundred and thirty, so a keep is four hundred and sixty-seven metres from the
+  rock to the finial -- bronze against the black, and the thing the stage reads
+  as from either end. It is a real lid, not a decoration -- a machine that jumps
+  off the second floor stops under the roof instead of leaving over the wall, so
+  the way out of a fort is the doorways.
 
 - **A cancel from a great height lands on the roof.** A platform answers a
   height query only to something near enough above it -- below the lip it is a
