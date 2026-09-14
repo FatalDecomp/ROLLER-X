@@ -30,6 +30,9 @@
 #define MECHA_PAL_LEAF      252
 #define MECHA_PAL_ROCK      125
 #define MECHA_PAL_ROCK_TOP  130
+/* Nothing at all: the one index the retail palette holds at pure black, for
+ * a stage with no horizon behind it. [MESH-49] */
+#define MECHA_PAL_VOID      0
 
 //-------------------------------------------------------------------------------------------------
 /*
@@ -650,6 +653,16 @@ void mecha_arena_init(tMechaArena *pArena, int iArenaIdx)
      * the measurements' own; only the width is ours. [ARENA-19]
      */
     const float fWide = 1.6f;
+    /*
+     * Twice the size it was measured at. Everything below is in metres times
+     * this, so the whole stage -- run, bases, keeps, lanes, boundary and
+     * spawns -- scales together and the measurement table stays the
+     * measurement table. Six hundred metres between the keeps rather than
+     * three hundred: a fight down one of these lanes is a long approach, and
+     * at the old size two machines that both boost are on top of each other
+     * before either has crossed a station. [ARENA-20]
+     */
+    const float m = MECHA_METRE * 2.0f;
     const float fStation = 15.0f * m;   /* how far apart those stations are */
     const float fRun = 252.0f * m;      /* base centre to the middle */
     const float fBaseX = 108.0f * m;    /* and half a base, each way */
@@ -667,10 +680,27 @@ void mecha_arena_init(tMechaArena *pArena, int iArenaIdx)
     pArena->byShape = MECHA_ARENA_OPEN;
     pArena->fHalfExtent = 350.0f * m;
     pArena->fWallHeight = 0.0f;
-    pArena->iTerrainCells = 80;
-    pArena->iFloorTiles = 56;
-    pArena->fSkirt = 260.0f * m;
+    pArena->iTerrainCells = 160;
+    /*
+     * Sixty-four across fourteen hundred metres is a tile just under
+     * twenty-two metres. Measured against the quad budget: the whole stage
+     * with sixteen machines on it at full detail comes to 9712 of 12288,
+     * which is where it sat before at half the size. Seventy-two fits too
+     * and leaves a quarter of the headroom; eighty does not fit. [ARENA-20]
+     */
+    pArena->iFloorTiles = 64;
+    /*
+     * No boundary skirt. On an arena whose ground fills its own square the
+     * skirt is the platform's edge; here the square is empty and the edge is
+     * the causeway, hundreds of metres inside it. It cost sixteen hundred
+     * quads of curtain nobody was ever in a position to see. What gives this
+     * stage its edge is fDeckDrop below. [ARENA-20]
+     */
+    pArena->fSkirt = 0.0f;
+    pArena->fDeckDrop = 3.0f * (2.0f * 350.0f * m / 160.0f);
     pArena->fKillY = -30.0f * m;
+    pArena->bySkyFill = MECHA_PAL_VOID;
+    pArena->bySkyKind = MECHA_SKY_STARFIELD;
     pArena->byFloorPalette = MECHA_PAL_FLOOR_B;
     pArena->byGridPalette = MECHA_PAL_GRID;
     pArena->byFloorTile = MECHA_TILE_PLATE_A;
@@ -798,11 +828,64 @@ void mecha_arena_init(tMechaArena *pArena, int iArenaIdx)
     }
 
     /*
-     * No cover out on the run. The original has none either -- what it has
-     * is a crest you cannot see over and two lanes that only meet at it --
-     * and a block sitting near a lane's edge puts a wall of terrain quads
-     * inside its own footprint, which is a mesh nobody can sort. [ARENA-17]
+     * Cover out on the run, now that there is a run long enough to need it.
+     * Six hundred metres of open lane is a shooting gallery: the original's
+     * answer is a crest you cannot see over, which this has, but a crest
+     * only works once and then you are in the open for the rest of it.
+     *
+     * The reason there was none is still true and is what decides where
+     * these go. A block whose footprint reaches the lane's edge buries the
+     * steep terrain quads of that edge inside itself, and two surfaces in
+     * one place with no depth buffer is a mesh nobody can sort. So every
+     * one of these stands on the lane's own centreline and is narrow
+     * enough to leave a clear margin of lane either side of it -- which is
+     * also what makes it cover worth having, because a block you cannot
+     * walk round is a wall. [ARENA-20]
      */
+    {
+      /* Which stations carry a block, and how far off the lane's centre it
+       * sits as a fraction of the lane's half-width. Offset so the two
+       * lanes are not mirror images: what is on your left going out is on
+       * your right coming back. */
+      static const struct { int iStation; float fBias; float fHigh; }
+      aCover[] = {
+        {  3, -0.34f, 0.62f }, {  5,  0.30f, 0.44f },
+        {  7, -0.28f, 0.52f }, {  9,  0.32f, 0.44f },
+        { 11, -0.30f, 0.58f }, { 13,  0.34f, 0.46f },
+      };
+      /* Half a block, and the most of a lane's half-width it may occupy.
+       * Past about a third of it the margin either side stops being a lane
+       * and the block's own footprint starts reaching the drop. */
+      const float fBlockZ = 9.0f * m;
+      const float fBlockX = 7.0f * m;
+      const float fClear = 0.34f;
+      size_t iBlock;
+      int iLane;
+
+      for (iBlock = 0; iBlock < sizeof(aCover) / sizeof(aCover[0]); iBlock++) {
+        int iStation = aCover[iBlock].iStation;
+        float fX = (-8.0f + (float)iStation) * fStation;
+
+        for (iLane = 0; iLane < 2; iLane++) {
+          int iCol = iLane * 2;
+          float fHalf = aafLane[iStation][iCol + 1] * m * fWide;
+          /* Half a block, capped so its footprint cannot reach the edge. */
+          float fThis = fBlockZ > fHalf * fClear ? fHalf * fClear : fBlockZ;
+          /* And its centre, offset off the lane's own centre by a fraction
+           * of what is left once the block itself is accounted for. The
+           * two lanes take opposite signs, so what is on your left going
+           * out is on your right coming back. */
+          float fRoom = fHalf - fThis - fHalf * fClear;
+          float fZ = aafLane[iStation][iCol] * m
+                   + fRoom * aCover[iBlock].fBias * (iLane ? -1.0f : 1.0f);
+
+          mecha_arena_add_box(pArena, fX, fZ, fBlockX, fThis,
+                              aCover[iBlock].fHigh * fTall,
+                              MECHA_PAL_BLOCK, MECHA_PAL_BLOCK_TOP);
+          mecha_arena_face_stone(pArena);
+        }
+      }
+    }
 
     /* Inside the keeps, which is where this map starts a match. */
     pArena->bySpawnShape = MECHA_SPAWN_BASES;

@@ -65,8 +65,10 @@ static bool s_bCarSkin = false;
  * at. It costs a thousand quads on a four-thousand budget. */
 #define MECHA_FLOOR_TILES 32
 /* A bigger arena needs more of them or every tile comes out stretched, but
- * the ground is most of the quad budget, so there is a ceiling. */
-#define MECHA_FLOOR_TILES_MAX 48
+ * the ground is most of the quad budget, so there is a ceiling. An arena
+ * that is mostly hole draws only the ribbon it has, so it can afford more of
+ * them than its area suggests. [ARENA-20] */
+#define MECHA_FLOOR_TILES_MAX 96
 /* How the ground outside the arena is drawn: rings of the boundary's own
  * shape, each one cut into this many quads a side. It is scenery. */
 #define MECHA_OUTER_RINGS 4
@@ -371,6 +373,29 @@ static void mecha_add_ground_quad(tMechaQuadList *pList,
   afVert[1][1] = mecha_arena_terrain_height(pArena, fX0, fZ1);
   afVert[2][1] = mecha_arena_terrain_height(pArena, fX1, fZ1);
   afVert[3][1] = mecha_arena_terrain_height(pArena, fX1, fZ0);
+
+  /*
+   * An arena built as an island in a void hands this quads whose inner
+   * corners are the deck and whose outer ones are the bottom of the hole.
+   * Drawn as they are they are a curtain hundreds of metres deep. Cutting
+   * them off a few cells under the deck leaves the stage an edge with a
+   * thickness and nothing below it -- the difference between a platform
+   * floating and a mountain going down out of sight. [ARENA-20]
+   */
+  if (pArena->fDeckDrop > 0.0f) {
+    float fTop = afVert[0][1];
+    float fFloor;
+    int iCorner;
+
+    for (iCorner = 1; iCorner < 4; iCorner++)
+      if (afVert[iCorner][1] > fTop)
+        fTop = afVert[iCorner][1];
+    fFloor = fTop - pArena->fDeckDrop;
+    for (iCorner = 0; iCorner < 4; iCorner++)
+      if (afVert[iCorner][1] < fFloor)
+        afVert[iCorner][1] = fFloor;
+  }
+
   mecha_quads_add(pList, afVert, byPalette,
                   MECHA_QUAD_TWO_SIDED | MECHA_QUAD_GROUND);
 }
@@ -3658,6 +3683,30 @@ float mecha_quad_depth_key(const tMechaQuad *pQuad, const float afEye[3],
  * rather than the sky, so crossing the floor does not swing it. [MESH-25]
  */
 #define MECHA_CLOUD_COUNT   30
+/*
+ * A starfield is the same dome asked for something else: many more of them,
+ * far smaller, spread over the whole sphere rather than banked towards the
+ * horizon, and flat rather than textured -- a star is a point of light and
+ * needs no artwork, which is also what lets one appear on a checkout with no
+ * retail data. And one thing that is not a star. [MESH-49]
+ */
+#define MECHA_STAR_COUNT    420
+#define MECHA_STAR_SIZE     0.0022f
+#define MECHA_STAR_VARY     0.0026f
+#define MECHA_PAL_STAR      143
+/*
+ * The planet: where it sits on the dome, and how much of it it takes up.
+ * Read these on the tipped dome, not the upright one -- elevation there is
+ * how near the world axis the planet orbits (70 degrees is a circle twenty
+ * wide around it, so the planet wheels without ever leaving the sky) and
+ * azimuth is where on that circle it starts. [MESH-49]
+ */
+#define MECHA_PLANET_AZIMUTH MECHA_DEG(36)
+#define MECHA_PLANET_HEIGHT  MECHA_DEG(70)
+#define MECHA_PLANET_SIZE    0.16f
+#define MECHA_PLANET_WEDGES  20
+#define MECHA_PAL_PLANET     148   /* the face of it */
+#define MECHA_PAL_PLANET_RIM 145   /* and its limb, a shade deeper */
 #define MECHA_CLOUD_RADIUS  MECHA_M(1400.0f)
 #define MECHA_CLOUD_FLOOR   MECHA_DEG(7)    /* nothing below this elevation */
 #define MECHA_CLOUD_CEILING MECHA_DEG(52)
@@ -3749,12 +3798,209 @@ void mecha_mesh_scenery(tMechaQuadList *pList, const tMechaArena *pArena,
 
 //-------------------------------------------------------------------------------------------------
 
+/*
+ * The dome's frame at one point on it: which way that point lies, and the
+ * two axes tangent to the dome there. Tipped means the whole frame is put
+ * on its side -- see mecha_sky_quad. [MESH-49]
+ */
+static bool mecha_sky_frame(int iElevation, int iAzimuth, bool bTipped,
+                            float afDir[3], float afRight[3], float afUp[3])
+{
+  float fLength;
+
+  afDir[0] = mecha_cos(iElevation) * mecha_sin(iAzimuth);
+  afDir[1] = mecha_sin(iElevation);
+  afDir[2] = mecha_cos(iElevation) * mecha_cos(iAzimuth);
+
+  afRight[0] = afDir[2];
+  afRight[1] = 0.0f;
+  afRight[2] = -afDir[0];
+  fLength = mecha_length3(afRight[0], afRight[1], afRight[2]);
+  if (fLength < 1e-4f)
+    return false;
+  afRight[0] /= fLength;
+  afRight[2] /= fLength;
+  afUp[0] = afDir[1] * afRight[2] - afDir[2] * afRight[1];
+  afUp[1] = afDir[2] * afRight[0] - afDir[0] * afRight[2];
+  afUp[2] = afDir[0] * afRight[1] - afDir[1] * afRight[0];
+
+  if (bTipped) {
+    float fSwap;
+
+    fSwap = afDir[1];   afDir[1] = afDir[2];     afDir[2] = fSwap;
+    fSwap = afRight[1]; afRight[1] = afRight[2]; afRight[2] = fSwap;
+    fSwap = afUp[1];    afUp[1] = afUp[2];       afUp[2] = fSwap;
+  }
+  return true;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+/*
+ * One quad on the dome, facing its middle. The direction is built in the
+ * canonical frame -- elevation off the horizon, azimuth around it -- and
+ * then turned into whatever frame the sky is using, so the tangent basis
+ * comes out consistent with it however the dome is standing. [MESH-49]
+ */
+static void mecha_sky_quad(tMechaQuadList *pList, int iElevation,
+                           int iAzimuth, float fSize, bool bTipped,
+                           uint8_t byPalette)
+{
+  float afDir[3];
+  float afRight[3];
+  float afUp[3];
+  float afVert[4][3];
+  int iCorner;
+
+  /*
+   * Tangent to the dome, so every puff faces its middle -- which is where
+   * the camera is, near enough, and is why these are not camera-facing
+   * billboards: a billboard high overhead turns edge-on to a camera
+   * underneath it and the sky develops holes.
+   *
+   * And the dome on its side, when asked. Swapping the vertical and forward
+   * axes moves the spin axis from straight up to straight out, so the sky
+   * turns like a wheel standing in front of the player rather than like a
+   * ceiling fan above them -- and turns clockwise, because a point climbing
+   * in azimuth goes up and then right on a screen looking down +Z. Applied
+   * to the whole frame, not just the direction, or the quads end up facing
+   * somewhere the dome is not. [MESH-49]
+   */
+  if (!mecha_sky_frame(iElevation, iAzimuth, bTipped, afDir, afRight, afUp))
+    return;
+
+  for (iCorner = 0; iCorner < 4; iCorner++) {
+    float fU = (iCorner == 0 || iCorner == 3) ? -fSize : fSize;
+    float fV = iCorner < 2 ? -fSize : fSize;
+    int iAxis;
+
+    for (iAxis = 0; iAxis < 3; iAxis++) {
+      afVert[iCorner][iAxis] = afDir[iAxis] * MECHA_CLOUD_RADIUS
+                             + afRight[iAxis] * fU + afUp[iAxis] * fV;
+    }
+  }
+  mecha_quads_add(pList, afVert, byPalette,
+                  MECHA_QUAD_TWO_SIDED | MECHA_QUAD_GLOW);
+}
+
+
+//-------------------------------------------------------------------------------------------------
+
+/*
+ * A circle on the dome, built rather than drawn: a ring of quads round a
+ * centre, each one a wedge of the disc.
+ *
+ * Geometry rather than a generated sprite. A sprite would have wanted a
+ * texture bank of its own, and the engine's legacy texture path is nineteen
+ * banks of pointers indexed without a bounds check [REND-15] -- a tenth
+ * bank there is a memory bug waiting rather than a circle. Built from quads
+ * it costs a dozen of them, needs no artwork, and is there on a checkout
+ * with no retail data at all. [MESH-49]
+ */
+static void mecha_sky_disc(tMechaQuadList *pList, int iElevation,
+                           int iAzimuth, float fSize, uint8_t byPalette,
+                           uint8_t byRimPalette)
+{
+  float afDir[3];
+  float afRight[3];
+  float afUp[3];
+  float afVert[4][3];
+  int iWedge;
+
+  if (!mecha_sky_frame(iElevation, iAzimuth, true, afDir, afRight, afUp))
+    return;
+
+  for (iWedge = 0; iWedge < MECHA_PLANET_WEDGES; iWedge++) {
+    int iA = MECHA_ANGLE_FULL * iWedge / MECHA_PLANET_WEDGES;
+    int iB = MECHA_ANGLE_FULL * (iWedge + 1) / MECHA_PLANET_WEDGES;
+    float fAx = mecha_sin(iA) * fSize;
+    float fAy = mecha_cos(iA) * fSize;
+    float fBx = mecha_sin(iB) * fSize;
+    float fBy = mecha_cos(iB) * fSize;
+    /* The limb a shade off the body, so the edge reads as a curve rather
+     * than as the end of a flat colour. */
+    float fIn = 0.88f;
+    int iAxis;
+
+    /* The middle, out to the rim: two corners on the rim and two on the
+     * inner ring, which is a quad the whole way round. */
+    for (iAxis = 0; iAxis < 3; iAxis++) {
+      afVert[0][iAxis] = afDir[iAxis] * MECHA_CLOUD_RADIUS;
+      afVert[1][iAxis] = afDir[iAxis] * MECHA_CLOUD_RADIUS
+                       + afRight[iAxis] * fAx * fIn + afUp[iAxis] * fAy * fIn;
+      afVert[2][iAxis] = afDir[iAxis] * MECHA_CLOUD_RADIUS
+                       + afRight[iAxis] * fBx * fIn + afUp[iAxis] * fBy * fIn;
+      afVert[3][iAxis] = afVert[0][iAxis];
+    }
+    mecha_quads_add(pList, afVert, byPalette,
+                    MECHA_QUAD_TWO_SIDED | MECHA_QUAD_GLOW);
+
+    for (iAxis = 0; iAxis < 3; iAxis++) {
+      afVert[0][iAxis] = afDir[iAxis] * MECHA_CLOUD_RADIUS
+                       + afRight[iAxis] * fAx * fIn + afUp[iAxis] * fAy * fIn;
+      afVert[1][iAxis] = afDir[iAxis] * MECHA_CLOUD_RADIUS
+                       + afRight[iAxis] * fAx + afUp[iAxis] * fAy;
+      afVert[2][iAxis] = afDir[iAxis] * MECHA_CLOUD_RADIUS
+                       + afRight[iAxis] * fBx + afUp[iAxis] * fBy;
+      afVert[3][iAxis] = afDir[iAxis] * MECHA_CLOUD_RADIUS
+                       + afRight[iAxis] * fBx * fIn + afUp[iAxis] * fBy * fIn;
+    }
+    mecha_quads_add(pList, afVert, byRimPalette,
+                    MECHA_QUAD_TWO_SIDED | MECHA_QUAD_GLOW);
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+/* A sky with no weather in it: stars over the whole sphere and one world
+ * hanging in it, on a dome standing on its side. [MESH-49] */
+static void mecha_mesh_starfield(tMechaQuadList *pList,
+                                 const tMechaWorld *pWorld)
+{
+  int iTurn = pWorld->iTick / MECHA_CLOUD_DRIFT;
+  int i;
+
+  for (i = 0; i < MECHA_STAR_COUNT; i++) {
+    uint32_t uiHash = mecha_cloud_hash((uint32_t)i * 7u + pWorld->uiSeed);
+    /* Over the whole sphere, not banked towards one edge of it: a starfield
+     * has no horizon to crowd against. */
+    int iElevation = (int)((uiHash >> 12) & (uint32_t)(MECHA_ANGLE_FULL - 1));
+    int iAzimuth = mecha_angle_wrap(
+        (int)(uiHash & (uint32_t)(MECHA_ANGLE_FULL - 1)) + iTurn);
+    float fSize = MECHA_CLOUD_RADIUS
+                  * (MECHA_STAR_SIZE
+                     + MECHA_STAR_VARY * (float)((uiHash >> 24) & 255u)
+                       / 255.0f);
+
+    mecha_sky_quad(pList, iElevation, iAzimuth, fSize, true, MECHA_PAL_STAR);
+  }
+
+  /* And the world this one is facing. It wheels with the rest of the sky,
+   * which is what says the stage is the thing turning. */
+  mecha_sky_disc(pList, MECHA_PLANET_HEIGHT,
+                 mecha_angle_wrap(MECHA_PLANET_AZIMUTH + iTurn),
+                 MECHA_CLOUD_RADIUS * MECHA_PLANET_SIZE,
+                 MECHA_PAL_PLANET, MECHA_PAL_PLANET_RIM);
+}
+
+//-------------------------------------------------------------------------------------------------
+
 void mecha_mesh_clouds(tMechaQuadList *pList, const tMechaWorld *pWorld)
 {
   mecha_quads_part(pList, MECHA_PART_NONE);
   int i;
 
-  if (!pList || !pWorld || !s_bSprites)
+  if (!pList || !pWorld)
+    return;
+
+  if (pWorld->arena.bySkyKind == MECHA_SKY_STARFIELD) {
+    mecha_mesh_starfield(pList, pWorld);
+    return;
+  }
+
+  /* Weather needs the artwork; a checkout with no retail data simply has a
+   * clear sky. */
+  if (!s_bSprites)
     return;
 
   for (i = 0; i < MECHA_CLOUD_COUNT; i++) {

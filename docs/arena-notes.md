@@ -3082,3 +3082,192 @@ missiles and not for kills.
 
 The machines are asked instead. A machine entering `MECHA_MOVE_DESTROYED` gets
 the big crash once, on the frame it happens; every explosion effect is a blast.
+
+## ARENA-20 — FACING WORLDS at twice the size
+
+The stage was 350 m to a side and read as a corridor: two pads, two causeways,
+and no distance between them worth crossing. Doubled, it is 700 m, and the duel
+now starts 1015 m apart instead of 507 m.
+
+Doubling a stage is not one number. Four had to move together:
+
+- `fHalfExtent`, which is the stage.
+- `iTerrainCells` 80 → 160, so a cell stays the same size on the ground. Leaving
+  it at 80 would have doubled the cell and halved the resolution of every slope
+  on the map, which is the one thing the causeway climb cannot afford.
+- `iFloorTiles` 32 → 64, for the same reason on the checkerboard.
+- Every hard-coded metre in the layout table, which is why the table is written
+  against a local `const float m = MECHA_METRE * 2.0f;` rather than
+  `MECHA_METRE`. One scale in one place: the layout below it reads in the same
+  numbers it always did.
+
+`MECHA_TERRAIN_CELLS` is the ceiling on the first of those, and it was 128. It
+is now 160.
+
+## ARENA-21 — cover, and the drop that makes a stage float
+
+**Cover.** A causeway with nothing on it is a shooting gallery: whoever fires
+first across 400 m of flat deck wins, and the walk across is a formality. The
+blocks are on the lane centrelines in pairs, offset so neither side of a
+causeway is a clear line, and low enough to duck behind but not to stop a jump.
+
+**The drop.** `fDeckDrop` is how far below the top of the stage geometry stops
+being drawn — three cells' worth here. Under it the stage simply ends, and what
+is behind it is sky. That is the whole of the floating look: no skirt, no
+underside, no shadow. `mecha_add_ground_quad` clamps each corner to
+`fTop - fDeckDrop`, so a quad that would have run down the outside of the stage
+is flattened into the cut instead of disappearing — the edge stays solid when
+you stand on it and look down.
+
+It is worth being explicit that this is a rendering cut and not a change to the
+stage: the terrain under it is unchanged, the pits are where they were, and a
+machine that walks off the edge falls exactly as far as it did before.
+
+## MESH-49 — a sky on its side
+
+Three things, all in the same dome.
+
+**Black.** `bySkyFill` is the index the sky is cleared to when the arena is not
+using clouds. The first version treated a non-zero fill as "this arena sets a
+sky", which works for every colour except the one this stage wanted: black is
+palette index 0. The kind is what is asked now (`bySkyKind != MECHA_SKY_CLOUDS`)
+and the fill is just a colour.
+
+**Stars.** The same dome the clouds hang on, with the cloud sprite swapped for a
+flat white quad and the elevation band removed — a starfield has no horizon to
+crowd against, so the elevation is drawn from the whole circle rather than from
+`MECHA_CLOUD_FLOOR`..`MECHA_CLOUD_CEILING`. 420 of them, which is about forty in
+view at any moment.
+
+**On its side.** The dome is built in a canonical frame — elevation off the
+horizon, azimuth around it — and then the frame's vertical and forward axes are
+swapped. That moves the spin axis from straight up to straight out, so the sky
+turns like a wheel standing in front of the player rather than like a ceiling
+fan above them, and it turns clockwise, because a point climbing in azimuth goes
+up and then right on a screen looking down +Z.
+
+The swap has to be applied to the whole tangent frame, not just to the
+direction. Tipping the direction alone leaves every quad facing where the
+upright dome was, which is a sky of quads seen edge-on.
+
+Two consequences worth writing down, because they are not obvious from the code:
+
+- On the tipped dome, elevation no longer means height. It means how close to
+  the world's +Z axis a thing orbits, and azimuth means where on that orbit it
+  starts. The planet sits at 70 degrees not because it is high but because that
+  is a circle twenty degrees wide around the axis, which keeps it in the sky as
+  the sky turns.
+- The stars are placed in the tipped frame too, so they wheel with it. They are
+  the motion; the planet is the landmark that says which way the wheel is going.
+
+**The planet is geometry.** It was going to be a generated sprite in a texture
+bank of its own — a circle drawn into a tile, the way the cloud sprite works.
+That cost two crashes and is not worth it: see REND-15. It is a fan of quads
+instead, twenty wedges around a centre with the outer ring a shade deeper than
+the face, which reads as a limb rather than as a flat coin. A dozen quads, no
+artwork, and it is there on a checkout with no retail data at all.
+
+## REND-15 — the tint banks were writing off the end of mapsel
+
+Found while trying to give the planet a texture bank, and worth more than the
+planet was.
+
+The engine's legacy texture path is `uint8 *mapsel[4884]`, filled by
+`setmapsel()` as 19 banks of 257 pointers. `setmapsel()` does no bounds check.
+The arena mode's three tint banks were at engine banks 20, 21 and 22 — which is
+`mapsel[5140..5911]`, a kilobyte past the end of the array, straight into
+whatever the linker put next.
+
+It never crashed on a checkout with no retail data, because with no data loaded
+nothing else writes there. It crashes the moment a player has `FATDATA` and the
+banks either side are real. That is a memory bug that only fires for the people
+who own the game.
+
+The banks are at 2, 3 and 4 now. The slot counts stay where they were — the
+count is a separate array and was never the problem.
+
+The second crash, at bank 5, was the same path from the other end: `polyt`
+panics on a bank whose `slot->pixels` is null, which a generated bank is until
+something fills it. Between the two, a generated texture bank is a poor way to
+draw a circle, and the circle is built from quads instead [MESH-49].
+
+## AI-14 — every climb read as a hole
+
+On the doubled stage the pilots stopped 390 m apart and would not close. The
+same AI closed to 2 m on the same stage at half the size.
+
+It was not the way-spine, and it was not the range logic — two fixes aimed at
+those changed nothing and were reverted. It was edge avoidance: disabling the
+footing probe entirely closed the duel to 2 m, which said the probe was
+rejecting ground that was there.
+
+`mecha_ai_footing_run` walks a line ahead of the pilot and asks
+`mecha_arena_ground_height` about each step. That function returns
+`MECHA_ARENA_VOID` for terrain more than one step-up above the *feet* — which is
+the right answer for "can I stand here from where I am", and the wrong question
+to ask about a point 40 m away. On a causeway that climbs 64 m from base to
+crest, every probe past the first few metres was above the feet, so every step
+of the climb read as a hole and the pilot stood at the bottom of the ramp
+refusing to walk up it.
+
+The probe asks the terrain directly now, and compares each step against the
+previous step rather than against the feet: a step is clear if it is not a pit,
+is within `MECHA_AI_FOOTING_DROP` below and `MECHA_AI_FOOTING_CLIMB` above the
+step before it, and is inside the stage. A ramp is a sequence of small rises,
+which is exactly what that accepts, and a cliff edge is still a drop.
+
+The duel closes to 22 m on the doubled stage.
+
+This cost something, and the cost is recorded honestly in TEST-15: pilots now
+stroll onto a roof about 9% of the time rather than 3%, because a climb they can
+take is a climb they will take. A roof is walkable ground; it is a worse
+position, not a broken one.
+
+## TEST-12 — a look at every stage from outside it
+
+`arena_survey%d.png` is one frame per arena from far enough out to see the whole
+stage. It is not an assertion — it is the frame a person looks at when a stage
+changes, and half the things that went wrong this phase (the sky that was not
+black, the deck with no cut in it, the planet that was not there) were visible
+in it before any test caught them.
+
+## TEST-13 — a stage test that survives the stage being resized
+
+The causeway tests probed hard-coded metre positions, so doubling the stage
+failed nine of them at once — not because anything was wrong but because 200 m
+along a 350 m causeway is somewhere else on a 700 m one.
+
+They read a scale out of the arena now:
+`fS = arena.fHalfExtent / MECHA_M(350.0f)`, and every probe is
+`MECHA_M(x) * fS`. Resize the stage again and the tests follow it.
+
+One thing to watch in a rewrite like this: a regex over `MECHA_M(...)` misses
+every call with parentheses inside it (`MECHA_M((float)i * 4.0f)`). Those were
+found by eye afterwards, which is not a method.
+
+## TEST-15 — thirty fights is not a measurement
+
+The roof-stroll rate — how often a pilot ends up on top of a block instead of on
+the deck — was guarded by a 30-fight test with a 1-in-10 bound. After AI-14 the
+true rate went from about 3% to about 9%, and a 30-fight sample cannot tell 9%
+from 10%: the test passed and failed on the seed.
+
+It runs 150 fights and allows 1 in 6. That is loose enough not to fail on noise
+and tight enough to catch the AI walking onto roofs as a habit. The number it is
+actually guarding is written in the test, along with what it was before AI-14,
+because a bound with no history in it is a number nobody can ever move.
+
+## TEST-16 — the first sky test was counting the HUD
+
+The starfield check counted white pixels, and the arena's HUD font is the same
+white. It reported eight thousand stars in a frame with no sky in it at all —
+the camera was inside a block, and every one of those pixels was `READY`,
+`ROUND 1` and the weapon list.
+
+It counts a band of rows the HUD never writes to, and ticks past the round
+banner before it looks. The numbers dropped from ~8200 to ~400, which is what
+forty stars and a planet actually cost.
+
+The lesson is the cheap one: a test that counts a colour is only as good as the
+list of things that use that colour. The frame was dumped to a PNG all along —
+one look at it would have said there was no sky in the shot.

@@ -31,11 +31,27 @@
 #define MECHA_MAX_WAYS         2
 #define MECHA_WAY_POINTS       24
 
+/*
+ * What is in an arena's sky. Clouds are the default and what every arena on
+ * a planet wants; a starfield is the same generator asked for something
+ * else. [MESH-49]
+ */
+typedef enum
+{
+  MECHA_SKY_CLOUDS    = 0,
+  MECHA_SKY_STARFIELD = 1
+} eMechaSkyKind;
+
 /* Terrain: a grid of square cells, a height per corner and a surface word
  * per cell. Coarse on purpose. [ARENA-04] */
-/* The array size, not any arena's own division -- each carries its own
- * count in iTerrainCells, and a bigger arena needs more. */
-#define MECHA_TERRAIN_CELLS 80
+/*
+ * The array size, not any arena's own division -- each carries its own count
+ * in iTerrainCells, and a bigger arena needs more. A hundred and sixty puts
+ * a cell under nine metres on the largest arena there is, which is what the
+ * causeways on FACING WORLDS need: their edges are the shape of the stage,
+ * and a cell there is the finest that shape can be. [ARENA-20]
+ */
+#define MECHA_TERRAIN_CELLS 160
 #define MECHA_TERRAIN_NODES (MECHA_TERRAIN_CELLS + 1)
 /* What an arena gets when it does not ask for anything else. */
 #define MECHA_TERRAIN_CELLS_DEFAULT 12
@@ -777,9 +793,35 @@ typedef struct
 
   /*
    * How far below itself an open arena's edge is drawn. Six metres reads as
-   * a platform; two hundred reads as the top of a tower.
+   * a platform; two hundred reads as the top of a tower. Zero draws none of
+   * it, which is right for an arena whose ground does not reach its own
+   * boundary.
    */
   float    fSkirt;
+
+  /*
+   * How far a drawn ground quad may fall below its own highest corner before
+   * the rest of it is simply not there. An arena built as an island in a
+   * void has cells straddling the edge whose outer corners sit at the bottom
+   * of it, and drawn honestly those are a curtain running hundreds of metres
+   * down -- the stage reads as the summit of a mountain rather than as
+   * something floating. Cutting them off a few cells under the deck leaves
+   * an edge with a thickness and nothing below it. Zero is no limit, and
+   * every arena whose ground is one piece wants zero. [ARENA-20]
+   *
+   * Drawing only: the ground a machine stands on is unchanged.
+   */
+  float    fDeckDrop;
+
+  /*
+   * The sky. bySkyKind picks what hangs in it (eMechaSkyKind), and anything
+   * that is not MECHA_SKY_CLOUDS replaces the horizon entirely with the flat
+   * colour in bySkyFill -- a stage that is not on a planet has no horizon to
+   * draw. The kind decides that, not the colour: black is palette index 0,
+   * so a fill of zero cannot also mean "no fill". [MESH-49]
+   */
+  uint8_t  bySkyKind;
+  uint8_t  bySkyFill;
 
   /*
    * Where machines start. A ring inside the boundary is right for every

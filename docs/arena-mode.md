@@ -384,6 +384,19 @@ on the stick, and pick what to spend the next round on.
   move over. Hills are kept out of the middle: the streets are the one flat
   thing here.
 
+- **FACING WORLDS.** Two keeps at the ends of two causeways, seven hundred
+  metres across, with nothing under it: the geometry stops three cells below the
+  top of the stage and what is behind it is sky, so the whole thing reads as a
+  slab floating in space. It is the one stage where the edge is the hazard
+  rather than anything on it.
+
+  A duel here starts a kilometre apart, which is most of a minute's walk, so the
+  causeways carry cover: blocks in pairs on the lane centrelines, offset so
+  neither side has a clear line down the middle, low enough to duck behind and
+  not to stop a jump. Without them the crossing is a shooting gallery -- whoever
+  fires first across four hundred metres of flat deck wins and the walk is a
+  formality.
+
 - **A cancel from a great height lands on the roof.** A platform answers a
   height query only to something near enough above it -- below the lip it is a
   wall, not a floor, which is what stops a machine underneath a roof popping up
@@ -610,6 +623,18 @@ on the stick, and pick what to spend the next round on.
   not depend on how many shots have been fired under it, and a squared draw
   crowds them down towards the horizon where they do the most work. The whole
   dome turns about once an hour.
+
+- **And one stage has no weather at all.** FACING WORLDS is not on a planet, so
+  it does not get the dome the others do. Its sky is cleared to black and hung
+  with four hundred stars on the same dome the clouds use, with the elevation
+  band taken off -- a starfield has no horizon to crowd against. The dome is
+  then tipped on its side: swapping the frame's vertical and forward axes moves
+  the spin axis from straight up to straight out, so the sky wheels clockwise
+  like a wheel standing in front of the player rather than turning overhead.
+  Hanging in it is the world the stage is named for, a disc of twenty wedges
+  with its limb a shade deeper than its face. All of it is geometry -- no
+  artwork, no texture bank -- so it is there on a checkout with no retail data
+  at all.
 
 - **The sky is the game's own.** `DrawHorizon` paints it: flat blue above a line
   through the projection, a haze colour below, exactly as it does for the race.

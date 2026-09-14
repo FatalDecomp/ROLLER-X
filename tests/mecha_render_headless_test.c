@@ -30,6 +30,9 @@
 
 #define FRAME_W 640
 #define FRAME_H 400
+/* The rows of the frame the HUD never writes to. [TEST-16] */
+#define SKY_BAND_TOP    72
+#define SKY_BAND_BOTTOM 300
 
 /* palette[] is the array setpal actually writes; pal_addr is not reliably
  * updated by it, which the GPU renderer documents in its own source. */
@@ -993,6 +996,127 @@ int main(int argc, char **argv)
             dump_frame(szOutDir, szName);
             printf("   %s: %d colours\n", mecha_arena_name(iArena),
                    distinct_colours(aiCounts));
+
+            /*
+             * And the same arena from outside and above it. The chase
+             * camera stands a machine's height off the deck, which shows
+             * the floor it is on and nothing of the shape the stage is --
+             * and the shape is the whole point of some of them. The camera
+             * is placed by hand here rather than driven, because there is
+             * no machine standing where this wants to look from. [TEST-12]
+             */
+            s_Camera.fX = 0.0f;
+            s_Camera.fY = s_World.arena.fHalfExtent * 0.75f;
+            s_Camera.fZ = -s_World.arena.fHalfExtent * 1.9f;
+            s_Camera.iYaw = 0;
+            s_Camera.iPitch = -MECHA_DEG(22);
+            s_Camera.bSettled = true;
+            mecha_render_frame(pRenderer, &s_World, &s_Camera, iPilot,
+                               s_aFrame, FRAME_W, FRAME_H, s_aQuads,
+                               MECHA_QUAD_CAPACITY);
+            snprintf(szName, sizeof(szName), "arena_survey%d.png", iArena);
+            dump_frame(szOutDir, szName);
+            histogram(s_aFrame, aiCounts);
+            /* Something has to be there: an arena drawn from outside that
+             * comes back one flat colour is one with no shape at all. */
+            CHECK(!single_colour(aiCounts));
+        }
+    }
+
+    /*
+     * --- the sky over a stage that is not on a planet ---------------------
+     *
+     * Black, with stars in it and one world hanging among them, on a dome
+     * standing on its side so the whole sky wheels past. Every part of it
+     * is built rather than loaded, which is why it is here to be counted on
+     * a checkout with no retail data at all. [MESH-49]
+     */
+    {
+        int iSky = -1;
+        int iArena;
+
+        for (iArena = 0; iArena < mecha_arena_count(); iArena++) {
+            tMechaArena probe;
+
+            mecha_arena_init(&probe, iArena);
+            if (probe.bySkyKind == MECHA_SKY_STARFIELD)
+                iSky = iArena;
+        }
+        CHECK(iSky >= 0);
+
+        mecha_sim_init(&s_World, iSky, 0x5EED1234u, 2);
+        CHECK(mecha_sim_add_mech(&s_World, 0, MECHA_CONTROL_HUMAN, 0) >= 0);
+        CHECK(mecha_sim_add_mech(&s_World, 1, MECHA_CONTROL_AI, 1) >= 0);
+        mecha_sim_begin_match(&s_World);
+
+        {
+            static const int aiYaw[] = { 0, MECHA_ANGLE_QUARTER,
+                                         MECHA_ANGLE_HALF,
+                                         MECHA_ANGLE_HALF
+                                           + MECHA_ANGLE_QUARTER };
+            tMechaInput aIdle[MECHA_MAX_MECHS];
+            int iStars = 0;
+            int iWorld = 0;
+            int i;
+            size_t iTurn;
+
+            memset(aIdle, 0, sizeof(aIdle));
+            run_to_fight(aIdle);
+            /* And past the FIGHT banner, which is drawn in the same white
+             * the stars are. [TEST-16] */
+            for (i = 0; i < MECHA_TICK_HZ * 2; i++)
+                mecha_sim_tick(&s_World, aIdle, MECHA_MAX_MECHS);
+
+            for (iTurn = 0; iTurn < sizeof(aiYaw) / sizeof(aiYaw[0]);
+                 iTurn++) {
+                char szName[64];
+                int iStar;
+                int iDisc;
+                int iRow;
+                int iCol;
+
+                /* High over the middle of the stage and pitched up, which
+                 * is the only place on a stage this size where the view is
+                 * sky rather than deck. */
+                s_Camera.fX = 0.0f;
+                s_Camera.fY = MECHA_M(150.0f);
+                s_Camera.fZ = 0.0f;
+                s_Camera.iYaw = aiYaw[iTurn];
+                s_Camera.iPitch = MECHA_DEG(26);
+                s_Camera.bSettled = true;
+                mecha_render_frame(pRenderer, &s_World, &s_Camera, 0,
+                                   s_aFrame, FRAME_W, FRAME_H, s_aQuads,
+                                   MECHA_QUAD_CAPACITY);
+                snprintf(szName, sizeof(szName), "arena_sky%d.png",
+                         (int)iTurn);
+                dump_frame(szOutDir, szName);
+
+                /*
+                 * Counted over the middle band only. A star is white and so
+                 * is the HUD font, so the rows the HUD owns would otherwise
+                 * read as a sky full of stars -- which is exactly what the
+                 * first version of this check was measuring. [TEST-16]
+                 */
+                iStar = 0;
+                iDisc = 0;
+                for (iRow = SKY_BAND_TOP; iRow < SKY_BAND_BOTTOM; iRow++) {
+                    for (iCol = 0; iCol < FRAME_W; iCol++) {
+                        uint8 byPixel = s_aFrame[iRow * FRAME_W + iCol];
+
+                        if (byPixel == 143)
+                            iStar++;
+                        else if (byPixel == 148 || byPixel == 145)
+                            iDisc++;
+                    }
+                }
+                iStars += iStar;
+                iWorld += iDisc;
+                printf("   sky at yaw %d: %d star px, %d world px\n",
+                       (int)iTurn, iStar, iDisc);
+            }
+            /* Stars all the way round, and the world somewhere in it. */
+            CHECK(iStars > 0);
+            CHECK(iWorld > 0);
         }
     }
 

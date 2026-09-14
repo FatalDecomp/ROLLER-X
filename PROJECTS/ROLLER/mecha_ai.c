@@ -99,6 +99,7 @@ static float mecha_ai_footing_run(const tMechaWorld *pWorld,
                                   float fDirZ, float fLook, bool bEdgeKills)
 {
   float fLen = mecha_length2(fDirX, fDirZ);
+  float fPrev;
   int iSteps;
   int i;
 
@@ -107,10 +108,16 @@ static float mecha_ai_footing_run(const tMechaWorld *pWorld,
 
   iSteps = (int)(fLook / MECHA_AI_FOOTING_STEP) + 1;
 
+  /* The ground walks with the probe: each step is judged against the one
+   * before it rather than against where the machine is standing, which is
+   * what lets a long climb be a climb instead of a cliff. [AI-14] */
+  fPrev = pSelf->fGroundY;
+
   for (i = 1; i <= iSteps; i++) {
     float fAt = fLook * (float)i / (float)iSteps;
     float fX = pSelf->fX + fDirX / fLen * fAt;
     float fZ = pSelf->fZ + fDirZ / fLen * fAt;
+    float fHere;
     bool bClear;
 
     /*
@@ -119,15 +126,25 @@ static float mecha_ai_footing_run(const tMechaWorld *pWorld,
      * away -- the sides of a causeway, the far side of a roof -- is
      * neither, and a pilot that only knew about the other two walked off
      * it. [AI-11]
+     *
+     * The terrain itself, not what the machine could step onto from where
+     * it stands. mecha_arena_ground_height answers "can I be standing here
+     * now", which on an open arena calls anything more than a step above
+     * the feet nothing at all -- right for one tick of movement, and wrong
+     * for looking ahead: it made every climb read as a hole, so a pilot at
+     * the foot of a causeway saw a cliff and skirted it for the rest of the
+     * round. A rise is ground. [AI-14]
      */
+    fHere = mecha_arena_terrain_height(&pWorld->arena, fX, fZ);
     bClear = (mecha_arena_surface(&pWorld->arena, fX, fZ) & MECHA_SURF_PIT)
                  == 0
-             && mecha_arena_ground_height(&pWorld->arena, fX, fZ, pSelf->fY)
-                  >= pSelf->fGroundY - MECHA_AI_FOOTING_DROP
+             && fHere >= fPrev - MECHA_AI_FOOTING_DROP
+             && fHere <= fPrev + MECHA_AI_FOOTING_CLIMB
              && (!bEdgeKills || mecha_arena_contains(&pWorld->arena, fX, fZ));
 
     if (!bClear)
       return fLook * (float)(i - 1) / (float)iSteps;
+    fPrev = fHere;
   }
 
   return fLook;

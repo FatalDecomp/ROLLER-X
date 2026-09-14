@@ -200,6 +200,14 @@
  * ahead as somewhere it would arrive badly rather than somewhere it is
  * going; above it, hills and kerbs are still just ground. [AI-11] */
 #define MECHA_AI_FOOTING_DROP   MECHA_M(25.0f)
+/*
+ * And how much it may rise in one of those steps. Ground far above the last
+ * step is a wall, not a slope, and a pilot that treats a wall as walkable
+ * climbs onto things it then walks off. A causeway at its steepest gains
+ * about two and a half metres a step; the roof's mesa is nine in one.
+ * [AI-14]
+ */
+#define MECHA_AI_FOOTING_CLIMB  MECHA_M(4.0f)
 
 /*
  * Getting round a gap rather than backing away from one. The pilot turns

@@ -1548,6 +1548,20 @@ static const char *const s_szWorldFile = "track1.drh";
  * pixels rather than a shading trick, walked onto the nearest colour of the
  * wanted hue. Index 0 stays the transparent key. [REND-13]
  */
+/*
+ * Where the mode's own generated banks live.
+ *
+ * Two numbers, and they are not the same number. The count slot is
+ * bookkeeping in num_textures[32], and anything the race does not use will
+ * do. The engine bank is an index into mapsel, which is nineteen banks of
+ * 257 pointers and is written without a bounds check -- so a generated bank
+ * above eighteen does not fail, it scribbles past the end of the array.
+ * That is what these were doing: the tints sat at 20, 21 and 22 and wrote
+ * off the end of mapsel every time the retail data was present for them to
+ * recolour. The car texture slots are the free ones inside the range, and
+ * the arena runs no race for them to belong to. [REND-15]
+ */
+#define MECHA_TINT_BANK_FIRST 2
 #define MECHA_TINT_SLOT_FIRST 20
 /* Enough rows to hold every frame up to the last plasma one. */
 #define MECHA_TINT_TILES      (MECHA_SPRITE_PLASMA_LAST + 1)
@@ -1572,9 +1586,9 @@ static tMechaTexBank s_aBanks[MECHA_TEX_BANK_COUNT] = {
   { TEXTURE_BANK_CARGEN,   18, 0, 0, false },   /* EFFECT */
   { 0,                     19, 0, 0, false },   /* WORLD  */
   { TEXTURE_BANK_BUILDING, 17, 0, 0, false },   /* STRUCT */
-  { MECHA_TINT_SLOT_FIRST + 0, MECHA_TINT_SLOT_FIRST + 0, 0, 0, false },
-  { MECHA_TINT_SLOT_FIRST + 1, MECHA_TINT_SLOT_FIRST + 1, 0, 0, false },
-  { MECHA_TINT_SLOT_FIRST + 2, MECHA_TINT_SLOT_FIRST + 2, 0, 0, false },
+  { MECHA_TINT_BANK_FIRST + 0, MECHA_TINT_SLOT_FIRST + 0, 0, 0, false },
+  { MECHA_TINT_BANK_FIRST + 1, MECHA_TINT_SLOT_FIRST + 1, 0, 0, false },
+  { MECHA_TINT_BANK_FIRST + 2, MECHA_TINT_SLOT_FIRST + 2, 0, 0, false },
   /*
    * The gun car's skin. LoadCarTexture's slot argument is one-based and
    * registers the pixels as engine bank `slot` while writing the tile count
@@ -1876,6 +1890,7 @@ bool mecha_render_car_skin_active(void)
 
 
 static void mecha_render_sky(uint8 *pScrBuf, int iWidth, int iHeight,
+                             const tMechaArena *pArena,
                              const tMechaCamera *pCamera)
 {
   int iSavedElev = worldelev;
@@ -1883,6 +1898,22 @@ static void mecha_render_sky(uint8 *pScrBuf, int iWidth, int iHeight,
   int iSavedSec = front_sec;
   int iSavedColour;
   uint32 uiSavedTex;
+
+  /*
+   * A stage that is not on a planet has no horizon to draw: no ground band,
+   * no sky band, no line between them. The buffer is filled with the one
+   * colour and whatever the arena hangs in it is drawn by the scene like
+   * anything else.
+   *
+   * The sky kind decides this, not the fill colour. Black is palette index
+   * zero -- it is the only pure black the retail palette has -- so a fill
+   * of zero cannot also mean "no fill", and reading it that way is what
+   * left this stage with a blue sky and a horizon across it. [MESH-49]
+   */
+  if (pArena && pArena->bySkyKind != MECHA_SKY_CLOUDS) {
+    memset(pScrBuf, pArena->bySkyFill, (size_t)iWidth * (size_t)iHeight);
+    return;
+  }
 
   (void)iWidth;
   (void)iHeight;
@@ -1981,7 +2012,7 @@ void mecha_render_frame(GameRenderer *pRenderer, const tMechaWorld *pWorld,
 
   /* After the camera and the projection, not before: the sky is drawn by
    * engine code that reads both out of the globals those two calls write. */
-  mecha_render_sky(pScrBuf, iWidth, iHeight, pCamera);
+  mecha_render_sky(pScrBuf, iWidth, iHeight, &pWorld->arena, pCamera);
 
   mecha_render_scene(pRenderer, pWorld, pCamera, iViewMech, paScratch,
                      iScratchCapacity);
