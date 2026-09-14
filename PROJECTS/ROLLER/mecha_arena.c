@@ -33,6 +33,21 @@
 /* Nothing at all: the one index the retail palette holds at pure black, for
  * a stage with no horizon behind it. [MESH-49] */
 #define MECHA_PAL_VOID      0
+/* The forts' roofs: the low half of the orange ramp, which is bronze rather
+ * than the grey everything else on that stage is, and nowhere near the
+ * bright end of the ramp that weapon fire owns. [ARENA-24] */
+#define MECHA_PAL_ROOF      166
+#define MECHA_PAL_ROOF_DARK 163
+
+/*
+ * How a platform is broken up: how many faces cut it, and how far in the
+ * shallowest and the deepest of them come as a fraction of its half-width.
+ * The keep standing on one reaches 0.47 of that, so nothing here can cut
+ * the ground out from under a wall. [ARENA-25]
+ */
+#define MECHA_CRAG_FACES 8
+#define MECHA_CRAG_NEAR  0.74f
+#define MECHA_CRAG_FAR   1.00f
 
 //-------------------------------------------------------------------------------------------------
 /*
@@ -251,6 +266,75 @@ static void mecha_arena_pad(tMechaArena *pArena, float fX, float fZ,
 
 //-------------------------------------------------------------------------------------------------
 
+/*
+ * The same platform with the shape knocked off it: eight planes cutting in
+ * from eight directions, each one pushed in by an amount of its own and
+ * turned a little off the even spacing, and the ground kept only where it
+ * is inside all of them.
+ *
+ * Planes rather than a wobbling radius, because the edges want to stay
+ * straight. A radius that varies smoothly gives a blob; eight straight cuts
+ * at odd angles and odd depths give a slab of rock that has been broken
+ * rather than drawn, which is what this is meant to be. The cell grid does
+ * the rest -- an eight-metre cell steps a diagonal edge, and a stepped edge
+ * reads as stone. [ARENA-25]
+ */
+static void mecha_arena_crag(tMechaArena *pArena, float fX, float fZ,
+                             float fHalfX, float fHalfZ, float fY,
+                             uint32_t uiSeed)
+{
+  int iCells = mecha_arena_cells(pArena);
+  float fCell = pArena->fHalfExtent * 2.0f / (float)iCells;
+  float afCut[MECHA_CRAG_FACES];
+  int aiFace[MECHA_CRAG_FACES];
+  tMechaRng rng;
+  int iFace;
+  int iRow;
+  int iCol;
+
+  if (fCell <= 0.0f || fHalfX <= 0.0f || fHalfZ <= 0.0f)
+    return;
+
+  /*
+   * Seeded off the caller rather than the match, so a stage is the same
+   * shape every time it is played and the two ends of it are not each
+   * other's mirror.
+   */
+  mecha_rng_seed(&rng, uiSeed);
+  for (iFace = 0; iFace < MECHA_CRAG_FACES; iFace++) {
+    int iStep = MECHA_ANGLE_FULL / MECHA_CRAG_FACES;
+
+    aiFace[iFace] = mecha_angle_wrap(iStep * iFace
+                                     + mecha_rng_range(&rng, iStep / 3)
+                                     - iStep / 6);
+    afCut[iFace] = MECHA_CRAG_NEAR
+                   + (MECHA_CRAG_FAR - MECHA_CRAG_NEAR)
+                     * mecha_rng_unit(&rng);
+  }
+
+  for (iRow = 0; iRow <= iCells; iRow++) {
+    for (iCol = 0; iCol <= iCells; iCol++) {
+      float fNodeX = -pArena->fHalfExtent + fCell * (float)iCol;
+      float fNodeZ = -pArena->fHalfExtent + fCell * (float)iRow;
+      /* In units of the platform's own half-width, so one set of cuts
+       * suits a platform of any proportions. */
+      float fU = (fNodeX - fX) / fHalfX;
+      float fV = (fNodeZ - fZ) / fHalfZ;
+      bool bIn = fabsf(fU) <= 1.0f && fabsf(fV) <= 1.0f;
+
+      for (iFace = 0; bIn && iFace < MECHA_CRAG_FACES; iFace++) {
+        if (fU * mecha_sin(aiFace[iFace]) + fV * mecha_cos(aiFace[iFace])
+            > afCut[iFace])
+          bIn = false;
+      }
+      if (bIn)
+        pArena->afNode[iRow][iCol] = fY;
+    }
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static void mecha_arena_mark(tMechaArena *pArena, float fX, float fZ,
                              float fReach, uint32_t uiFlags)
 {
@@ -304,6 +388,7 @@ static void mecha_arena_add_box(tMechaArena *pArena,
   pBox->fHalfX = fHalfX;
   pBox->fHalfZ = fHalfZ;
   pBox->fHeight = fHeight;
+  pBox->fRise = 0.0f;
   pBox->byPalette = byPalette;
   pBox->byTrimPalette = byTrimPalette;
   /* Cover is the one thing out here with a real analogue in the retail art,
@@ -315,6 +400,50 @@ static void mecha_arena_add_box(tMechaArena *pArena,
                               % MECHA_TILE_FACADE_COUNT));
   pBox->byTopTile = MECHA_TILE_ROOF;
   pBox->byKind = MECHA_PROP_BLOCK;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+/*
+ * A slab with air under it: a floor one storey up rather than a block. The
+ * arena's other cover is solid from the ground, which is what a box is; a
+ * deck is the same box lifted, and the room it leaves underneath is what
+ * makes a building with two floors in it. [ARENA-23]
+ */
+static void mecha_arena_add_deck(tMechaArena *pArena,
+                                 float fX, float fZ,
+                                 float fHalfX, float fHalfZ,
+                                 float fRise, float fThick,
+                                 uint8_t byPalette, uint8_t byTrimPalette)
+{
+  tMechaObstacle *pBox;
+
+  mecha_arena_add_box(pArena, fX, fZ, fHalfX, fHalfZ, fThick, byPalette,
+                      byTrimPalette);
+  if (pArena->iObstacleCount == 0)
+    return;
+  pBox = &pArena->aObstacles[pArena->iObstacleCount - 1];
+  pBox->fRise = fRise;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+/* A roof that comes to a point, standing on whatever holds it up. */
+static void mecha_arena_add_spire(tMechaArena *pArena,
+                                  float fX, float fZ,
+                                  float fHalfX, float fHalfZ,
+                                  float fRise, float fHeight,
+                                  uint8_t byPalette, uint8_t byTrimPalette)
+{
+  tMechaObstacle *pBox;
+
+  mecha_arena_add_box(pArena, fX, fZ, fHalfX, fHalfZ, fHeight, byPalette,
+                      byTrimPalette);
+  if (pArena->iObstacleCount == 0)
+    return;
+  pBox = &pArena->aObstacles[pArena->iObstacleCount - 1];
+  pBox->fRise = fRise;
+  pBox->byKind = MECHA_PROP_SPIRE;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -675,6 +804,37 @@ void mecha_arena_init(tMechaArena *pArena, int iArenaIdx)
     const float fSkin = 3.0f * m;       /* half the thickness of a wall */
     const float fTall = 34.0f * m;      /* how high the walls stand */
     const float fPier = 20.0f * m;      /* half the pier the doorways flank */
+    const float fReach = 30.0f * m;     /* how far a lane runs onto a base */
+    /*
+     * The second floor, in numbers the roster decides rather than taste.
+     * Nineteen metres of headroom under it because the tallest machine on
+     * the roster stands seventeen, and a room shorter than the machine in
+     * it shoves that machine back out through the door. Three metres of
+     * floor, so the top of it is at twenty-two. The shortest jump on the
+     * roster climbs twenty-one, which does not reach that from the ground
+     * -- so the way up is the plinth under the opening, and from its top
+     * the climb is thirteen, which every machine that jumps at all can
+     * make. The gun car cannot, and the gun car cannot climb anything.
+     * [ARENA-24]
+     */
+    const float fHead = 9.5f * m;       /* headroom under the floor above */
+    const float fSlab = 1.5f * m;       /* and how thick that floor is */
+    const float fHole = 13.0f * m;      /* half the opening cut in it */
+    const float fStep = 4.0f * m;       /* half the plinth under the hole */
+    const float fStepUp = 4.5f * m;     /* and how high it stands */
+    /*
+     * And how far back from the middle of the keep it stands. Machines
+     * spawn on the keep's centreline, spread across its width, so a plinth
+     * sitting on that line has two of them standing inside it at the start
+     * of a sixteen-way. Off the line it is clear of every spawn and still
+     * under the opening. [ARENA-24]
+     */
+    const float fStepBack = 8.0f * m;
+    /* The spire: three and a bit times the wall it stands on, which on a
+     * fort a hundred and eighty metres across is a roof twice as tall as
+     * it is wide. It is the one thing on this stage you can see from the
+     * other end of it. [ARENA-24] */
+    const float fRoof = 110.0f * m;
     /* Walls meet at the corners without touching: two quads in one place
      * have nothing to decide which is in front. [MESH-11] */
     const float fJoint = 0.5f * m;
@@ -688,9 +848,11 @@ void mecha_arena_init(tMechaArena *pArena, int iArenaIdx)
     /*
      * Sixty-four across fourteen hundred metres is a tile just under
      * twenty-two metres. Measured against the quad budget: the whole stage
-     * with sixteen machines on it at full detail comes to 9712 of 12288,
-     * which is where it sat before at half the size. Seventy-two fits too
-     * and leaves a quarter of the headroom; eighty does not fit. [ARENA-20]
+     * with sixteen machines on it at full detail came to 9712 of 12288 when
+     * this was chosen, which is where it sat before at half the size; it is
+     * 6738 now that the void under the stage is no longer drawn [ARENA-22].
+     * Seventy-two fitted too and left a quarter of the headroom at the old
+     * figure; eighty did not fit. [ARENA-20]
      */
     pArena->iFloorTiles = 64;
     /*
@@ -719,8 +881,11 @@ void mecha_arena_init(tMechaArena *pArena, int iArenaIdx)
      * [ARENA-16]
      */
     mecha_arena_void(pArena, 300.0f * m);
-    mecha_arena_pad(pArena, -fRun, 0.0f, fBaseX, fBaseZ, 0.0f);
-    mecha_arena_pad(pArena, fRun, 0.0f, fBaseX, fBaseZ, 0.0f);
+    /* The two ends are crags rather than slabs, and each is cut by its own
+     * seed, so they are two rocks rather than one rock and its mirror.
+     * [ARENA-25] */
+    mecha_arena_crag(pArena, -fRun, 0.0f, fBaseX, fBaseZ, 0.0f, 0xC7A61u);
+    mecha_arena_crag(pArena, fRun, 0.0f, fBaseX, fBaseZ, 0.0f, 0x5EA17u);
     for (iStep = 0; iStep < 16; iStep++) {
       const float *pA = aafLane[iStep];
       const float *pB = aafLane[iStep + 1];
@@ -743,7 +908,15 @@ void mecha_arena_init(tMechaArena *pArena, int iArenaIdx)
     {
       const float *pIn = aafLane[0];
       const float *pOut = aafLane[16];
-      float fEdge = fRun - fBaseX;
+      /*
+       * Onto the rock rather than up to it. The crag's cut is free to take
+       * whichever corner of a base it likes [ARENA-25], including the one
+       * the causeway arrives on, so the lane is painted a good way inside
+       * the base's own edge: what it leaves is a tongue of causeway
+       * running onto the rock, and ground under the way's last station
+       * whatever the cut did to the edge beside it.
+       */
+      float fEdge = fRun - fBaseX + fReach;
 
       mecha_arena_lane(pArena, -fEdge, -8.0f * fStation,
                        pIn[0] * m, pIn[1] * m * fWide, 0.0f,
@@ -805,8 +978,13 @@ void mecha_arena_init(tMechaArena *pArena, int iArenaIdx)
      * of the one facing the causeway so there is a doorway either side of it
      * -- and the doorways come out where the lanes are. A single gate on the
      * centreline would open onto the hole between them, which is where the
-     * machines went. Open to the sky, because a box here is solid from the
-     * ground up and a roof would be a lid with no way under it. [ARENA-16]
+     * machines went. [ARENA-16]
+     *
+     * Two storeys and a roof on top of that, now that a box can have air
+     * under it. The floor above is four slabs round a square opening --
+     * nothing here can have a hole in it, so the hole is what is left
+     * between the boxes -- and the plinth under the opening is the step up
+     * to it. [ARENA-24]
      */
     for (iEnd = 0; iEnd < 2; iEnd++) {
       float fCentre = iEnd ? fRun : -fRun;
@@ -814,6 +992,11 @@ void mecha_arena_init(tMechaArena *pArena, int iArenaIdx)
       float fBack = fCentre + fSign * (fKeep - fSkin);
       float fFront = fCentre - fSign * (fKeep - fSkin);
       float fFlank = fKeep - 2.0f * fSkin - fJoint;
+      /* The room inside, out to the inner face of the walls. */
+      float fInner = fKeep - 2.0f * fSkin - fJoint;
+      /* Half the opening, and the ring of floor left round it. */
+      float fMid = 0.5f * (fHole + fInner);
+      float fRing = 0.5f * (fInner - fHole);
       int iSide;
 
       mecha_arena_add_box(pArena, fBack, 0.0f, fSkin, fKeep, fTall,
@@ -829,6 +1012,42 @@ void mecha_arena_init(tMechaArena *pArena, int iArenaIdx)
       mecha_arena_add_box(pArena, fFront, 0.0f, fSkin, fPier, fTall,
                           MECHA_PAL_BLOCK, MECHA_PAL_BLOCK_TOP);
       mecha_arena_face_stone(pArena);
+
+      /*
+       * The floor above: two slabs across the full width and two filling
+       * the sides of the gap between them. The second pair stops a joint
+       * short of the first, for the same reason the walls do -- two faces
+       * in the same place have nothing to decide which is in front, and
+       * the slot it leaves is a metre wide in a floor the size of a
+       * street. [MESH-11]
+       */
+      for (iSide = 0; iSide < 2; iSide++) {
+        float fAway = iSide ? 1.0f : -1.0f;
+
+        mecha_arena_add_deck(pArena, fCentre, fAway * fMid, fInner, fRing,
+                             fHead, fSlab, MECHA_PAL_BLOCK,
+                             MECHA_PAL_BLOCK_TOP);
+        mecha_arena_face_stone(pArena);
+        mecha_arena_add_deck(pArena, fCentre + fAway * fMid, 0.0f, fRing,
+                             fHole - fJoint, fHead, fSlab, MECHA_PAL_BLOCK,
+                             MECHA_PAL_BLOCK_TOP);
+        mecha_arena_face_stone(pArena);
+      }
+
+      /* The step up, standing under the opening so the climb is two hops
+       * rather than one nothing on the roster can make. */
+      mecha_arena_add_box(pArena, fCentre + fSign * fStepBack, 0.0f,
+                          fStep, fStep, fStepUp,
+                          MECHA_PAL_BLOCK, MECHA_PAL_BLOCK_TOP);
+      mecha_arena_face_stone(pArena);
+
+      /* And the roof over the lot, standing on the walls -- a joint clear
+       * of their tops, because the underside of it covers every one of
+       * them and two faces in one place is the one thing this arena's
+       * geometry is not allowed to have. [MESH-11] */
+      mecha_arena_add_spire(pArena, fCentre, 0.0f, fKeep, fKeep,
+                            fTall + fJoint, fRoof, MECHA_PAL_ROOF_DARK,
+                            MECHA_PAL_ROOF);
     }
 
     /*
@@ -1227,6 +1446,35 @@ uint32_t mecha_arena_surface(const tMechaArena *pArena, float fX, float fZ)
 
 //-------------------------------------------------------------------------------------------------
 
+/*
+ * The two faces of a box: the one you can stand on and the one you can
+ * stand under. Everything the arenas had until now rises from the ground it
+ * is on, so the underside is the ground and only the top is interesting; a
+ * deck with a rise has both. [ARENA-23]
+ */
+static float mecha_box_top(const tMechaObstacle *pBox)
+{
+  return pBox->fBaseY + pBox->fRise + pBox->fHeight;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static float mecha_box_underside(const tMechaObstacle *pBox)
+{
+  return pBox->fBaseY + pBox->fRise;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+/* Is the box over this point on the ground plane? */
+static bool mecha_box_spans(const tMechaObstacle *pBox, float fX, float fZ)
+{
+  return fX >= pBox->fX - pBox->fHalfX && fX <= pBox->fX + pBox->fHalfX
+         && fZ >= pBox->fZ - pBox->fHalfZ && fZ <= pBox->fZ + pBox->fHalfZ;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 float mecha_arena_ground_height(const tMechaArena *pArena,
                                 float fX, float fZ, float fFeetY)
 {
@@ -1250,16 +1498,48 @@ float mecha_arena_ground_height(const tMechaArena *pArena,
   for (i = 0; i < pArena->iObstacleCount; i++) {
     const tMechaObstacle *pBox = &pArena->aObstacles[i];
 
-    if (fX < pBox->fX - pBox->fHalfX || fX > pBox->fX + pBox->fHalfX)
-      continue;
-    if (fZ < pBox->fZ - pBox->fHalfZ || fZ > pBox->fZ + pBox->fHalfZ)
+    if (!mecha_box_spans(pBox, fX, fZ))
       continue;
     /* Below the lip means the box is a wall from here, not a floor. Letting
      * it read as floor is what would teleport a walking mech onto the roof. */
-    if (fFeetY < pBox->fBaseY + pBox->fHeight - MECHA_ARENA_STEP_UP)
+    if (fFeetY < mecha_box_top(pBox) - MECHA_ARENA_STEP_UP)
       continue;
-    if (pBox->fBaseY + pBox->fHeight > fBest)
-      fBest = pBox->fBaseY + pBox->fHeight;
+    if (mecha_box_top(pBox) > fBest)
+      fBest = mecha_box_top(pBox);
+  }
+  return fBest;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+float mecha_arena_ceiling_height(const tMechaArena *pArena,
+                                 float fX, float fZ, float fFeetY)
+{
+  float fBest = MECHA_ARENA_SKY;
+  int i;
+
+  if (!pArena)
+    return fBest;
+
+  for (i = 0; i < pArena->iObstacleCount; i++) {
+    const tMechaObstacle *pBox = &pArena->aObstacles[i];
+    float fUnder;
+
+    /*
+     * Decks only. Everything else stands on the ground it is on, so its
+     * underside is the floor and calling that a ceiling would put a lid
+     * over every machine standing beside a rock on a slope.
+     */
+    if (pBox->fRise <= 0.0f)
+      continue;
+    if (!mecha_box_spans(pBox, fX, fZ))
+      continue;
+    fUnder = mecha_box_underside(pBox);
+    /* Above the feet: a machine already up on the deck is not under it. */
+    if (fUnder <= fFeetY)
+      continue;
+    if (fUnder < fBest)
+      fBest = fUnder;
   }
   return fBest;
 }
@@ -1377,10 +1657,14 @@ bool mecha_arena_resolve_cylinder(const tMechaArena *pArena,
   for (i = 0; i < pArena->iObstacleCount; i++) {
     const tMechaObstacle *pBox = &pArena->aObstacles[i];
 
-    /* Standing on the roof, or flying over it, is not a collision. */
-    if (fFeetY >= pBox->fHeight - MECHA_ARENA_STEP_UP)
+    /* Standing on the roof, or flying over it, is not a collision -- and
+     * neither is walking under it, which is what a deck with a rise is for.
+     * Both faces are read off fBaseY, so a box on a slope collides where it
+     * is drawn rather than where a flat arena would have put it. [ARENA-23]
+     */
+    if (fFeetY >= mecha_box_top(pBox) - MECHA_ARENA_STEP_UP)
       continue;
-    if (fFeetY + fHeight <= 0.0f)
+    if (fFeetY + fHeight <= mecha_box_underside(pBox))
       continue;
     mecha_arena_push_from_box(pBox, fRadius, pfX, pfZ);
   }
@@ -1530,7 +1814,8 @@ bool mecha_arena_trace_segment(const tMechaArena *pArena,
     if (!mecha_arena_slab(fZ0, fDz, pBox->fZ - pBox->fHalfZ,
                           pBox->fZ + pBox->fHalfZ, &fEnter, &fExit))
       continue;
-    if (!mecha_arena_slab(fY0, fDy, 0.0f, pBox->fHeight, &fEnter, &fExit))
+    if (!mecha_arena_slab(fY0, fDy, mecha_box_underside(pBox),
+                          mecha_box_top(pBox), &fEnter, &fExit))
       continue;
     if (fEnter < 0.0f)
       fEnter = 0.0f;

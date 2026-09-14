@@ -69,6 +69,10 @@ static bool s_bCarSkin = false;
  * that is mostly hole draws only the ribbon it has, so it can afford more of
  * them than its area suggests. [ARENA-20] */
 #define MECHA_FLOOR_TILES_MAX 96
+/* How many courses a spire is drawn in, and how much of its base is left
+ * at the top of it rather than coming to an exact point. [MESH-50] */
+#define MECHA_SPIRE_TIERS 6
+#define MECHA_SPIRE_TIP   0.02f
 /* How the ground outside the arena is drawn: rings of the boundary's own
  * shape, each one cut into this many quads a side. It is scenery. */
 #define MECHA_OUTER_RINGS 4
@@ -482,11 +486,55 @@ static void mecha_add_floor_quad(tMechaQuadList *pList,
 
 //-------------------------------------------------------------------------------------------------
 
+//-------------------------------------------------------------------------------------------------
+
 /* Defined with the rest of the quad helpers below, needed by the arena
  * builder above them. */
 static void mecha_tag_box(tMechaQuadList *pList, int iFirst, int iBank,
                           int iSide, int iTop);
 static void mecha_tag_texture(tMechaQuadList *pList, int iBank, int iTile);
+
+//-------------------------------------------------------------------------------------------------
+
+/*
+ * The same thing seen from underneath: a floor quad wound the other way, so
+ * its normal points down and it is drawn for a camera below it rather than
+ * one above. Tiled like the top face, because a ceiling this wide stretched
+ * one tile across the whole of it. [ARENA-23]
+ */
+static void mecha_add_ceiling(tMechaQuadList *pList, float fX, float fZ,
+                              float fHalfX, float fHalfZ, float fY,
+                              float fTile, uint8_t byPalette, uint8_t byTile)
+{
+  float fLowX = fX - fHalfX;
+  float fLowZ = fZ - fHalfZ;
+  int iCols = (int)(2.0f * fHalfX / fTile + 0.5f);
+  int iRows = (int)(2.0f * fHalfZ / fTile + 0.5f);
+  int iCol;
+  int iRow;
+
+  if (iCols < 1)
+    iCols = 1;
+  if (iRows < 1)
+    iRows = 1;
+  for (iRow = 0; iRow < iRows; iRow++) {
+    for (iCol = 0; iCol < iCols; iCol++) {
+      float fX0 = fLowX + 2.0f * fHalfX * (float)iCol / (float)iCols;
+      float fX1 = fLowX + 2.0f * fHalfX * (float)(iCol + 1) / (float)iCols;
+      float fZ0 = fLowZ + 2.0f * fHalfZ * (float)iRow / (float)iRows;
+      float fZ1 = fLowZ + 2.0f * fHalfZ * (float)(iRow + 1) / (float)iRows;
+      float afVert[4][3];
+
+      afVert[0][0] = fX0; afVert[0][1] = fY; afVert[0][2] = fZ0;
+      afVert[1][0] = fX1; afVert[1][1] = fY; afVert[1][2] = fZ0;
+      afVert[2][0] = fX1; afVert[2][1] = fY; afVert[2][2] = fZ1;
+      afVert[3][0] = fX0; afVert[3][1] = fY; afVert[3][2] = fZ1;
+      mecha_quads_add(pList, afVert, byPalette, 0);
+      mecha_tag_texture(pList, MECHA_TEX_STRUCT, byTile);
+    }
+  }
+}
+
 
 /*
  * A wall, in panels rather than one slab: POLYTEX fits exactly one tile to
@@ -825,7 +873,10 @@ void mecha_mesh_arena(tMechaQuadList *pList, const tMechaArena *pArena)
 
   for (i = 0; i < pArena->iObstacleCount; i++) {
     const tMechaObstacle *pBox = &pArena->aObstacles[i];
-    float fBase = pBox->fBaseY;   /* what the collision stands it on too */
+    /* Where the underside of it is, which is what the collision stands it
+     * on too -- the ground for everything that sits on the floor, and a
+     * storey up for a deck. [ARENA-23] */
+    float fBase = pBox->fBaseY + pBox->fRise;
 
     switch (pBox->byKind) {
     case MECHA_PROP_TREE: {
@@ -873,12 +924,67 @@ void mecha_mesh_arena(tMechaQuadList *pList, const tMechaArena *pArena)
                           pBox->byTile, pBox->byTopTile);
       break;
 
+    case MECHA_PROP_SPIRE: {
+      /*
+       * A roof that comes to a point. Built as a stack of frusta rather
+       * than one, so the sides are broken into pieces a painter's sort can
+       * order against the walls under them -- one quad running the whole
+       * height of a spire this tall is a single depth for a surface that
+       * spans two hundred metres of it. The silhouette is still a straight
+       * taper: every tier picks up where the last left off. [MESH-50]
+       */
+      tMechaPose pose;
+      int iTier;
+
+      mecha_pose_build(&pose, 0, 0, 0, 0.0f, 0.0f, 0.0f, 1.0f);
+      for (iTier = 0; iTier < MECHA_SPIRE_TIERS; iTier++) {
+        float fLow = (float)iTier / (float)MECHA_SPIRE_TIERS;
+        float fHigh = (float)(iTier + 1) / (float)MECHA_SPIRE_TIERS;
+        float fY0 = fBase + pBox->fHeight * fLow;
+        float fY1 = fBase + pBox->fHeight * fHigh;
+        /* Stopping a whisker short of a point. A face whose two top
+         * corners are the same point is a triangle, and which corners a
+         * box's faces are built from decides whether the cross product
+         * that gives it its normal comes out at all -- two of the four
+         * came out as nothing and took the degenerate normal, which is
+         * straight up, which is a pair of quads in one plane facing the
+         * same way. The finial is two metres across on a roof a hundred
+         * and eighty wide. [MESH-50] */
+        float fNear = 1.0f - fLow * (1.0f - MECHA_SPIRE_TIP);
+        float fFar = 1.0f - fHigh * (1.0f - MECHA_SPIRE_TIP);
+
+        mecha_add_frustum(pList, &pose, pBox->fX, (fY0 + fY1) * 0.5f,
+                          pBox->fZ,
+                          pBox->fHalfX * fNear,
+                          pBox->fHalfZ * fNear,
+                          pBox->fHalfX * fFar,
+                          pBox->fHalfZ * fFar,
+                          (fY1 - fY0) * 0.5f, 0.0f, 0.0f,
+                          /* Courses of tile, alternating, so a roof this
+                           * big is not one flat face of colour. */
+                          (iTier & 1) ? pBox->byTrimPalette
+                                      : pBox->byPalette,
+                          pBox->byTrimPalette, 0);
+      }
+      break;
+    }
+
     default:
       mecha_add_tiled_box(pList, pBox->fX, pBox->fZ, pBox->fHalfX,
                           pBox->fHalfZ, fBase, fBase + pBox->fHeight, fTile,
                           MECHA_TEX_STRUCT, pBox->byPalette,
                           pBox->byTrimPalette, pBox->byTile,
                           pBox->byTopTile);
+      /*
+       * A box that stands on the floor needs no underside and is not given
+       * one. A deck does: it is the ceiling of the room below, and without
+       * it that room is open to whatever is over the deck. [ARENA-23]
+       */
+      if (pBox->fRise > 0.0f) {
+        mecha_add_ceiling(pList, pBox->fX, pBox->fZ, pBox->fHalfX,
+                          pBox->fHalfZ, fBase, fTile, pBox->byPalette,
+                          pBox->byTile);
+      }
       break;
     }
   }

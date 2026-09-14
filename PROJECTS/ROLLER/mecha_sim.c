@@ -1898,6 +1898,26 @@ integrate:
   }
 
   /*
+   * A deck overhead is a ceiling. Without this a machine in the room under
+   * one rises straight through the floor above it, is told by the ground
+   * query that it has arrived on top, and the hole cut in that floor is a
+   * decoration rather than the way up. Asked from where the feet were, so a
+   * machine already standing on the deck is not under it. [SIM-29]
+   */
+  if (pMech->fY > fPreY) {
+    float fCeiling = mecha_arena_ceiling_height(&pWorld->arena, pMech->fX,
+                                                pMech->fZ, fPreY);
+
+    if (pMech->fY + pDef->fHeight > fCeiling) {
+      pMech->fY = fCeiling - pDef->fHeight;
+      if (pMech->fY < fPreY)
+        pMech->fY = fPreY;
+      if (pMech->fVelY > 0.0f)
+        pMech->fVelY = 0.0f;
+    }
+  }
+
+  /*
    * Asked from the higher of where the feet were and where they have got to,
    * so a fast fall cannot step past a platform's lip in one tick and be told
    * there is no floor. [SIM-11]

@@ -2054,7 +2054,8 @@ static const struct
   { 136, 48, 48, 48 },   /* steel trim                                   */
   { 137, 50, 50, 50 },   /* pale hull                                    */
   { 141, 59, 59, 59 },   /* pale trim                                    */
-  { 166, 37, 18,  0 },   /* hazard paint                                 */
+  { 163, 20, 10,  0 },   /* the forts' roofs, dark course                */
+  { 166, 37, 18,  0 },   /* hazard paint, and the roofs' light course    */
   { 246,  0, 20,  0 },   /* meadow grass, the darker check               */
   { 249,  0, 34,  0 },   /* meadow grass, the lighter check              */
   { 252,  0, 48,  0 },   /* canopy                                       */

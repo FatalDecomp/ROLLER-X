@@ -24,7 +24,7 @@
 #define MECHA_MAX_MECHS         16
 #define MECHA_MAX_PROJECTILES 192
 #define MECHA_MAX_EFFECTS      96
-#define MECHA_MAX_OBSTACLES    32
+#define MECHA_MAX_OBSTACLES    48
 /* Ways across an arena, and stations on one. Two is a causeway apiece; the
  * stations are the ones the map was measured at, with an end on each base.
  * [AI-13] */
@@ -677,7 +677,8 @@ typedef enum
 {
   MECHA_PROP_BLOCK = 0,
   MECHA_PROP_TREE  = 1,
-  MECHA_PROP_ROCK  = 2
+  MECHA_PROP_ROCK  = 2,
+  MECHA_PROP_SPIRE = 3    /* comes to a point: a roof, not a block */
 } eMechaPropKind;
 
 typedef struct
@@ -691,6 +692,14 @@ typedef struct
    * both sides use it. [ARENA-18] */
   float fHeight;
   float fBaseY;
+  /*
+   * How far above that ground the underside of it is. Zero for anything
+   * standing on the floor, which is everything the arenas had until there
+   * was a building with two storeys in it: a deck with a rise is solid
+   * between fBaseY + fRise and fBaseY + fRise + fHeight, and the space
+   * underneath it is a room. [ARENA-23]
+   */
+  float fRise;
   uint8_t byKind;           /* eMechaPropKind */
   uint8_t byPalette;
   uint8_t byTrimPalette;

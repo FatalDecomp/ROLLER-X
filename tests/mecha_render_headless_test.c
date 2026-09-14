@@ -1120,6 +1120,71 @@ int main(int argc, char **argv)
         }
     }
 
+    /*
+     * --- inside a fort ----------------------------------------------------
+     *
+     * Two storeys, and the hole in the first one's ceiling that is the way
+     * to the second. There is nothing to assert here that the simulation
+     * does not already assert better -- this is the frame a person looks
+     * at to see whether a room reads as a room. [TEST-12]
+     */
+    {
+        int iFort = -1;
+        int iArena;
+
+        for (iArena = 0; iArena < mecha_arena_count(); iArena++) {
+            tMechaArena probe;
+
+            mecha_arena_init(&probe, iArena);
+            if (probe.bySkyKind == MECHA_SKY_STARFIELD)
+                iFort = iArena;
+        }
+        CHECK(iFort >= 0);
+
+        mecha_sim_init(&s_World, iFort, 0x0F0Au, 2);
+        CHECK(mecha_sim_add_mech(&s_World, 0, MECHA_CONTROL_HUMAN, 0) >= 0);
+        CHECK(mecha_sim_add_mech(&s_World, 3, MECHA_CONTROL_AI, 1) >= 0);
+        mecha_sim_begin_match(&s_World);
+        {
+            tMechaInput aIdle[MECHA_MAX_MECHS];
+
+            memset(aIdle, 0, sizeof(aIdle));
+            run_to_fight(aIdle);
+        }
+
+        /* A machine on the plinth under the opening, for scale. */
+        s_World.aMechs[0].fX = -MECHA_M(520.0f);
+        s_World.aMechs[0].fZ = 0.0f;
+        s_World.aMechs[0].fY = MECHA_M(9.0f);
+        s_World.aMechs[1].fX = -MECHA_M(560.0f);
+        s_World.aMechs[1].fZ = MECHA_M(50.0f);
+        s_World.aMechs[1].fY = 0.0f;
+
+        /* From a corner of the ground floor, across the room: the plinth,
+         * the opening over it and the underside of the floor above. */
+        s_Camera.fX = -MECHA_M(566.0f);
+        s_Camera.fY = MECHA_M(13.0f);
+        s_Camera.fZ = -MECHA_M(62.0f);
+        s_Camera.iYaw = MECHA_DEG(43);
+        s_Camera.iPitch = MECHA_DEG(6);
+        s_Camera.bSettled = true;
+        mecha_render_frame(pRenderer, &s_World, &s_Camera, 0, s_aFrame,
+                           FRAME_W, FRAME_H, s_aQuads, MECHA_QUAD_CAPACITY);
+        dump_frame(szOutDir, "arena_fort_below.png");
+
+        /* And from up on the floor above, looking back down over the
+         * opening at the room underneath. */
+        s_Camera.fX = -MECHA_M(548.0f);
+        s_Camera.fY = MECHA_M(34.0f);
+        s_Camera.fZ = MECHA_M(20.0f);
+        s_Camera.iYaw = MECHA_DEG(120);
+        s_Camera.iPitch = -MECHA_DEG(34);
+        s_Camera.bSettled = true;
+        mecha_render_frame(pRenderer, &s_World, &s_Camera, 0, s_aFrame,
+                           FRAME_W, FRAME_H, s_aQuads, MECHA_QUAD_CAPACITY);
+        dump_frame(szOutDir, "arena_fort_above.png");
+    }
+
     /* --- the gun car -----------------------------------------------------
      *
      * It is the one machine on the roster with no skeleton at all, so it is

@@ -6159,9 +6159,13 @@ static int test_nothing_is_built_coplanar(void)
             int iChecked = 0;
             int iQuad;
 
+            float fUnder = pBox->fBaseY + pBox->fRise;
+            float fTop = fUnder + pBox->fHeight;
+
             for (iQuad = 0; iQuad < list.iCount; iQuad++) {
                 const tMechaQuad *pQuad = &aStorage[iQuad];
                 float fCx = 0.0f;
+                float fCy = 0.0f;
                 float fCz = 0.0f;
                 int v;
 
@@ -6171,18 +6175,36 @@ static int test_nothing_is_built_coplanar(void)
                  * legs inside a block's footprint, and a leg is under no
                  * obligation to face away from the wall it is standing
                  * next to. [MESHH-03]
+                 *
+                 * And structures only. The ground is drawn where a block
+                 * stands on it and its facets answer to the terrain rather
+                 * than to the block, so a slope under one is not a side of
+                 * it. Taking the ground out is what lets the cap test
+                 * below be a cap test rather than a guess at how steep a
+                 * side might be. [TEST-17]
                  */
                 if (pQuad->byPart != MECHA_PART_NONE)
                     continue;
-                if (fabsf(pQuad->afNormal[1]) > 0.5f)
-                    continue;                   /* a roof, not a side */
+                if ((pQuad->byFlags & MECHA_QUAD_GROUND) != 0)
+                    continue;
+                if (fabsf(pQuad->afNormal[1]) > 0.95f)
+                    continue;                   /* a cap, not a side */
                 for (v = 0; v < 4; v++) {
                     fCx += 0.25f * pQuad->afVert[v][0];
+                    fCy += 0.25f * pQuad->afVert[v][1];
                     fCz += 0.25f * pQuad->afVert[v][2];
                 }
-                /* On this block's surface, near enough. */
+                /*
+                 * On this block's surface, near enough -- in all three
+                 * axes. Height matters now that one box can stand over
+                 * another: a fort's roof covers the whole fort, and the
+                 * walls under it face inwards because that is the inside
+                 * of the fort, not the outside of the roof. [TEST-17]
+                 */
                 if (fabsf(fCx - pBox->fX) > pBox->fHalfX + 1.0f
                     || fabsf(fCz - pBox->fZ) > pBox->fHalfZ + 1.0f)
+                    continue;
+                if (fCy < fUnder - 1.0f || fCy > fTop + 1.0f)
                     continue;
                 CHECK(pQuad->afNormal[0] * (fCx - pBox->fX)
                       + pQuad->afNormal[2] * (fCz - pBox->fZ) > 0.0f);
@@ -7298,6 +7320,163 @@ static int test_pilots_walk_a_causeway_to_close(void)
 //-------------------------------------------------------------------------------------------------
 
 /*
+ * Two storeys in a fort, and a hole in the first one's ceiling that is the
+ * only way to the second. Three things have to hold at once: the room below
+ * has to be taller than the machine standing in it, the floor above has to
+ * stop a jump made under the solid part of it, and the same jump made under
+ * the opening has to arrive. [ARENA-24]
+ */
+static void fort_ready(tMechaWorld *pWorld, int iIdx)
+{
+    tMechaInput aIn[MECHA_MAX_MECHS];
+    int i;
+
+    mecha_sim_init(pWorld, iIdx, 0x20FFu, 2);
+    mecha_sim_add_mech(pWorld, 0, MECHA_CONTROL_HUMAN, 0);
+    mecha_sim_add_mech(pWorld, 0, MECHA_CONTROL_AI, 1);
+    mecha_sim_begin_match(pWorld);
+    memset(aIn, 0, sizeof(aIn));
+    for (i = 0; i < MECHA_TICK_HZ * 4
+                && pWorld->match.byPhase != MECHA_PHASE_FIGHT; i++)
+        mecha_sim_tick(pWorld, aIn, MECHA_MAX_MECHS);
+    /* The other machine somewhere it cannot interfere. */
+    pWorld->aMechs[1].fX = 0.0f;
+    pWorld->aMechs[1].fZ = 0.0f;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void fort_stand(tMechaWorld *pWorld, float fX, float fZ, float fY)
+{
+    pWorld->aMechs[0].fX = fX;
+    pWorld->aMechs[0].fZ = fZ;
+    pWorld->aMechs[0].fY = fY;
+    pWorld->aMechs[0].fVelX = 0.0f;
+    pWorld->aMechs[0].fVelY = 0.0f;
+    pWorld->aMechs[0].fVelZ = 0.0f;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int test_a_fort_has_two_floors(void)
+{
+    tMechaWorld world;
+    tMechaInput aIn[MECHA_MAX_MECHS];
+    const tMechaMechDef *pDef;
+    float fUnder = 0.0f;
+    float fTop = 0.0f;
+    float fPlinth = 0.0f;
+    float fPlinthX = 0.0f;
+    float fKeepX = -MECHA_M(504.0f);
+    int iIdx = mecha_arena_count() - 1;
+    int iDecks = 0;
+    int iSpires = 0;
+    int i;
+
+    fort_ready(&world, iIdx);
+    CHECK(strcmp(world.arena.szName, "FACING WORLDS") == 0);
+    pDef = mecha_def_get((int)world.aMechs[0].byDefIdx);
+
+    /* The floor above, and the step up to it, in the fort at the near end. */
+    for (i = 0; i < world.arena.iObstacleCount; i++) {
+        const tMechaObstacle *pBox = &world.arena.aObstacles[i];
+
+        if (pBox->byKind == MECHA_PROP_SPIRE) {
+            iSpires++;
+            continue;
+        }
+        if (pBox->fRise <= 0.0f) {
+            /* The plinth: the one thing standing on the floor inside the
+             * near fort that is not a wall running its full height. */
+            if (fabsf(pBox->fX - fKeepX) < MECHA_M(40.0f)
+                && pBox->fHeight < MECHA_M(20.0f)
+                && pBox->fHeight > fPlinth) {
+                fPlinth = pBox->fHeight;
+                fPlinthX = pBox->fX;
+            }
+            continue;
+        }
+        iDecks++;
+        if (pBox->fX >= 0.0f)
+            continue;
+        fUnder = pBox->fBaseY + pBox->fRise;
+        fTop = fUnder + pBox->fHeight;
+    }
+    /* Four slabs a fort, a spire a fort, and a plinth to climb from. */
+    CHECK(iDecks == 8);
+    CHECK(iSpires == 2);
+    CHECK(fPlinth > 0.0f);
+    printf("   the fort: floor at %.0f m thick %.0f m over a %.0f m plinth\n",
+           fUnder / MECHA_METRE, (fTop - fUnder) / MECHA_METRE,
+           fPlinth / MECHA_METRE);
+
+    /* Headroom below: taller than the tallest machine on the roster, or a
+     * machine walking in is shoved straight back out by the deck. */
+    for (i = 0; i < mecha_def_count(); i++)
+        CHECK(mecha_def_get(i)->fHeight < fUnder);
+
+    /*
+     * The ceiling is the floor above under the slab, and the roof -- far
+     * over the floor above -- under the hole. Not the sky: the fort has a
+     * lid on it now, which is what stops a machine on the second floor
+     * simply leaving over the wall.
+     */
+    CHECK(mecha_arena_ceiling_height(&world.arena, fPlinthX, 0.0f, 0.0f)
+          > fTop + MECHA_M(20.0f));
+    CHECK(fabsf(mecha_arena_ceiling_height(&world.arena, fKeepX,
+                                           MECHA_M(51.5f), 0.0f) - fUnder)
+          < MECHA_M(0.5f));
+
+    /* Under the solid part: jump as hard as it can and stay in the room. */
+    {
+        float fHigh;
+
+        fort_stand(&world, fKeepX, MECHA_M(51.5f), 0.0f);
+        fHigh = world.aMechs[0].fY;
+        for (i = 0; i < MECHA_TICK_HZ * 3; i++) {
+            memset(aIn, 0, sizeof(aIn));
+            aIn[0].bJump = true;
+            mecha_sim_tick(&world, aIn, MECHA_MAX_MECHS);
+            if (world.aMechs[0].fY > fHigh)
+                fHigh = world.aMechs[0].fY;
+        }
+        printf("   under the floor: head reaches %.1f m of %.0f m\n",
+               (fHigh + pDef->fHeight) / MECHA_METRE, fUnder / MECHA_METRE);
+        CHECK(fHigh + pDef->fHeight <= fUnder + MECHA_M(0.1f));
+    }
+
+    /*
+     * And under the opening, from the plinth: it gets there. On a full
+     * gauge, because it has to be -- the climb is thirteen metres and the
+     * best jump on the roster is eleven with the thrusters out. Getting
+     * upstairs costs boost, which is the same bargain every other piece of
+     * height on this stage asks for. [ARENA-24]
+     */
+    {
+        bool bArrived = false;
+
+        fort_ready(&world, iIdx);
+        fort_stand(&world, fPlinthX, 0.0f, fPlinth);
+        for (i = 0; i < MECHA_TICK_HZ * 6 && !bArrived; i++) {
+            memset(aIn, 0, sizeof(aIn));
+            /* A jump, not a hover: held all the way it climbs past the
+             * floor above and spends the rest of the round coming down. */
+            aIn[0].bJump = i < MECHA_TICK_HZ / 4;
+            aIn[0].iMoveZ = -100;      /* back, to the nearest floor above */
+            mecha_sim_tick(&world, aIn, MECHA_MAX_MECHS);
+            bArrived = fabsf(world.aMechs[0].fY - fTop) < MECHA_M(0.5f)
+                       && world.aMechs[0].fVelY == 0.0f;
+        }
+        printf("   through the hole: %s after %d ticks\n",
+               bArrived ? "stood on the floor above" : "never arrived", i);
+        CHECK(bArrived);
+    }
+    return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+/*
  * A stage that floats has nothing under it. The void it stands in is
  * terrain like any other, so it used to be drawn: a second deck the size of
  * the whole arena, hundreds of metres below the first, and a scatter of
@@ -8394,6 +8573,7 @@ int main(void)
           test_the_pilot_turns_a_dash_it_is_already_in },
         { "a floating stage has nothing under it",
           test_a_floating_stage_has_nothing_under_it },
+        { "a fort has two floors", test_a_fort_has_two_floors },
         { "the causeway map is a causeway",
           test_the_causeway_map_is_a_causeway },
         { "a causeway publishes a way along it",

@@ -3310,3 +3310,149 @@ count the ground quads whose highest corner is below the cut, and require none �
 with a floor under the ground-quad count too, so it cannot pass by the stage
 failing to be drawn at all. With the skip removed it reports 3117 of 4168 ground
 quads below the cut, the lowest at −600 m.
+
+## ARENA-23 — a box with air under it
+
+Every piece of cover the mode had was solid from the ground up, which is what a
+box is and why the keeps were open to the sky: a roof would have been a lid with
+no way under it. `fRise` is how far above its own base a box's underside sits.
+Zero is everything that stands on the floor; anything else is a deck, solid
+between `fBaseY + fRise` and `fBaseY + fRise + fHeight`, with a room underneath.
+
+It touches four places, and two of them were already slightly wrong:
+
+- **The ground query** already read `fBaseY`; it now reads the rise too.
+- **The cylinder push-out** compared the feet against `fHeight` alone, as though
+  every box stood at zero. On flat ground those agree; on a slope the collision
+  was a step away from where the box is drawn. It reads both faces off `fBaseY`
+  now, which fixes that and gives walking under a deck for free: a machine whose
+  head is below the underside is not touching it.
+- **The shot ray** sliced the box from 0 to `fHeight` for the same reason, and
+  now slices between the two faces.
+- **The mesh** draws from the underside, and draws the underside — a box on the
+  floor needs none and is not given one, but a deck is the ceiling of the room
+  below and without it that room is open to whatever is above the deck. That was
+  visible immediately: standing under the new floor you could see straight
+  through it to the roof.
+
+`mecha_arena_ceiling_height` is the query that goes with it: the lowest deck
+underside over a point that is above the feet. Only boxes with a rise answer,
+which keeps it strictly additive — cover standing on the ground is a wall, and
+walking into a wall is the cylinder's business, not the ceiling's. On a slope a
+rock's base can be above a machine's feet, and calling that a ceiling would put
+a lid over anyone standing beside it.
+
+## SIM-29 — a ceiling, so a hole in the floor means something
+
+A machine under a deck used to rise straight through it: the ground query hands
+back a box top as floor once the feet are within a step of it, so a jump made
+under the solid part of a floor ended with the machine standing on that floor.
+The hole cut in it was then a decoration.
+
+One clamp in the vertical step, after the position moves and only while it is
+rising: if the head would pass the lowest deck overhead, the feet stop at that
+deck less the machine's height and any upward speed is dropped. Asked from where
+the feet were at the start of the tick, so a machine already standing on the
+deck is not under it.
+
+The measurement that decides the fort's dimensions is on the other side of this:
+every machine's head now stops at exactly 19 m under the floor above, and the
+same jump from the plinth under the opening arrives on the deck.
+
+## ARENA-24 — two storeys in a fort, and a roof over them
+
+**The floor above** is four slabs round a square opening. Nothing here can have
+a hole in it, so the hole is what is left between the boxes. The second pair
+stops a joint short of the first for the reason the walls do: two faces in one
+place have nothing to decide which is in front [MESH-11].
+
+The heights are not taste, they are the roster:
+
+- The tallest machine stands 17 m, so the room under the deck is 19 m. A room
+  shorter than the machine in it shoves that machine back out through the door —
+  the deck's own collision does it.
+- The floor is 3 m, so its top is at 22 m.
+- The shortest jump on the roster climbs 21 m with the thrusters lit, which does
+  not reach 22 from the floor. So the way up is a plinth: 9 m, under the
+  opening, leaving a 13 m climb that every machine that jumps at all can make.
+  The gun car cannot, and the gun car cannot climb anything.
+- It costs boost. Unassisted jumps are 4 m to 16 m across the roster and the
+  climb is 13, so getting upstairs is the same bargain as every other piece of
+  height on this stage.
+
+The plinth stands 16 m back from the middle of the keep rather than on it.
+Machines spawn on the keep's centreline spread across its width, and with
+sixteen on the field two of them per keep land within ten metres of the middle —
+which is to say, inside a plinth sitting there.
+
+**The roof** is a spire standing on the walls: 220 m on a fort 180 m across, a
+joint clear of the wall tops because its underside covers every one of them and
+coincident faces are the one thing this geometry may not have. It is a real lid
+— the ceiling query finds it, so a machine that jumps off the second floor stops
+under the roof instead of leaving over the wall. The way out of a fort is the
+doorways, which is what a fort is.
+
+Bronze rather than grey, off the low half of the orange ramp: the stage is grey
+deck under a black sky and the roofs are the one thing on it with a colour,
+while staying well below the bright end of the ramp that weapon fire owns
+[DEF-12].
+
+## MESH-50 — drawing a spire
+
+A stack of six frusta rather than one. One frustum would do the same silhouette
+in a quarter of the quads, but a side running the whole two hundred metres is a
+single depth for a surface that spans the fort and everything near it, and this
+renderer sorts by depth per quad with nothing to break the tie. Six courses sort
+against the walls under them, and alternating the palette gives the roof banding
+that reads as courses of tile rather than one face of colour.
+
+It stops a whisker short of a point. A face whose two top corners are the same
+point is a triangle, and whether the cross product that gives it its normal
+comes out at all depends on which corners that face is built from: two of the
+four came out as nothing and took the degenerate normal, which is straight up,
+which is a pair of quads in one plane facing the same way — caught by the
+coplanar test, which is what that test is for. The finial is two metres across
+on a roof a hundred and eighty wide.
+
+## ARENA-25 — a platform that has been broken rather than drawn
+
+The two bases were rectangles. They are cut by eight planes now, each pushed in
+by an amount of its own between 0.74 and 1.0 of the platform's half-width and
+turned up to seven degrees off the even spacing, and the ground is kept only
+where it is inside all of them.
+
+Planes rather than a radius that varies with direction: a varying radius gives a
+blob, and eight straight cuts at odd angles and odd depths give a slab that has
+been broken. The terrain grid does the rest — an eight-metre cell steps a
+diagonal edge, and a stepped edge reads as stone.
+
+Each end is cut by its own seed, so they are two rocks rather than one rock and
+its mirror. Neither cut can reach a keep: a keep reaches 0.47 of the platform's
+half-width and the deepest cut stops at 0.74.
+
+The one thing a cut could take that matters is the corner where the causeway
+arrives, and it did — the last station of each way ended up over the void, which
+the way test caught at once. The lane is painted sixty metres onto the base
+rather than up to its edge: what that leaves is a tongue of causeway running
+onto the rock, and ground under the way's last station whatever the cut does to
+the edge beside it.
+
+## TEST-17 — nested boxes broke the outward-faces test
+
+`nothing is built coplanar` also checks that every side a block is built from
+faces away from that block's middle, by taking the quads whose centroid lands in
+a block's footprint. That works while no box stands over another. A fort's roof
+covers the whole fort, so every wall inside it was suddenly a side of the roof —
+and the walls face inwards, because that is the inside of the fort.
+
+Three changes, each of which makes the test sharper rather than looser:
+
+- **Height counts.** A quad belongs to a box only if its centroid is inside the
+  box's vertical span as well as its footprint.
+- **Ground is not a side.** Quads flagged as ground are skipped. A block stands
+  on terrain, and the facets of that terrain answer to the slope, not to the
+  block.
+- **A cap is a cap.** Taking the ground out means the "roof, not a side" filter
+  can be what it says — nearly horizontal — instead of a guess at how steep a
+  side might be. It was 0.5, which excluded a spire's sides (33 degrees off
+  vertical) from being checked at all.

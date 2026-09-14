@@ -31,6 +31,18 @@ void mecha_arena_init(tMechaArena *pArena, int iArenaIdx);
 float mecha_arena_ground_height(const tMechaArena *pArena,
                                 float fX, float fZ, float fFeetY);
 
+/*
+ * The underside of the lowest deck over (fX, fZ) that is above fFeetY, or
+ * MECHA_ARENA_SKY when there is nothing overhead. A deck is a box with a
+ * rise -- air underneath it -- so this is what a machine in the room below
+ * one hits its head on, and it is the reason a hole in a floor is the way
+ * up rather than a decoration. Only decks answer: cover standing on the
+ * ground is a wall, and walking into it is the cylinder's business.
+ * [ARENA-23]
+ */
+float mecha_arena_ceiling_height(const tMechaArena *pArena,
+                                 float fX, float fZ, float fFeetY);
+
 /* Pushes a standing cylinder out of the walls and out of any box it has
  * driven into. fFeetY and fHeight decide which boxes it can intersect at all.
  * Returns true when anything moved it. */
@@ -116,5 +128,8 @@ bool mecha_arena_way_aim(const tMechaArena *pArena, float fX, float fZ,
 //-------------------------------------------------------------------------------------------------
 /* The tallest lip a walking mech steps straight up onto. */
 #define MECHA_ARENA_STEP_UP (1.5f * MECHA_METRE)
+/* Nothing overhead: what the ceiling query returns when the sky is the only
+ * thing above a point. [ARENA-23] */
+#define MECHA_ARENA_SKY (4000.0f * MECHA_METRE)
 //-------------------------------------------------------------------------------------------------
 #endif

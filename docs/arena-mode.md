@@ -397,6 +397,28 @@ on the stick, and pick what to spend the next round on.
   fires first across four hundred metres of flat deck wins and the walk is a
   formality.
 
+  The two ends are crags rather than slabs. Eight planes cut each platform back,
+  every one of them pushed in by an amount of its own and turned a little off
+  the even spacing, and each end is cut by its own seed -- so they are two rocks
+  rather than one rock and its mirror. The terrain grid steps the diagonal
+  edges, which is what makes them read as stone. The causeways run sixty metres
+  onto the rock rather than up to it, leaving a tongue at each join.
+
+- **A fort has two floors.** The keeps have a floor halfway up, built as four
+  slabs round a square opening, and the only way to it is up through that
+  opening from the plinth standing under it. The room below is nineteen metres
+  in the clear -- two metres more than the tallest machine on the roster,
+  because a room shorter than the machine in it shoves that machine out through
+  the door -- and the floor above it is a ceiling you bounce off rather than a
+  surface you rise through. The climb costs boost: unassisted jumps run from
+  four metres to sixteen across the roster, and the hop from the plinth is
+  thirteen.
+
+  Over the lot stands a spire, two hundred and twenty metres of it on a fort a
+  hundred and eighty across, bronze against the black. It is a real lid, not a
+  decoration -- a machine that jumps off the second floor stops under the roof
+  instead of leaving over the wall, so the way out of a fort is the doorways.
+
 - **A cancel from a great height lands on the roof.** A platform answers a
   height query only to something near enough above it -- below the lip it is a
   wall, not a floor, which is what stops a machine underneath a roof popping up
