@@ -87,7 +87,70 @@ typedef struct
   uint8_t byTexBank;
   uint8_t byTile;
   uint8_t byPart;         /* MECHA_PART_*, for callers that want to find one */
+  /*
+   * Which joint posed this quad: MECHA_BONE_*, or MECHA_BONE_NONE for the
+   * geometry that is not hung off a machine's skeleton at all (the ground,
+   * a sprite, a shot). Nothing in the renderer reads it either -- it is
+   * what makes the mesh exportable as a rigged model, since a quad tagged
+   * with its bone is a quad whose skin weight is already known. [MESHH-05]
+   */
+  uint8_t byBone;
 } tMechaQuad;
+
+/*
+ * The skeleton a walking machine is built on. Every one of these is a frame
+ * the builder already makes to hang geometry off -- naming them changes
+ * nothing about how a machine is drawn, it only writes down what was always
+ * true, so that a caller can ask where a machine's left elbow is or hand the
+ * whole thing to a modelling package as a rig.
+ *
+ * Paired bones are adjacent and the left one comes first, so the builder's
+ * own `iSide` (0 is the machine's left) indexes them as BASE + iSide.
+ *
+ * Only the biped names all of them. A chassis with no legs to speak of
+ * leaves the leg bones unposed, and says so. [MESHH-05]
+ */
+#define MECHA_BONE_NONE       0
+#define MECHA_BONE_ROOT       1   /* the machine on the ground, under the hips */
+#define MECHA_BONE_PELVIS     2   /* tilts and turns with the stride          */
+#define MECHA_BONE_TORSO      3   /* everything above the waist, and does not */
+#define MECHA_BONE_HEAD       4
+#define MECHA_BONE_SKIRT_L    5
+#define MECHA_BONE_SKIRT_R    6
+#define MECHA_BONE_SHOULDER_L 7
+#define MECHA_BONE_SHOULDER_R 8
+#define MECHA_BONE_UPPERARM_L 9
+#define MECHA_BONE_UPPERARM_R 10
+#define MECHA_BONE_FOREARM_L  11
+#define MECHA_BONE_FOREARM_R  12
+#define MECHA_BONE_HIP_L      13
+#define MECHA_BONE_HIP_R      14
+#define MECHA_BONE_THIGH_L    15
+#define MECHA_BONE_THIGH_R    16
+#define MECHA_BONE_SHIN_L     17
+#define MECHA_BONE_SHIN_R     18
+#define MECHA_BONE_FOOT_L     19
+#define MECHA_BONE_FOOT_R     20
+#define MECHA_BONE_COUNT      21
+
+/*
+ * Where a bone ended up. The rotation is the joint's own axes in world
+ * space as columns, which is the same convention the builder poses in: the
+ * bone runs down its own -Y, which is the way every limb on the roster
+ * hangs.
+ */
+typedef struct
+{
+  float afRot[3][3];
+  float afOrigin[3];
+  bool  bPosed;        /* false for a bone this chassis does not have */
+} tMechaBoneFrame;
+
+/* The bone's name, and the bone it hangs off (MECHA_BONE_NONE for the root).
+ * Out of range gives "" and MECHA_BONE_NONE rather than reading past the
+ * table. */
+const char *mecha_bone_name(int iBone);
+int mecha_bone_parent(int iBone);
 
 /* The banks the mode draws from. The renderer maps these onto the engine's
  * own numbering, which is not the same. [REND-07] */
@@ -149,6 +212,9 @@ typedef struct
   /* Stamped onto every quad added from here on, so a builder says which
    * part it is on once rather than on every call. [MESHH-03] */
   uint8_t     byPart;
+  /* And which bone, stamped from the pose each primitive is built in.
+   * [MESHH-05] */
+  uint8_t     byBone;
 } tMechaQuadList;
 
 void mecha_quads_reset(tMechaQuadList *pList, tMechaQuad *paStorage,
@@ -188,6 +254,19 @@ int mecha_mesh_detail_for_range(float fRange);
  * of the tiers above; the tests build at MECHA_DETAIL_FULL. */
 void mecha_mesh_mech(tMechaQuadList *pList, const tMechaWorld *pWorld,
                      int iMechIdx, int iDetail);
+
+/*
+ * The same machine, and additionally where each of its joints ended up.
+ * paBones is MECHA_BONE_COUNT frames, cleared on entry and filled for every
+ * bone this chassis actually poses; NULL builds exactly what the call above
+ * builds. Quads carry byBone either way.
+ *
+ * This is the whole of what an exporter needs: the skeleton, and a mesh
+ * whose every polygon already names the bone that moved it. [MESHH-05]
+ */
+void mecha_mesh_mech_rigged(tMechaQuadList *pList, const tMechaWorld *pWorld,
+                            int iMechIdx, int iDetail,
+                            tMechaBoneFrame *paBones);
 
 /* Projectiles and effects are camera-facing, so they need the view heading
  * the renderer is about to draw with. */
@@ -262,7 +341,7 @@ int mecha_leg_ankle(float fClear, float fSpan, int iRange);
  * is ninety-nine per cent of the old buffer and not a margin. The detail
  * tiers are what keep it to 8116 rather than 8946; this is what keeps 8116
  * clear of the ceiling. It costs 272 KB of BSS, once, for the whole mode.
- * [MESHH-04]
+ * [MESHH-05]
  */
 #define MECHA_QUAD_CAPACITY 12288
 //-------------------------------------------------------------------------------------------------

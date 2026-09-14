@@ -1328,6 +1328,148 @@ static int test_a_stride_points_the_toe(void)
 
 //-------------------------------------------------------------------------------------------------
 
+/*
+ * Every polygon knows which joint moved it, and knows it correctly.
+ *
+ * The tag is what makes a machine exportable as a rigged model [MESHH-05]:
+ * a quad that names its bone is a quad whose skin weight is known. Which
+ * means the tag has to be the truth, and the truth is checkable -- take a
+ * quad into its own bone's frame and it should sit in exactly the same
+ * place whatever the machine is doing, because that is what being on a
+ * bone means. A plate built in the thigh's frame but tagged to the shin
+ * would pass every count and every eyeball and then tear apart the first
+ * time someone bent the knee.
+ */
+static int test_every_polygon_knows_its_bone(void)
+{
+    static tMechaQuad aStorage[2][MECHA_QUAD_CAPACITY];
+    tMechaBoneFrame aaBones[2][MECHA_BONE_COUNT];
+    tMechaQuadList aList[2];
+    tMechaWorld world;
+    const tMechaMechDef *pDef;
+    float fWorstDrift = 0.0f;
+    int aiCount[MECHA_BONE_COUNT];
+    int iDef;
+    int iBone;
+
+    /* The skeleton is a tree, rooted, with every name distinct. Walking a
+     * cycle here would hang the exporter rather than fail it. */
+    for (iBone = 1; iBone < MECHA_BONE_COUNT; iBone++) {
+        int iWalk = iBone;
+        int iSteps = 0;
+        int iOther;
+
+        CHECK(mecha_bone_name(iBone)[0] != '\0');
+        for (iOther = 1; iOther < iBone; iOther++)
+            CHECK(strcmp(mecha_bone_name(iBone),
+                         mecha_bone_name(iOther)) != 0);
+        while (mecha_bone_parent(iWalk) != MECHA_BONE_NONE) {
+            iWalk = mecha_bone_parent(iWalk);
+            CHECK(++iSteps < MECHA_BONE_COUNT);
+        }
+        CHECK(iWalk == MECHA_BONE_ROOT);
+    }
+    /* Out of range answers rather than reading past the table. */
+    CHECK(mecha_bone_name(-1)[0] == '\0');
+    CHECK(mecha_bone_name(MECHA_BONE_COUNT)[0] == '\0');
+    CHECK(mecha_bone_parent(MECHA_BONE_COUNT) == MECHA_BONE_NONE);
+
+    for (iDef = 0; iDef < mecha_def_count(); iDef++) {
+        int iPass;
+        int i;
+
+        start_duel(&world, 0, iDef, iDef, 0x1E65u, 1);
+        pDef = mecha_def_get((int)world.aMechs[0].byDefIdx);
+        if (pDef->byChassis != MECHA_CHASSIS_BIPED)
+            continue;
+
+        /* The same machine at two points of a stride. Anything rigid to a
+         * bone has to survive the difference. */
+        for (iPass = 0; iPass < 2; iPass++) {
+            world.aMechs[0].byMove = MECHA_MOVE_WALK;
+            world.aMechs[0].fStepPhase = iPass ? 0.37f : 0.0f;
+            mecha_quads_reset(&aList[iPass], aStorage[iPass],
+                              MECHA_QUAD_CAPACITY);
+            mecha_mesh_mech_rigged(&aList[iPass], &world, 0,
+                                   MECHA_DETAIL_FULL, aaBones[iPass]);
+        }
+        CHECK(aList[0].iCount > 0);
+        /* The same machine built twice is the same list of quads, which is
+         * what lets them be compared one for one. */
+        CHECK(aList[0].iCount == aList[1].iCount);
+
+        for (iBone = 0; iBone < MECHA_BONE_COUNT; iBone++)
+            aiCount[iBone] = 0;
+
+        for (i = 0; i < aList[0].iCount; i++) {
+            int iQuadBone = (int)aStorage[0][i].byBone;
+            int v;
+
+            /* A walking machine is all bone: nothing it draws is loose. */
+            CHECK(iQuadBone > MECHA_BONE_NONE);
+            CHECK(iQuadBone < MECHA_BONE_COUNT);
+            CHECK(aStorage[1][i].byBone == aStorage[0][i].byBone);
+            CHECK(aaBones[0][iQuadBone].bPosed);
+            aiCount[iQuadBone]++;
+
+            for (v = 0; v < 4; v++) {
+                float afLocal[2][3];
+                int iPass;
+                int iAxis;
+
+                for (iPass = 0; iPass < 2; iPass++) {
+                    const tMechaBoneFrame *pF = &aaBones[iPass][iQuadBone];
+                    float afRel[3];
+                    int j;
+
+                    for (j = 0; j < 3; j++)
+                        afRel[j] = aStorage[iPass][i].afVert[v][j]
+                                   - pF->afOrigin[j];
+                    /* Into the bone's own frame: the rotation holds the
+                     * bone's axes as columns, so its transpose takes the
+                     * world back into them. */
+                    for (j = 0; j < 3; j++)
+                        afLocal[iPass][j] = pF->afRot[0][j] * afRel[0]
+                                          + pF->afRot[1][j] * afRel[1]
+                                          + pF->afRot[2][j] * afRel[2];
+                }
+                for (iAxis = 0; iAxis < 3; iAxis++) {
+                    float fDrift = afLocal[0][iAxis] - afLocal[1][iAxis];
+
+                    if (fDrift < 0.0f)
+                        fDrift = -fDrift;
+                    if (fDrift > fWorstDrift)
+                        fWorstDrift = fDrift;
+                }
+            }
+        }
+
+        /* And the skeleton is all used: a bone nothing hangs off is either
+         * a joint (a hip, a shoulder) or a mistake, and the joints are
+         * named here so that a new one cannot slip in unnoticed. */
+        for (iBone = 1; iBone < MECHA_BONE_COUNT; iBone++) {
+            bool bPivot = iBone == MECHA_BONE_ROOT
+                          || iBone == MECHA_BONE_HIP_L
+                          || iBone == MECHA_BONE_HIP_R
+                          || iBone == MECHA_BONE_SHOULDER_L
+                          || iBone == MECHA_BONE_SHOULDER_R;
+
+            CHECK(aaBones[0][iBone].bPosed);
+            if (!bPivot)
+                CHECK(aiCount[iBone] > 0);
+        }
+    }
+
+    printf("   worst a plate moves in its own bone's frame: %.4f mm\n",
+           fWorstDrift / MECHA_METRE * 1000.0f);
+    /* Float noise through two matrix chains, and nothing else. A plate on
+     * the wrong bone misses by tens of centimetres, not microns. */
+    CHECK(fWorstDrift < MECHA_M(0.001f));
+    return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static int test_legs_walk_on_jointed_knees(void)
 {
     static tMechaQuad aStorage[MECHA_QUAD_CAPACITY];
@@ -5768,7 +5910,7 @@ static int test_a_boost_up_a_slope_leaves_the_ground(void)
  * whose arena alone is over four thousand quads, with the camera where the
  * player's eye is -- which is what decides how much detail each machine is
  * built at. A frame that overflows does not crash: it silently stops adding
- * geometry, so this has to be a number rather than a hope. [MESHH-04]
+ * geometry, so this has to be a number rather than a hope. [MESHH-05]
  */
 /*
  * The win pose, and the thing about it that is actually new: the two arms
@@ -8794,6 +8936,8 @@ int main(void)
         { "a floating stage has nothing under it",
           test_a_floating_stage_has_nothing_under_it },
         { "a stride points the toe", test_a_stride_points_the_toe },
+        { "every polygon knows its bone",
+          test_every_polygon_knows_its_bone },
         { "a fort has two floors", test_a_fort_has_two_floors },
         { "the sky turns about a west-east axis",
           test_the_sky_turns_about_a_west_east_axis },

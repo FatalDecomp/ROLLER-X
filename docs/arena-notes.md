@@ -2540,6 +2540,75 @@ One more effect and the frame starts dropping geometry.
 whole mode, and the test asserts the peak stays under three quarters so that the
 next thing anyone adds to a machine has somewhere to come from.
 
+## MESHH-05 — a quad says which bone posed it, and a machine comes out as a rig
+
+There is no model file for any machine in this tree. Each is assembled every
+frame from boxes and frusta hung off a chain of `tMechaPose` frames -- a hip on
+the root, a thigh on the hip, a shin on the thigh -- which is a skeleton by any
+other name. It was simply never written down.
+
+`byBone` writes it down. It is the same mechanism as `byPart` [MESHH-03] one
+level finer: a byte on the pose, inherited by every frame hung off a named one,
+stamped onto quads through the list rather than through every call. The vernier
+bolted to a calf is on the shin's bone without anyone saying so, because it is
+built in the shin's frame, and that is what being on a bone means. It costs
+nothing: the quad struct had a spare byte inside its padding, and the whole of
+the tagging is one assignment in `mecha_add_box` and `mecha_add_frustum` plus
+twelve lines naming the joints.
+
+What it buys is that a machine can leave the program. A quad that names its bone
+is a quad whose skin weight is already known, so `tools/export_mech_blend.py`
+can weld the mesh, raise an armature on the captured joints, and skin the one to
+the other without a single guess. The weights are rigid -- one bone per vertex,
+weight 1 -- which is not a simplification but the truth about the subject: these
+machines are plate armour, and a shin plate that stretched when the knee bent
+would be wrong.
+
+`mecha_mesh_mech_rigged` is the same builder with somewhere to write the joints
+down. A NULL there is the ordinary call, and the tag happens either way.
+
+### Testing it, which is the interesting part
+
+Counting quads per bone proves nothing -- it is exactly the kind of check that
+keeps passing while measuring the wrong thing [MESHH-03]. What matters is
+whether the tag is **true**: is a plate tagged to the shin actually rigid with
+respect to the shin?
+
+That is directly checkable. Build the machine at two points of a stride, take
+each quad into its own bone's frame, and the local coordinates have to be
+identical, because a body rigid to a bone does not move in that bone's frame by
+definition. A plate built in the thigh's frame but labelled shin would sit still
+under every count and every glance and then tear off the first time someone bent
+the knee -- and it misses this check by tens of centimetres. The worst honest
+drift is 0.0088 mm, which is two matrix chains' worth of float noise. Verified
+by mislabelling the foot as the shin, which fails it.
+
+### What the exporter has to get right, and nearly did not
+
+**The game is left-handed.** `mecha_camera_basis` builds right=+X, up=+Y,
+forward=+Z, and `right x up = forward` is the left-handed identity -- a
+right-handed camera looks down its own -Z. It follows that a machine's own left
+is at -X, which is what `iSide` 0 and the tests have always assumed.
+
+Blender is right-handed and Z-up. Going between them needs an axis swap **and**
+a flip; the swap alone silently mirrors the machine, which on a symmetrical mech
+is invisible until someone poses it and the left gun is on the right. The
+mapping is `(x, y, z) -> (-x, -z, y)`: determinant -1, which is the flip, and it
+lands the machine's left at Blender's +X, which is a character's left when it
+faces -Y, which is where Blender's front view expects a character to look.
+
+The other two are smaller. A palette is what a screen shows, so it is sRGB, and
+feeding it to Blender's linear base colour unconverted is what bleaches an
+exported model. And the glow indices are lights the machine carries rather than
+paint it wears, so they come out emissive -- a magenta vent rendered as matte
+magenta plastic is the single thing that makes an exported mech read as a toy.
+
+The rest pose is the machine's own at-ease stance, not an A-pose: the builder
+has no neutral mode and does not need one, so the exporter sets the state
+instead. What survives is the stance's five-degree lead, so the rest pose has
+one foot slightly ahead of the other. The breath is dodged rather than fought,
+by exporting at the tick where it is zero.
+
 ## DEF-08 — BASTION 88, and why it can still jump
 
 A tracked machine that could not leave the ground at all would be locked out of

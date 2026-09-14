@@ -99,14 +99,19 @@ void mecha_quads_reset(tMechaQuadList *pList, tMechaQuad *paStorage,
   pList->iCount = 0;
   pList->iDropped = 0;
   pList->byPart = MECHA_PART_NONE;
+  pList->byBone = MECHA_BONE_NONE;
 }
 
 //-------------------------------------------------------------------------------------------------
 
 void mecha_quads_part(tMechaQuadList *pList, uint8_t byPart)
 {
-  if (pList)
+  if (pList) {
     pList->byPart = byPart;
+    /* A new section of the machine starts off nobody's bone: the primitives
+     * that are posed set it, and the ones that are not stay honest. */
+    pList->byBone = MECHA_BONE_NONE;
+  }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -134,6 +139,7 @@ bool mecha_quads_add(tMechaQuadList *pList, const float afVert[4][3],
   pQuad->byTexBank = MECHA_TEX_NONE;
   pQuad->byTile = 0;
   pQuad->byPart = pList->byPart;
+  pQuad->byBone = pList->byBone;
 
   for (i = 0; i < 3; i++) {
     afEdge1[i] = afVert[1][i] - afVert[0][i];
@@ -167,6 +173,13 @@ typedef struct
   float afRot[3][3];   /* local axes expressed in world space, as columns */
   float afOrigin[3];
   float fVerticalScale;
+  /*
+   * Which joint of the skeleton this frame is, once something has named it.
+   * A pose hung off a named one inherits the name, so the trim bolted to a
+   * shin is on the shin's bone without anyone having to say so, and only
+   * the joints themselves need naming. [MESHH-05]
+   */
+  uint8_t byBone;
 } tMechaPose;
 
 //-------------------------------------------------------------------------------------------------
@@ -225,6 +238,7 @@ static void mecha_pose_build(tMechaPose *pPose, int iYaw, int iPitch,
   pPose->afOrigin[1] = fY;
   pPose->afOrigin[2] = fZ;
   pPose->fVerticalScale = fVerticalScale;
+  pPose->byBone = MECHA_BONE_NONE;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -264,6 +278,75 @@ static void mecha_pose_child(tMechaPose *pOut, const tMechaPose *pParent,
   pOut->afOrigin[1] = afOrigin[1];
   pOut->afOrigin[2] = afOrigin[2];
   pOut->fVerticalScale = pParent->fVerticalScale;
+  pOut->byBone = pParent->byBone;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+/*
+ * Name a frame as a joint of the skeleton, and write down where it ended up
+ * if anyone is collecting. Called on the frames that are joints; everything
+ * hung off one inherits it. [MESHH-05]
+ */
+static void mecha_pose_name(tMechaPose *pPose, int iBone,
+                            tMechaBoneFrame *paBones)
+{
+  pPose->byBone = (uint8_t)iBone;
+  if (!paBones || iBone <= MECHA_BONE_NONE || iBone >= MECHA_BONE_COUNT)
+    return;
+  memcpy(paBones[iBone].afRot, pPose->afRot, sizeof(paBones[iBone].afRot));
+  memcpy(paBones[iBone].afOrigin, pPose->afOrigin,
+         sizeof(paBones[iBone].afOrigin));
+  paBones[iBone].bPosed = true;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+/*
+ * The skeleton, written down once. Names are the ones a modelling package
+ * expects -- the .L/.R suffix is what makes a rig mirrorable there -- and
+ * the parent column is the chain the builder already walks. [MESHH-05]
+ */
+static const struct
+{
+  const char *szName;
+  uint8_t     byParent;
+} s_aBones[MECHA_BONE_COUNT] = {
+  [MECHA_BONE_NONE]       = { "",            MECHA_BONE_NONE },
+  [MECHA_BONE_ROOT]       = { "root",        MECHA_BONE_NONE },
+  [MECHA_BONE_PELVIS]     = { "pelvis",      MECHA_BONE_ROOT },
+  [MECHA_BONE_TORSO]      = { "torso",       MECHA_BONE_ROOT },
+  [MECHA_BONE_HEAD]       = { "head",        MECHA_BONE_TORSO },
+  [MECHA_BONE_SKIRT_L]    = { "skirt.L",     MECHA_BONE_PELVIS },
+  [MECHA_BONE_SKIRT_R]    = { "skirt.R",     MECHA_BONE_PELVIS },
+  [MECHA_BONE_SHOULDER_L] = { "shoulder.L",  MECHA_BONE_TORSO },
+  [MECHA_BONE_SHOULDER_R] = { "shoulder.R",  MECHA_BONE_TORSO },
+  [MECHA_BONE_UPPERARM_L] = { "upper_arm.L", MECHA_BONE_SHOULDER_L },
+  [MECHA_BONE_UPPERARM_R] = { "upper_arm.R", MECHA_BONE_SHOULDER_R },
+  [MECHA_BONE_FOREARM_L]  = { "forearm.L",   MECHA_BONE_UPPERARM_L },
+  [MECHA_BONE_FOREARM_R]  = { "forearm.R",   MECHA_BONE_UPPERARM_R },
+  [MECHA_BONE_HIP_L]      = { "hip.L",       MECHA_BONE_ROOT },
+  [MECHA_BONE_HIP_R]      = { "hip.R",       MECHA_BONE_ROOT },
+  [MECHA_BONE_THIGH_L]    = { "thigh.L",     MECHA_BONE_HIP_L },
+  [MECHA_BONE_THIGH_R]    = { "thigh.R",     MECHA_BONE_HIP_R },
+  [MECHA_BONE_SHIN_L]     = { "shin.L",      MECHA_BONE_THIGH_L },
+  [MECHA_BONE_SHIN_R]     = { "shin.R",      MECHA_BONE_THIGH_R },
+  [MECHA_BONE_FOOT_L]     = { "foot.L",      MECHA_BONE_SHIN_L },
+  [MECHA_BONE_FOOT_R]     = { "foot.R",      MECHA_BONE_SHIN_R },
+};
+
+const char *mecha_bone_name(int iBone)
+{
+  if (iBone <= MECHA_BONE_NONE || iBone >= MECHA_BONE_COUNT)
+    return "";
+  return s_aBones[iBone].szName;
+}
+
+int mecha_bone_parent(int iBone)
+{
+  if (iBone <= MECHA_BONE_NONE || iBone >= MECHA_BONE_COUNT)
+    return MECHA_BONE_NONE;
+  return (int)s_aBones[iBone].byParent;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -293,6 +376,10 @@ static void mecha_add_box(tMechaQuadList *pList, const tMechaPose *pPose,
   float afCorner[8][3];
   int iCorner;
   int iFace;
+
+  /* Everything built in a frame belongs to that frame's bone.
+   * [MESHH-05] */
+  pList->byBone = pPose->byBone;
 
   for (iCorner = 0; iCorner < 8; iCorner++) {
     mecha_pose_apply(pPose,
@@ -335,6 +422,10 @@ static void mecha_add_frustum(tMechaQuadList *pList, const tMechaPose *pPose,
   float afCorner[8][3];
   int iCorner;
   int iFace;
+
+  /* Everything built in a frame belongs to that frame's bone.
+   * [MESHH-05] */
+  pList->byBone = pPose->byBone;
 
   for (iCorner = 0; iCorner < 8; iCorner++) {
     bool bTop = (iCorner & 2) != 0;
@@ -2089,6 +2180,9 @@ typedef struct
   float   fWalkPhase;
   int     iProfile;
   int     iDetail;
+  /* Where to write the joints down, or NULL for the usual case of nobody
+   * asking. [MESHH-05] */
+  tMechaBoneFrame *paBones;
 } tMechaBuild;
 
 static void mecha_build_setup(tMechaBuild *pB, const tMechaMech *pMech,
@@ -2350,6 +2444,7 @@ static void mecha_build_skirt(tMechaQuadList *pList, const tMechaBuild *pB,
                          fSide * 0.24f * pB->fRadius * pB->fTorso,
                          -0.02f * pB->fUpperY, 0.0f, 0,
                          (int)(-0.55f * (float)paiThigh[iSide]), 0);
+        mecha_pose_name(&skirt, MECHA_BONE_SKIRT_L + iSide, pB->paBones);
         mecha_add_frustum(pList, &skirt, 0.0f, -0.05f * pB->fUpperY,
                           0.30f * pB->fRadius * pB->fTorso,
                           0.21f * pB->fRadius * pB->fTorso,
@@ -2622,8 +2717,10 @@ static void mecha_build_arms_head(tMechaQuadList *pList,
       mecha_pose_child(&shoulder, pTorso, fSide * fArmX,
                        0.27f * pB->fUpperY,
                        0.0f, iShoulderYaw, 0, iShoulderRoll);
+      mecha_pose_name(&shoulder, MECHA_BONE_SHOULDER_L + iSide, pB->paBones);
       mecha_pose_child(&upper, &shoulder, 0.0f, 0.0f, 0.0f, 0,
                        iUpperPitch, 0);
+      mecha_pose_name(&upper, MECHA_BONE_UPPERARM_L + iSide, pB->paBones);
       mecha_add_frustum(pList, &upper, 0.0f, -0.5f * fUpper, 0.0f,
                         0.13f * pB->fRadius * pB->fLimb * pB->fTaper,
                         0.13f * pB->fRadius * pB->fLimb * pB->fTaper,
@@ -2640,6 +2737,7 @@ static void mecha_build_arms_head(tMechaQuadList *pList,
        * and gives all but a bend of it back when the arm comes down. */
       mecha_pose_child(&fore, &upper, 0.0f, -fUpper, 0.0f, 0,
                        iElbowPitch, 0);
+      mecha_pose_name(&fore, MECHA_BONE_FOREARM_L + iSide, pB->paBones);
       /* The forearm flares towards the wrist -- it is the piece carrying
        * the gun, and a limb that narrows all the way down has nothing to
        * carry one with. */
@@ -2713,6 +2811,7 @@ static void mecha_build_arms_head(tMechaQuadList *pList,
       }
       mecha_pose_child(&head, pTorso, 0.0f, 0.38f * pB->fUpperY, 0.0f,
                        iHeadYaw, -iHeadPitch, 0);
+      mecha_pose_name(&head, MECHA_BONE_HEAD, pB->paBones);
       /* The skull narrows towards the crown and juts at the jaw. */
       mecha_add_frustum(pList, &head, 0.0f, 0.02f * pB->fUpperY,
                         0.05f * pB->fRadius,
@@ -3209,6 +3308,15 @@ int mecha_mesh_detail_for_range(float fRange)
 void mecha_mesh_mech(tMechaQuadList *pList, const tMechaWorld *pWorld,
                      int iMechIdx, int iDetail)
 {
+  mecha_mesh_mech_rigged(pList, pWorld, iMechIdx, iDetail, NULL);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void mecha_mesh_mech_rigged(tMechaQuadList *pList, const tMechaWorld *pWorld,
+                            int iMechIdx, int iDetail,
+                            tMechaBoneFrame *paBones)
+{
   const tMechaMech *pMech;
   const tMechaMechDef *pDef;
   tMechaPose pose;
@@ -3240,6 +3348,8 @@ void mecha_mesh_mech(tMechaQuadList *pList, const tMechaWorld *pWorld,
   tMechaPose torso;
   tMechaPose pelvis;
 
+  if (paBones)
+    memset(paBones, 0, MECHA_BONE_COUNT * sizeof(*paBones));
   if (!pList || !pWorld || iMechIdx < 0 || iMechIdx >= MECHA_MAX_MECHS)
     return;
   pMech = &pWorld->aMechs[iMechIdx];
@@ -3269,6 +3379,7 @@ void mecha_mesh_mech(tMechaQuadList *pList, const tMechaWorld *pWorld,
     break;
   }
   mecha_build_setup(&build, pMech, pDef, iDetail);
+  build.paBones = paBones;
   fPosed = mecha_mech_pose_amount(pWorld, iMechIdx);
   byBody = build.byBody;
   byTrim = build.byTrim;
@@ -3443,6 +3554,7 @@ void mecha_mesh_mech(tMechaQuadList *pList, const tMechaWorld *pWorld,
     mecha_mesh_attitude(pMech, &iPoseYaw, &iPosePitch, &iPoseRoll);
     mecha_pose_build(&pose, iPoseYaw, iPosePitch, iPoseRoll,
                      pMech->fX, pMech->fY + fLift, pMech->fZ, fVertical);
+    mecha_pose_name(&pose, MECHA_BONE_ROOT, build.paBones);
   }
 
   /* --- legs -------------------------------------------------------------- */
@@ -3462,7 +3574,9 @@ void mecha_mesh_mech(tMechaQuadList *pList, const tMechaWorld *pWorld,
     mecha_pose_child(&hip, &pose, fSide * 0.42f * fRadius * fLimb,
                      build.fHipY, 0.0f, aiHipYaw[iSide], 0,
                      (int)(fSide * (float)aiRoll[iSide]));
+    mecha_pose_name(&hip, MECHA_BONE_HIP_L + iSide, build.paBones);
     mecha_pose_child(&thigh, &hip, 0.0f, 0.0f, 0.0f, 0, -aiThigh[iSide], 0);
+    mecha_pose_name(&thigh, MECHA_BONE_THIGH_L + iSide, build.paBones);
     /* Wide at the hip and narrowing to the knee, which is the line a
      * thigh has in the reference art and which a box cannot hold. */
     mecha_add_frustum(pList, &thigh, 0.0f, -0.5f * fThighLen, 0.0f,
@@ -3496,6 +3610,7 @@ void mecha_mesh_mech(tMechaQuadList *pList, const tMechaWorld *pWorld,
      */
     mecha_pose_child(&shin, &thigh, 0.0f, -fThighLen, 0.0f, 0,
                      aiKnee[iSide], 0);
+    mecha_pose_name(&shin, MECHA_BONE_SHIN_L + iSide, build.paBones);
     /*
      * The calf goes the other way from the thigh: in at the knee, out
      * again at the ankle. That flare is what a leg stands on, and a shin
@@ -3542,6 +3657,7 @@ void mecha_mesh_mech(tMechaQuadList *pList, const tMechaWorld *pWorld,
     mecha_pose_child(&foot, &shin, 0.0f, -fShinLen, 0.0f, 0,
                      aiThigh[iSide] - aiKnee[iSide] - aiAnkle[iSide],
                      -(int)(fSide * (float)aiRoll[iSide]));
+    mecha_pose_name(&foot, MECHA_BONE_FOOT_L + iSide, build.paBones);
     mecha_add_frustum(pList, &foot, 0.0f, -0.5f * fAnkle, 0.06f * fRadius,
                       0.27f * fRadius * fLimb, 0.38f * fRadius * fLimb,
                       0.24f * fRadius * fLimb, 0.34f * fRadius * fLimb,
@@ -3644,10 +3760,12 @@ void mecha_mesh_mech(tMechaQuadList *pList, const tMechaWorld *pWorld,
     mecha_pose_child(&pelvis, &pose, 0.0f, build.fHipY, 0.0f,
                      mecha_angle_delta(pMech->iLegYaw, pMech->iFacing)
                        + iHipYaw, 0, iHipRoll);
+    mecha_pose_name(&pelvis, MECHA_BONE_PELVIS, build.paBones);
     mecha_pose_child(&torso, &pose, 0.0f, build.fHipY, 0.0f,
                      mecha_angle_delta(pMech->iLegYaw, pMech->iFacing)
                        + iTwist,
                      mecha_mesh_lean_pitch(pMech) - iRecoil + iRock, 0);
+    mecha_pose_name(&torso, MECHA_BONE_TORSO, build.paBones);
   }
 
   build.fWalkPhase = fWalkPhase;
