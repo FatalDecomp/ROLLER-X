@@ -814,6 +814,24 @@ typedef struct
   float    fDeckDrop;
 
   /*
+   * The bottom of the hole an island stage is standing in: what
+   * mecha_arena_void() was last asked for, as a height. Ground at it is not
+   * part of the stage and is not drawn at all when fDeckDrop is set, which
+   * is what stops the floor of the void reading as a second deck below the
+   * first. Meaningless, and ignored, on an arena whose ground is one piece.
+   * [ARENA-22]
+   */
+  float    fVoidY;
+
+  /*
+   * And the lowest ground the stage itself has, worked out once when the
+   * arena is built. The two together are what the cut is measured between:
+   * ground more than fDeckDrop below fDeckY is the hole, not the stage.
+   * Only meaningful where fDeckDrop is set. [ARENA-22]
+   */
+  float    fDeckY;
+
+  /*
    * The sky. bySkyKind picks what hangs in it (eMechaSkyKind), and anything
    * that is not MECHA_SKY_CLOUDS replaces the horizon entirely with the flat
    * colour in bySkyFill -- a stage that is not on a planet has no horizon to

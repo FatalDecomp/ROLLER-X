@@ -7297,6 +7297,65 @@ static int test_pilots_walk_a_causeway_to_close(void)
 
 //-------------------------------------------------------------------------------------------------
 
+/*
+ * A stage that floats has nothing under it. The void it stands in is
+ * terrain like any other, so it used to be drawn: a second deck the size of
+ * the whole arena, hundreds of metres below the first, and a scatter of
+ * shards where the floor tiles straddled the drop and sampled the cliff
+ * face between the two. [ARENA-22]
+ */
+static int test_a_floating_stage_has_nothing_under_it(void)
+{
+    static tMechaQuad aStorage[MECHA_QUAD_CAPACITY];
+    tMechaArena arena;
+    tMechaQuadList list;
+    float fCut;
+    float fLowest;
+    int iIdx = mecha_arena_count() - 1;
+    int iGround = 0;
+    int iUnder = 0;
+    int i;
+
+    mecha_arena_init(&arena, iIdx);
+    CHECK(strcmp(arena.szName, "FACING WORLDS") == 0);
+    /* The stage is cut, and it is standing over a real hole -- otherwise
+     * this test passes by there being nothing to find. */
+    CHECK(arena.fDeckDrop > 0.0f);
+    CHECK(arena.fVoidY < arena.fDeckY - MECHA_M(100.0f));
+
+    mecha_quads_reset(&list, aStorage, MECHA_QUAD_CAPACITY);
+    mecha_mesh_arena(&list, &arena);
+    CHECK(list.iCount > 0);
+    CHECK(list.iDropped == 0);
+
+    fCut = arena.fDeckY - arena.fDeckDrop;
+    fLowest = fCut;
+    for (i = 0; i < list.iCount; i++) {
+        float fTop = aStorage[i].afVert[0][1];
+        int v;
+
+        if ((aStorage[i].byFlags & MECHA_QUAD_GROUND) == 0)
+            continue;
+        iGround++;
+        for (v = 1; v < 4; v++)
+            if (aStorage[i].afVert[v][1] > fTop)
+                fTop = aStorage[i].afVert[v][1];
+        if (fTop < fCut) {
+            iUnder++;
+            if (fTop < fLowest)
+                fLowest = fTop;
+        }
+    }
+    printf("   %d ground quads, %d below the cut (lowest %.0f m, cut %.0f m)\n",
+           iGround, iUnder, fLowest / MECHA_METRE, fCut / MECHA_METRE);
+    /* There is still a stage: this must not be passing by drawing none. */
+    CHECK(iGround > 400);
+    CHECK(iUnder == 0);
+    return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static int test_the_causeway_map_is_a_causeway(void)
 {
     tMechaArena arena;
@@ -8333,6 +8392,8 @@ int main(void)
           test_pilots_get_round_what_is_in_the_way },
         { "the pilot turns a dash it is already in",
           test_the_pilot_turns_a_dash_it_is_already_in },
+        { "a floating stage has nothing under it",
+          test_a_floating_stage_has_nothing_under_it },
         { "the causeway map is a causeway",
           test_the_causeway_map_is_a_causeway },
         { "a causeway publishes a way along it",

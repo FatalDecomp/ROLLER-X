@@ -140,6 +140,10 @@ static void mecha_arena_void(tMechaArena *pArena, float fDepth)
   for (iRow = 0; iRow <= iCells; iRow++)
     for (iCol = 0; iCol <= iCells; iCol++)
       pArena->afNode[iRow][iCol] = -fDepth;
+
+  /* Remembered so the mesh can tell the bottom of the hole from the stage
+   * standing in it. [ARENA-22] */
+  pArena->fVoidY = -fDepth;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -957,6 +961,34 @@ void mecha_arena_init(tMechaArena *pArena, int iArenaIdx)
       tMechaObstacle *pBox = &pArena->aObstacles[iBox];
 
       pBox->fBaseY = mecha_arena_terrain_height(pArena, pBox->fX, pBox->fZ);
+    }
+  }
+
+  /*
+   * The stage's own lowest ground, for a stage that is standing in a hole.
+   * Terrain hundreds of metres below it is the bottom of the hole and not
+   * the stage at all, and the mesh has to be able to tell the two apart to
+   * know what not to draw. Nodes, not samples: a node is either the stage
+   * or the void, where a sample halfway between them is neither. [ARENA-22]
+   */
+  if (pArena->fDeckDrop > 0.0f) {
+    int iCells = mecha_arena_cells(pArena);
+    int iRow;
+    int iCol;
+    bool bFound = false;
+
+    pArena->fDeckY = 0.0f;
+    for (iRow = 0; iRow <= iCells; iRow++) {
+      for (iCol = 0; iCol <= iCells; iCol++) {
+        float fY = pArena->afNode[iRow][iCol];
+
+        if (fY <= pArena->fVoidY)
+          continue;
+        if (!bFound || fY < pArena->fDeckY) {
+          pArena->fDeckY = fY;
+          bFound = true;
+        }
+      }
     }
   }
 

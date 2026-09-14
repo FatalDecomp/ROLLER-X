@@ -3271,3 +3271,42 @@ forty stars and a planet actually cost.
 The lesson is the cheap one: a test that counts a colour is only as good as the
 list of things that use that colour. The frame was dumped to a PNG all along —
 one look at it would have said there was no sky in the shot.
+
+## ARENA-22 — the hole a floating stage stands in was being drawn
+
+The cut in ARENA-21 gave the stage an edge, and everything outside that edge
+carried on being drawn: a second deck, the size of the whole arena, six hundred
+metres under the first. It is easy to see why. The void is terrain like any
+other — `mecha_arena_void()` writes a height into every node and the floor loop
+draws a tile wherever the boundary contains one. Nothing in that loop knew the
+difference between the stage and the bottom of the hole it is standing in.
+
+The cut is one plane now, and it is measured between two numbers the arena works
+out for itself:
+
+- `fVoidY` is what `mecha_arena_void()` was last asked for. The bottom.
+- `fDeckY` is the lowest **node** that is not the void. The stage's own lowest
+  ground, found once when the arena is built.
+
+A ground tile whose highest corner is below `fDeckY - fDeckDrop` has no part of
+the stage in it and is not drawn. A tile that reaches the deck still is, and is
+still cut to a thickness by the clamp, which is what keeps the edge solid.
+
+**Nodes, not samples, and corners, not the middle.** Both of those were paid for
+once each. The first version tested against `fVoidY` — "is every corner down at
+the bottom?" — which removed the slab and left three dozen shards hanging in
+space under the stage. Those are floor tiles lying across the drop: a tile is
+twenty-two metres and a terrain cell is under nine, so a tile that straddles the
+edge samples the cliff face and comes back at some height between deck and void.
+Their corners were hundreds of metres above the void floor, so the void test
+kept them, and hundreds below the deck, so they belonged to nothing. Measuring
+from the deck instead catches them. Nodes matter for the same reason from the
+other side: a node is either the stage or the void, where a sample halfway
+between the two is neither, so `fDeckY` is found over the node array rather than
+by asking for heights.
+
+The guard is `a floating stage has nothing under it`: build the stage's mesh,
+count the ground quads whose highest corner is below the cut, and require none —
+with a floor under the ground-quad count too, so it cannot pass by the stage
+failing to be drawn at all. With the skip removed it reports 3117 of 4168 ground
+quads below the cut, the lowest at −600 m.

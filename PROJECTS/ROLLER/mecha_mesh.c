@@ -354,6 +354,51 @@ static void mecha_add_frustum(tMechaQuadList *pList, const tMechaPose *pPose,
 //-------------------------------------------------------------------------------------------------
 
 /*
+ * Is this tile the hole rather than the stage?
+ *
+ * A stage that floats is a ribbon of ground inside a square that is mostly
+ * void, and the void has a height like anything else -- so drawn honestly
+ * it is a second deck, the size of the whole arena, a few hundred metres
+ * under the first. Which is exactly what it looked like.
+ *
+ * The cut is the same one fDeckDrop makes in the stage's edge, measured
+ * from the lowest ground the stage has: a tile whose highest corner is
+ * below it has no part of the stage in it. A tile that does touch the deck
+ * is still drawn, and still cut to a thickness, which is what keeps the
+ * edge solid.
+ *
+ * Corners, not the middle. The tiles are wider than the terrain's cells, so
+ * a tile lying across the drop samples the cliff and comes out at some
+ * height between the two -- a shard hanging in space under the stage, which
+ * is what the first version of this left behind. [ARENA-22]
+ */
+static bool mecha_ground_is_void(const tMechaArena *pArena,
+                                 float fX0, float fZ0, float fX1, float fZ1)
+{
+  float fCut;
+  float fTop;
+  float fCorner;
+
+  if (pArena->fDeckDrop <= 0.0f)
+    return false;
+
+  fCut = pArena->fDeckY - pArena->fDeckDrop;
+  fTop = mecha_arena_terrain_height(pArena, fX0, fZ0);
+  fCorner = mecha_arena_terrain_height(pArena, fX0, fZ1);
+  if (fCorner > fTop)
+    fTop = fCorner;
+  fCorner = mecha_arena_terrain_height(pArena, fX1, fZ1);
+  if (fCorner > fTop)
+    fTop = fCorner;
+  fCorner = mecha_arena_terrain_height(pArena, fX1, fZ0);
+  if (fCorner > fTop)
+    fTop = fCorner;
+  return fTop < fCut;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+/*
  * One tile of ground, each corner at the height the terrain gives it. The
  * four corners need not be coplanar, so a slope reads as facets rather than
  * a smooth surface, which is the look rather than a compromise.
@@ -626,6 +671,8 @@ void mecha_mesh_arena(tMechaQuadList *pList, const tMechaArena *pArena)
       if ((uiSurface & MECHA_SURF_SKIP_RENDER) != 0)
         continue;
       if (!mecha_arena_contains(pArena, fMidX, fMidZ))
+        continue;
+      if (mecha_ground_is_void(pArena, fX0, fZ0, fX0 + fTile, fZ0 + fTile))
         continue;
 
       /* A street is drawn in tarmac wherever the arena has marked one,
