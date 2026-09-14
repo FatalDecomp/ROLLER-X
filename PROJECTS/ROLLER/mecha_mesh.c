@@ -789,9 +789,17 @@ void mecha_mesh_arena(tMechaQuadList *pList, const tMechaArena *pArena)
   /*
    * An open arena has a lip instead: the platform's own edge, seen from
    * outside as you fall past it. Without it the roof is a paper cutout.
+   *
+   * Only where the ground reaches the boundary, though. The lip is drawn on
+   * the boundary square, so on a stage whose ground is a ribbon inside that
+   * square it is the edge of nothing: a rectangle of wall hanging in space
+   * hundreds of metres from the nearest thing anyone can stand on, which
+   * from outside reads as a line ruled under the stage. Such a stage says
+   * so by asking for no skirt, and cuts its own edge with fDeckDrop
+   * instead. [ARENA-27]
    */
-  if (pArena->byShape == MECHA_ARENA_OPEN) {
-    float fLip = pArena->fSkirt > 0.0f ? pArena->fSkirt : MECHA_M(6.0f);
+  if (pArena->byShape == MECHA_ARENA_OPEN && pArena->fSkirt > 0.0f) {
+    float fLip = pArena->fSkirt;
     /*
      * Its own panel size, and a coarse one. The skirt is the side of a
      * tower rather than a wall of the arena: it runs far enough down that

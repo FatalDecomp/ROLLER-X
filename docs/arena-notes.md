@@ -3476,3 +3476,20 @@ taller wall buys is headroom above the second floor: 114 m of it rather than 46.
 
 The stage's own survey frame had to pull back (1.9x the half-extent to 2.4x, and
 the pitch off) to fit the spires in. Full load is 7098 quads of 12288.
+
+## ARENA-27 — the line ruled under the stage
+
+An open arena draws a lip round its boundary square: the platform's own edge,
+seen from outside as you fall past it, and without it the roof arena is a paper
+cutout. `fSkirt` is how deep it runs, and zero meant "use six metres" rather
+than "none".
+
+FACING WORLDS asks for no skirt, because its ground is a ribbon inside a square
+that is mostly hole [ARENA-20] -- so the six-metre fallback drew a rectangle of
+wall on the boundary, seven hundred metres out in empty space and the edge of
+nothing at all. From any wide view it read as a thin horizontal line ruled under
+the stage.
+
+Zero means none now. The only other open arena sets its own skirt, so nothing
+else changes, and a stage whose ground does not reach its own boundary cuts its
+edge with `fDeckDrop` instead [ARENA-21].
