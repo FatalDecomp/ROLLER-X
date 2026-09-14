@@ -7322,8 +7322,8 @@ static int test_pilots_walk_a_causeway_to_close(void)
 /*
  * The sky turns about a west-east axis. A point on a dome turning about the
  * X axis keeps its X and moves in Y and Z, so that is the whole test: build
- * the sky twice, an hour of ticks apart, and see which coordinate stayed
- * put. [MESH-51]
+ * the sky twice, a round apart, and see which coordinate stayed put.
+ * [MESH-51, MESH-52]
  */
 static int test_the_sky_turns_about_a_west_east_axis(void)
 {
@@ -7362,9 +7362,9 @@ static int test_the_sky_turns_about_a_west_east_axis(void)
         }
     }
 
-    /* A quarter of an hour on, which is a quarter turn of a dome that goes
-     * round about once an hour. */
-    world.iTick = MECHA_TICK_HZ * 60 * 15;
+    /* A minute and a half on -- one round -- which this sky is quick enough
+     * to carry a good way round. [MESH-52] */
+    world.iTick = MECHA_TICK_HZ * 90;
     mecha_quads_reset(&later, aLater, MECHA_QUAD_CAPACITY);
     mecha_mesh_clouds(&later, &world);
     CHECK(later.iCount == iCount);
@@ -7386,8 +7386,8 @@ static int test_the_sky_turns_about_a_west_east_axis(void)
         if (fabsf(fNowZ - afWasZ[i]) > fDriftZ)
             fDriftZ = fabsf(fNowZ - afWasZ[i]);
     }
-    printf("   a quarter turn moves the sky %.0f m east, %.0f m up, "
-           "%.0f m north\n", fDriftX / MECHA_METRE, fDriftY / MECHA_METRE,
+    printf("   a round moves the sky %.0f m east, %.0f m up, %.0f m north\n",
+           fDriftX / MECHA_METRE, fDriftY / MECHA_METRE,
            fDriftZ / MECHA_METRE);
     /* Nothing moves along the axis, and plenty moves across it. */
     CHECK(fDriftX < MECHA_M(1.0f));

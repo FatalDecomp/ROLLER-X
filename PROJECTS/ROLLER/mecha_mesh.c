@@ -3871,9 +3871,17 @@ float mecha_quad_depth_key(const tMechaQuad *pQuad, const float afEye[3],
 #define MECHA_CLOUD_RADIUS  MECHA_M(1400.0f)
 #define MECHA_CLOUD_FLOOR   MECHA_DEG(7)    /* nothing below this elevation */
 #define MECHA_CLOUD_CEILING MECHA_DEG(52)
-/* Angle units per tick. A shade under one circuit an hour: a sky that is
+/* Ticks per angle unit. A shade under one circuit an hour: a sky that is
  * visibly moving is a sky the player is looking at instead of the fight. */
 #define MECHA_CLOUD_DRIFT   12
+/*
+ * Except over a stage that is not on a planet, where the sky turning is the
+ * point rather than a distraction: ten times the rate, which is a circuit
+ * every five and a half minutes, or a bit over a quarter turn in a ninety
+ * second round -- motion a player can see happening rather than motion they
+ * can only tell has happened. [MESH-52]
+ */
+#define MECHA_STAR_SPIN     10
 
 /* A cheap integer hash, so the sky is a pure function of the cloud's index
  * and the arena it hangs over. Nothing is stored between frames and nothing
@@ -4131,7 +4139,7 @@ static void mecha_sky_disc(tMechaQuadList *pList, int iElevation,
 static void mecha_mesh_starfield(tMechaQuadList *pList,
                                  const tMechaWorld *pWorld)
 {
-  int iTurn = pWorld->iTick / MECHA_CLOUD_DRIFT;
+  int iTurn = pWorld->iTick * MECHA_STAR_SPIN / MECHA_CLOUD_DRIFT;
   int i;
 
   for (i = 0; i < MECHA_STAR_COUNT; i++) {

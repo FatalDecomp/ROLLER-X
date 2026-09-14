@@ -657,10 +657,13 @@ on the stick, and pick what to spend the next round on.
   it round from north-south to west-east. So the sky is a wheel standing on its
   edge along the line the causeways run, climbing past a player facing up the
   stage and face-on to one looking out from either end -- rather than turning
-  overhead like a ceiling fan. Hanging in it is the world the stage is named
-  for, a disc of twenty wedges with its limb a shade deeper than its face. All
-  of it is geometry -- no artwork, no texture bank -- so it is there on a
-  checkout with no retail data at all.
+  overhead like a ceiling fan. It turns ten times faster than the cloud domes
+  do: a circuit every five and a half minutes rather than every hour, so a round
+  sees a bit over a quarter of a turn. A cloud that drifts is scenery; a
+  starfield that does not turn is a painted backdrop. Hanging in it is the world
+  the stage is named for, a disc of twenty wedges with its limb a shade deeper
+  than its face. All of it is geometry -- no artwork, no texture bank -- so it
+  is there on a checkout with no retail data at all.
 
 - **The sky is the game's own.** `DrawHorizon` paints it: flat blue above a line
   through the projection, a haze colour below, exactly as it does for the race.

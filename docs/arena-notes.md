@@ -3528,3 +3528,21 @@ counts and thirty-eight for a full slide, with reversing excluded because a car
 travelling a half-turn off its nose is going backwards rather than sliding.
 Everything else keeps the ground dash. The pitch curve is the one the boost
 squeal uses, which is where it was left after being taken down an octave.
+
+## MESH-52 — the starfield turns ten times faster
+
+The dome's rate was chosen for clouds, where a sky that is visibly moving is a
+sky the player is watching instead of the fight: a shade under one circuit an
+hour, which is a tenth of a degree a second. Over a stage with no weather and no
+horizon the sky turning is the point rather than a distraction, and at that rate
+a whole round goes by with the starfield apparently nailed in place.
+
+The starfield gets its own multiplier on the same clock, ten. That is 1.1
+degrees a second, a circuit every five and a half minutes, and a bit over a
+quarter turn in a ninety second round -- motion a player can see happening
+rather than motion they can only tell has happened. The cloud path is untouched,
+so every other arena's sky drifts exactly as it did.
+
+Measured rather than asserted: a star's angle about the axle advances 1.1
+degrees a second, and its distance along the axle does not change at all, which
+is the same thing `the sky turns about a west-east axis` guards [MESH-51].
