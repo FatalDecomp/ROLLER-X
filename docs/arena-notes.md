@@ -3011,13 +3011,22 @@ was its shoulder binders, and a figure whose widest point is its shoulders reads
 as a T no matter what the waist under it does.
 
 `fBuildShoulder` 0.86 → 0.52 and `fBuildTorso` 0.74 → 0.64. Shoulders 5.37 →
-3.67, hip/shoulder 0.58 → 0.77, which puts her the other side of the male frames
-rather than level with them.
+3.67.
 
-The flare went 1.12 → 1.25 for one reason: the skirt is drawn off the torso
+The flare then went 1.12 → 2.0, in two passes. The skirt is drawn off the torso
 width, so narrowing the waist takes the hips with it and the machine merely gets
-smaller instead of getting a shape. Even raised, the skirt ends up narrower than
-it started (3.09 → 2.82) -- nothing on this machine is wider than it was.
+smaller instead of getting a shape; 1.25 only put the skirt back where it
+started. 2.0 takes it past, to 3.66 m, and hip/shoulder lands at **1.00** -- the
+widest thing on the machine is now its hips, which is true of nothing else on
+the roster.
+
+That is a large number for a knob that was once backed off from 1.9 as too wide,
+and the reason it is safe is that the flare is not a width: width is torso times
+flare. What failed at 1.9 was plates reaching 1.41 on the old 0.74 torso, where
+2.0 on the 0.64 one is 1.28. The multiplier went up by a tenth and the skirt
+came out narrower than the one that broke. Checked through a stride as well as
+standing, because the plates swing with the thighs and the failure mode is them
+merging into a single slab -- they stay separate and track the legs.
 
 The thing this could have broken is the one [DEF-10] warns about: she has to
 stay distinguishable from the interceptor at the range machines are read at. She
@@ -3897,6 +3906,85 @@ boundary, and a patch that stopped short of the edge would hang its rim out over
 the middle of the floor.
 
 Floor 4,267 → 2,690, worst case 68% of the buffer.
+
+## MESH-54 — the skirt came off the pelvis, the gun came off the arm
+
+Three asks in a row, and what they had in common is that each was a thing built
+as one piece that should have been built as several.
+
+### The skirt was a bell
+
+Six plates, and only two of them moved. The front pair hinged on their leg's
+swing, the way the plates on a model kit do -- a skirt that stays put has the
+thigh pass through it at the top of every stride. The side pair and the rear
+plate were drawn straight onto the pelvis, so on a walking machine the hips read
+as a solid bell hung under the waist. The rear was the giveaway: **one plate
+spanning both legs**, and a plate two legs share cannot move with either.
+
+All six hinge now. The front and rear take just over half their thigh's swing
+because they are directly in its way; the sides take a third, because they are
+beside the leg rather than in front of it and only want to sway. All three use
+the same sign, which is what makes each plate get out of the way of its own leg
+-- a thigh forward carries the front plate forward, a thigh back carries the
+rear one back. The rear is two plates now, one per leg.
+
+Every pivot was placed so that at zero swing the plate lands exactly where it
+sat when it was bolted on. The standing silhouette is unchanged to the
+centimetre; only the walk is different.
+
+The one thing that broke was a test, and correctly: the **pelvis now carries no
+geometry at all**. Every plate that hung off it hangs off a hinge instead, so
+what is left is the frame they hinge from. It joined root, hips and shoulders on
+the list of bones that are joints rather than armour.
+
+### The gun was the end of the arm
+
+A frustum hung off the forearm, dead coaxial with it, nothing between the two.
+That reads as a limb that ends in a gun, which is a fine thing for a mech to be
+and not what this roster is.
+
+What makes it read as held is three pieces, none of them the gun: a fist at the
+wrist, the gun sitting forward of that fist rather than through it, and a grip
+bridging the two. A fourth thing helps more than any of them -- a nine degree
+break at the wrist, so the arm is not one straight piece from shoulder to
+muzzle.
+
+How far forward the gun sits wants to be **small**. The first attempt put it a
+tenth of a radius out and the weapon read as floating beside the machine with
+nothing holding it; the eye needs the fist and the gun to overlap and the grip
+to be the thing between them, not a gap. Halved, it reads.
+
+### Two failures worth keeping
+
+**The grip was coplanar with the fist.** Both their top faces sat at exactly the
+wrist line, which is the one arrangement a painter's order cannot sort [MESH-18]
+-- and it happened on every machine on the roster at once, two pairs each. The
+grip's top is tucked inside the fist now.
+
+**The stance test was measuring gun barrels.** `mesh_foot_extent` took
+everything below the ankle line, which was fine while nothing but feet was down
+there. Rehanging the weapon on a wrist dropped LANCER's muzzle a tenth of an
+upper body, under the line, and the fighting stance's "feet apart" became its
+guns apart: 3.58 m of barrel against 1.76 m of actual foot, and the ratio the
+test wanted collapsed. The helper asks for `MECHA_PART_LEG` now. It is the same
+trap as the hips [DEF-13], in a helper written long before that one was found,
+and the fix is the same: a foot is a leg, so ask for the leg.
+
+### The chest was a flat box
+
+The plate on the front of it had four hundredths of a radius of rake, which is
+to say it was the front of the chest with a seam drawn on it. It is a glacis now
+-- bottom edge proud of the waist, laid back from there to the collar, so the
+chest is a wedge from the side.
+
+The rake is the whole of it and it wants to be large. At 0.04 it reads as a
+panel line; it is only past about 0.14 that the eye stops seeing a box. Past
+0.24 the plate's top rear corner starts cutting back through the chest it is
+meant to be lying on. 0.18 sits where the wedge is unmistakable and the geometry
+is still clean.
+
+Quad cost of all three: sixteen machines on FACING WORLDS went 8007 to 8745 of
+12288, 65% to 71%.
 
 ## MESH-53 — the ankle
 

@@ -115,23 +115,34 @@ typedef struct
 #define MECHA_BONE_PELVIS     2   /* tilts and turns with the stride          */
 #define MECHA_BONE_TORSO      3   /* everything above the waist, and does not */
 #define MECHA_BONE_HEAD       4
-#define MECHA_BONE_SKIRT_L    5
-#define MECHA_BONE_SKIRT_R    6
-#define MECHA_BONE_SHOULDER_L 7
-#define MECHA_BONE_SHOULDER_R 8
-#define MECHA_BONE_UPPERARM_L 9
-#define MECHA_BONE_UPPERARM_R 10
-#define MECHA_BONE_FOREARM_L  11
-#define MECHA_BONE_FOREARM_R  12
-#define MECHA_BONE_HIP_L      13
-#define MECHA_BONE_HIP_R      14
-#define MECHA_BONE_THIGH_L    15
-#define MECHA_BONE_THIGH_R    16
-#define MECHA_BONE_SHIN_L     17
-#define MECHA_BONE_SHIN_R     18
-#define MECHA_BONE_FOOT_L     19
-#define MECHA_BONE_FOOT_R     20
-#define MECHA_BONE_COUNT      21
+/* The skirt is six plates on six hinges, not one piece: front, side and
+ * rear, each pair swinging with the leg behind it. [MESH-34] */
+#define MECHA_BONE_SKIRT_FRONT_L 5
+#define MECHA_BONE_SKIRT_FRONT_R 6
+#define MECHA_BONE_SKIRT_SIDE_L  7
+#define MECHA_BONE_SKIRT_SIDE_R  8
+#define MECHA_BONE_SKIRT_REAR_L  9
+#define MECHA_BONE_SKIRT_REAR_R  10
+#define MECHA_BONE_SHOULDER_L 11
+#define MECHA_BONE_SHOULDER_R 12
+#define MECHA_BONE_UPPERARM_L 13
+#define MECHA_BONE_UPPERARM_R 14
+#define MECHA_BONE_FOREARM_L  15
+#define MECHA_BONE_FOREARM_R  16
+/* The fist, and what it is holding. A machine's weapon hangs off its wrist
+ * rather than off the end of its forearm, which is the difference between
+ * carrying a gun and having one bolted on. [MESH-54] */
+#define MECHA_BONE_HAND_L     17
+#define MECHA_BONE_HAND_R     18
+#define MECHA_BONE_HIP_L      19
+#define MECHA_BONE_HIP_R      20
+#define MECHA_BONE_THIGH_L    21
+#define MECHA_BONE_THIGH_R    22
+#define MECHA_BONE_SHIN_L     23
+#define MECHA_BONE_SHIN_R     24
+#define MECHA_BONE_FOOT_L     25
+#define MECHA_BONE_FOOT_R     26
+#define MECHA_BONE_COUNT      27
 
 /*
  * Where a bone ended up. The rotation is the joint's own axes in world

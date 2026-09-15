@@ -1135,6 +1135,18 @@ static int test_guard_turns_melee_aside(void)
 //-------------------------------------------------------------------------------------------------
 
 /* How far apart the feet are, front to back, in the mech's own frame. */
+/*
+ * How far the feet reach, across or fore-and-aft.
+ *
+ * Below the ankle line **and** on a leg. The height alone used to be the
+ * whole of it, and it was measuring whatever happened to be low: a machine
+ * at ease hangs its guns beside its knees, and once the weapon was rehung
+ * on a wrist [MESH-54] LANCER's muzzle dipped under the line and the
+ * stance's "feet apart" became its gun barrels apart -- 3.58 m of them
+ * against 1.76 m of actual foot. The same trap as the hips [DEF-13], in a
+ * helper written long before that one was found. A foot is a leg; ask for
+ * the leg.
+ */
 static void mesh_foot_extent(const tMechaQuadList *pList,
                              const tMechaMech *pMech, float fAnkle,
                              bool bAcross, float *pfLow, float *pfHigh)
@@ -1147,6 +1159,8 @@ static void mesh_foot_extent(const tMechaQuadList *pList,
     int v;
 
     for (i = 0; i < pList->iCount; i++) {
+        if (pList->paQuads[i].byPart != MECHA_PART_LEG)
+            continue;
         for (v = 0; v < 4; v++) {
             float fY = pList->paQuads[i].afVert[v][1] - pMech->fY;
             float fDx = pList->paQuads[i].afVert[v][0] - pMech->fX;
@@ -1446,9 +1460,14 @@ static int test_every_polygon_knows_its_bone(void)
 
         /* And the skeleton is all used: a bone nothing hangs off is either
          * a joint (a hip, a shoulder) or a mistake, and the joints are
-         * named here so that a new one cannot slip in unnoticed. */
+         * named here so that a new one cannot slip in unnoticed.
+         *
+         * The pelvis joined them when the skirt was put on hinges [MESH-54]:
+         * every plate that used to be bolted to it now hangs off one, so
+         * what is left is the frame they hang from. */
         for (iBone = 1; iBone < MECHA_BONE_COUNT; iBone++) {
             bool bPivot = iBone == MECHA_BONE_ROOT
+                          || iBone == MECHA_BONE_PELVIS
                           || iBone == MECHA_BONE_HIP_L
                           || iBone == MECHA_BONE_HIP_R
                           || iBone == MECHA_BONE_SHOULDER_L

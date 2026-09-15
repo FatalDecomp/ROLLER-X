@@ -317,14 +317,20 @@ static const struct
   [MECHA_BONE_PELVIS]     = { "pelvis",      MECHA_BONE_ROOT },
   [MECHA_BONE_TORSO]      = { "torso",       MECHA_BONE_ROOT },
   [MECHA_BONE_HEAD]       = { "head",        MECHA_BONE_TORSO },
-  [MECHA_BONE_SKIRT_L]    = { "skirt.L",     MECHA_BONE_PELVIS },
-  [MECHA_BONE_SKIRT_R]    = { "skirt.R",     MECHA_BONE_PELVIS },
+  [MECHA_BONE_SKIRT_FRONT_L] = { "skirt_front.L", MECHA_BONE_PELVIS },
+  [MECHA_BONE_SKIRT_FRONT_R] = { "skirt_front.R", MECHA_BONE_PELVIS },
+  [MECHA_BONE_SKIRT_SIDE_L]  = { "skirt_side.L",  MECHA_BONE_PELVIS },
+  [MECHA_BONE_SKIRT_SIDE_R]  = { "skirt_side.R",  MECHA_BONE_PELVIS },
+  [MECHA_BONE_SKIRT_REAR_L]  = { "skirt_rear.L",  MECHA_BONE_PELVIS },
+  [MECHA_BONE_SKIRT_REAR_R]  = { "skirt_rear.R",  MECHA_BONE_PELVIS },
   [MECHA_BONE_SHOULDER_L] = { "shoulder.L",  MECHA_BONE_TORSO },
   [MECHA_BONE_SHOULDER_R] = { "shoulder.R",  MECHA_BONE_TORSO },
   [MECHA_BONE_UPPERARM_L] = { "upper_arm.L", MECHA_BONE_SHOULDER_L },
   [MECHA_BONE_UPPERARM_R] = { "upper_arm.R", MECHA_BONE_SHOULDER_R },
   [MECHA_BONE_FOREARM_L]  = { "forearm.L",   MECHA_BONE_UPPERARM_L },
   [MECHA_BONE_FOREARM_R]  = { "forearm.R",   MECHA_BONE_UPPERARM_R },
+  [MECHA_BONE_HAND_L]     = { "hand.L",      MECHA_BONE_FOREARM_L },
+  [MECHA_BONE_HAND_R]     = { "hand.R",      MECHA_BONE_FOREARM_R },
   [MECHA_BONE_HIP_L]      = { "hip.L",       MECHA_BONE_ROOT },
   [MECHA_BONE_HIP_R]      = { "hip.R",       MECHA_BONE_ROOT },
   [MECHA_BONE_THIGH_L]    = { "thigh.L",     MECHA_BONE_HIP_L },
@@ -1411,6 +1417,10 @@ static int mecha_blend_angle(int iFrom, int iTo, float fAmount)
  * the sway that falls out of doing those two things, which is drawn on the
  * torso rather than here. [MESH-40]
  */
+/* How far the fist breaks from the forearm. Small -- a wrist, not an elbow.
+ * Its whole job is that the arm does not read as one straight piece from
+ * shoulder to muzzle. [MESH-54] */
+#define MECHA_WRIST_BREAK  MECHA_DEG(9)
 #define MECHA_SLIM_SWING   MECHA_DEG(45)
 #define MECHA_SLIM_KNEE    MECHA_DEG(74)
 /* A deeper knee picks the foot up higher, so the toe drops further.
@@ -2217,12 +2227,22 @@ static void mecha_build_setup(tMechaBuild *pB, const tMechaMech *pMech,
    * once the plates were actually joined to the waist, made the hips one
    * slab from one side to the other rather than armour hung on a frame.
    */
-  /* Raised with the narrowed waist [DEF-13]: the skirt is drawn off the
-   * torso width, so bringing the torso in takes the hips with it and the
-   * figure merely gets smaller rather than more of a figure. This holds the
-   * skirt roughly where it was -- it is still narrower than before the
-   * waist came in, so nothing here is wider than it used to be. */
-  pB->fFlare = pB->iProfile == MECHA_PROFILE_SLENDER ? 1.25f : 1.0f;
+  /*
+   * Raised twice with the narrowed waist [DEF-13]. The skirt is drawn off
+   * the torso width, so bringing the torso in takes the hips with it and
+   * the figure merely gets smaller rather than getting a shape; 1.25 only
+   * held the skirt where it was. This puts it past where it started, which
+   * is what makes the hips rather than the shoulders the widest thing on
+   * the machine.
+   *
+   * There is headroom for it now that there was not at 1.9. What broke then
+   * was the plates reaching a width they could not be joined to the waist
+   * at, and width here is torso times flare: 1.9 on the old 0.74 torso is
+   * 1.41, where 2.0 on the 0.64 one is 1.28. The number went up by more
+   * than a tenth and the skirt still came out narrower than the one that
+   * failed, which is the only reason a figure this high is safe.
+   */
+  pB->fFlare = pB->iProfile == MECHA_PROFILE_SLENDER ? 2.0f : 1.0f;
   pB->fChest = pB->iProfile == MECHA_PROFILE_SLENDER ? 0.82f : 1.0f;
   {
     /*
@@ -2285,14 +2305,27 @@ static void mecha_build_torso(tMechaQuadList *pList, const tMechaBuild *pB,
                     0.50f * pB->fRadius * pB->fTorso * pB->fChest,
                     0.13f * pB->fUpperY, 0.0f, 0.0f, pB->byBody, pB->byTrim, 0);
 
-  /* The plate over the front of it, sloped back towards the collar. */
+  /*
+   * The glacis. This was a plate laid on the front of the chest with four
+   * hundredths of a radius of rake on it, which is to say it was the front
+   * of the chest: a flat box with a seam drawn on it. What it is now is the
+   * front end of a tank -- the bottom edge proud of the waist, the whole
+   * plate laid back from there to the collar, so the chest is a wedge seen
+   * from the side and the machine has something that would turn a round
+   * rather than catch it square.
+   *
+   * The rake is the whole of it and it wants to be large: at 0.04 the plate
+   * reads as panel line, and it is only past about 0.14 that the eye stops
+   * seeing a box. Further than 0.24 and the plate's top rear corner starts
+   * cutting back through the chest it is supposed to be lying on. [MESH-54]
+   */
   mecha_add_frustum(pList, pTorso, 0.0f, 0.19f * pB->fUpperY,
-                    0.50f * pB->fRadius * pB->fTorso * pB->fChest,
+                    0.53f * pB->fRadius * pB->fTorso * pB->fChest,
                     0.52f * pB->fRadius * pB->fTorso * pB->fChest,
-                    0.07f * pB->fRadius,
+                    0.08f * pB->fRadius,
                     0.44f * pB->fRadius * pB->fTorso * pB->fChest,
                     0.05f * pB->fRadius,
-                    0.09f * pB->fUpperY, 0.0f, -0.04f * pB->fRadius,
+                    0.09f * pB->fUpperY, 0.0f, -0.18f * pB->fRadius,
                     pB->byTrim, pB->byTrim, 0);
 
   /* Intakes either side of it, the one piece of chest trim that reads at
@@ -2400,14 +2433,26 @@ static void mecha_build_skirt(tMechaQuadList *pList, const tMechaBuild *pB,
   mecha_quads_part(pList, MECHA_PART_SKIRT);
 
   /*
-   * Skirt armour. Four plates hanging off the waist, flaring as they fall.
+   * Skirt armour: six plates hanging off the waist, flaring as they fall.
    * The two at the sides are the whole of what makes one machine's hips
    * read wide and another's narrow, so they are the pair that survives to
    * the far tier while the front and rear plates do not. [MESH-34]
    *
-   * The front pair are per-leg and hinge on that leg's swing, the way the
-   * plates on a model kit do: a skirt that stayed put would have the thigh
-   * pass straight through it at the top of every stride.
+   * Every one of them is hinged on the leg behind it, the way the plates on
+   * a model kit are. The front pair always were -- a skirt that stayed put
+   * has the thigh pass straight through it at the top of every stride --
+   * but the sides and the rear were bolted to the pelvis, which on a walking
+   * machine reads as a solid bell hung under the waist rather than armour.
+   * The rear was one plate spanning both legs, which is the giveaway: a
+   * plate that both legs share cannot move with either.
+   *
+   * They swing by different amounts because they are in different places.
+   * The front and rear plates are directly in a thigh's way and take just
+   * over half its swing; the sides are beside the leg rather than in front
+   * of it, and only need enough to sway with it. All three use the same
+   * sign, which is what makes each plate get out of the way of its own leg:
+   * a thigh forward carries the front plate forward, and a thigh back
+   * carries the rear one back. [MESH-54]
    */
   {
     /*
@@ -2427,10 +2472,22 @@ static void mecha_build_skirt(tMechaQuadList *pList, const tMechaBuild *pB,
 
     for (iSide = 0; iSide < 2; iSide++) {
       float fSide = iSide == 0 ? -1.0f : 1.0f;
+      int   iSwing = paiThigh[iSide];
+      tMechaPose plate;
 
-      mecha_add_frustum(pList, pTorso,
-                        fSide * (fWaist + fHalf),
-                        -0.07f * pB->fUpperY, -0.01f * pB->fRadius,
+      /*
+       * The side plate, hinged where its top inner corner meets the waist
+       * so it swings from the joint rather than about its own middle. The
+       * geometry is unchanged: at rest the pivot puts it exactly where it
+       * sat when it was bolted on.
+       */
+      mecha_pose_child(&plate, pTorso, fSide * fWaist, 0.0f,
+                       -0.01f * pB->fRadius, 0,
+                       (int)(-0.30f * (float)iSwing), 0);
+      mecha_pose_name(&plate, MECHA_BONE_SKIRT_SIDE_L + iSide, pB->paBones);
+      mecha_add_frustum(pList, &plate,
+                        fSide * fHalf,
+                        -0.07f * pB->fUpperY, 0.0f,
                         fHalf, 0.34f * pB->fRadius * pB->fTorso,
                         fHalfTop, 0.30f * pB->fRadius * pB->fTorso,
                         0.07f * pB->fUpperY,
@@ -2440,17 +2497,16 @@ static void mecha_build_skirt(tMechaQuadList *pList, const tMechaBuild *pB,
                         pB->byBody, pB->byTrim, 0);
 
       if (pB->iDetail >= MECHA_DETAIL_MID) {
-        tMechaPose skirt;
-
         /* Just over half the thigh's swing: enough that the plate is never
          * inside the leg, little enough that it still reads as armour rather
          * than as a second thigh. */
-        mecha_pose_child(&skirt, pTorso,
+        mecha_pose_child(&plate, pTorso,
                          fSide * 0.24f * pB->fRadius * pB->fTorso,
                          -0.02f * pB->fUpperY, 0.0f, 0,
-                         (int)(-0.55f * (float)paiThigh[iSide]), 0);
-        mecha_pose_name(&skirt, MECHA_BONE_SKIRT_L + iSide, pB->paBones);
-        mecha_add_frustum(pList, &skirt, 0.0f, -0.05f * pB->fUpperY,
+                         (int)(-0.55f * (float)iSwing), 0);
+        mecha_pose_name(&plate, MECHA_BONE_SKIRT_FRONT_L + iSide,
+                        pB->paBones);
+        mecha_add_frustum(pList, &plate, 0.0f, -0.05f * pB->fUpperY,
                           0.30f * pB->fRadius * pB->fTorso,
                           0.21f * pB->fRadius * pB->fTorso,
                           0.10f * pB->fRadius * pB->fTorso,
@@ -2460,19 +2516,29 @@ static void mecha_build_skirt(tMechaQuadList *pList, const tMechaBuild *pB,
                           -0.05f * pB->fRadius * pB->fTorso,
                           pB->byBody, pB->byTrim, 0);
       }
-    }
 
-    /* And one plate across the back of the waist. */
-    if (pB->iDetail >= MECHA_DETAIL_FULL) {
-      mecha_add_frustum(pList, pTorso, 0.0f, -0.05f * pB->fUpperY,
-                        -0.32f * pB->fRadius * pB->fTorso,
-                        0.44f * pB->fRadius * pB->fTorso,
-                        0.11f * pB->fRadius * pB->fTorso,
-                        0.40f * pB->fRadius * pB->fTorso,
-                        0.08f * pB->fRadius * pB->fTorso,
-                        0.05f * pB->fUpperY, 0.0f,
-                        0.04f * pB->fRadius * pB->fTorso,
-                        pB->byJoint, pB->byJoint, 0);
+      /* And half a plate across the back of the waist, per leg. One plate
+       * spanning both is a plate neither leg can move. */
+      if (pB->iDetail >= MECHA_DETAIL_FULL) {
+        mecha_pose_child(&plate, pTorso,
+                         fSide * 0.02f * pB->fRadius * pB->fTorso,
+                         -0.02f * pB->fUpperY,
+                         -0.10f * pB->fRadius * pB->fTorso, 0,
+                         (int)(-0.55f * (float)iSwing), 0);
+        mecha_pose_name(&plate, MECHA_BONE_SKIRT_REAR_L + iSide,
+                        pB->paBones);
+        mecha_add_frustum(pList, &plate,
+                          fSide * 0.21f * pB->fRadius * pB->fTorso,
+                          -0.03f * pB->fUpperY,
+                          -0.22f * pB->fRadius * pB->fTorso,
+                          0.21f * pB->fRadius * pB->fTorso,
+                          0.11f * pB->fRadius * pB->fTorso,
+                          0.19f * pB->fRadius * pB->fTorso,
+                          0.08f * pB->fRadius * pB->fTorso,
+                          0.05f * pB->fUpperY, 0.0f,
+                          0.04f * pB->fRadius * pB->fTorso,
+                          pB->byJoint, pB->byJoint, 0);
+      }
     }
   }
 }
@@ -2632,6 +2698,7 @@ static void mecha_build_arms_head(tMechaQuadList *pList,
       tMechaPose shoulder;
       tMechaPose upper;
       tMechaPose fore;
+      tMechaPose hand;
       int iShoulderYaw;
       int iShoulderRoll;
       int iUpperPitch;
@@ -2752,6 +2819,27 @@ static void mecha_build_arms_head(tMechaQuadList *pList,
                         0.12f * pB->fRadius * pB->fLimb * pB->fTaper,
                         0.5f * fFore, 0.0f, 0.0f, pB->byTrim, pB->byTrim, 0);
 
+      /*
+       * The wrist, and the difference between carrying a weapon and having
+       * one bolted on.
+       *
+       * The gun used to be a frustum hung off the end of the forearm, dead
+       * coaxial with it, with nothing between the two. That reads as a limb
+       * that ends in a gun -- which is a fine thing for a mech to be, and
+       * not what this roster is. What makes it read as held is three
+       * things, none of them the gun itself: a fist at the wrist, the gun
+       * sitting forward of that fist rather than through it, and a grip
+       * bridging the two. The break at the wrist is the fourth, and it is
+       * what stops the whole arm reading as one straight piece. [MESH-54]
+       */
+      mecha_pose_child(&hand, &fore, 0.0f, -fFore, 0.0f, 0,
+                       MECHA_WRIST_BREAK, 0);
+      mecha_pose_name(&hand, MECHA_BONE_HAND_L + iSide, pB->paBones);
+      mecha_add_box(pList, &hand, 0.0f, -0.035f * pB->fUpperY, 0.0f,
+                    0.13f * pB->fRadius * pB->fLimb, 0.035f * pB->fUpperY,
+                    0.12f * pB->fRadius * pB->fLimb,
+                    pB->byJoint, pB->byJoint, 0);
+
       mecha_quads_part(pList, MECHA_PART_GUN);
       /*
        * A carrier carries no main gun: what it puts in the air is its
@@ -2759,22 +2847,50 @@ static void mecha_build_arms_head(tMechaQuadList *pList,
        * about how it fights. It gets a manipulator instead. [MESH-36]
        */
       if (pB->iProfile == MECHA_PROFILE_CARRIER) {
-        mecha_add_frustum(pList, &fore, 0.0f, -fFore - 0.04f * pB->fUpperY, 0.0f,
+        mecha_add_frustum(pList, &hand, 0.0f, -0.08f * pB->fUpperY, 0.0f,
                           0.11f * pB->fRadius * pB->fGun, 0.12f * pB->fRadius * pB->fGun,
                           0.08f * pB->fRadius * pB->fGun, 0.09f * pB->fRadius * pB->fGun,
                           0.04f * pB->fUpperY, 0.0f, 0.0f, pB->byJoint, pB->byJoint, 0);
       } else {
-        mecha_add_frustum(pList, &fore, 0.0f,
-                          -fFore - 0.13f * pB->fUpperY * pB->fGun, 0.0f,
+        /*
+         * How far in front of the fist the gun sits. This wants to be small.
+         * At a tenth of a radius the weapon reads as floating beside the
+         * machine with nothing holding it -- the eye needs the fist and the
+         * gun to overlap, and the grip to be the thing between them, not a
+         * gap.
+         */
+        float fHold = 0.06f * pB->fRadius * pB->fGun;
+
+        /* The grip, out of the fist and into the gun. It has to be wide
+         * enough to see, because it is the whole argument that the gun is
+         * held: a grip you cannot make out is a gun that is still bolted
+         * on, just further forward. */
+        if (pB->iDetail >= MECHA_DETAIL_MID) {
+          /* Its top sits inside the fist rather than flush with the top
+           * of it. Flush put the two faces in one plane with nothing to
+           * sort them by, which is the one thing the painter's order
+           * cannot do [MESH-18] -- and it did it on every machine on the
+           * roster at once, two pairs each. */
+          mecha_add_frustum(pList, &hand, 0.0f, -0.065f * pB->fUpperY,
+                            0.5f * fHold,
+                            0.10f * pB->fRadius * pB->fGun,
+                            0.11f * pB->fRadius * pB->fGun,
+                            0.09f * pB->fRadius * pB->fGun,
+                            0.10f * pB->fRadius * pB->fGun,
+                            0.05f * pB->fUpperY, 0.0f,
+                            0.5f * fHold, pB->byJoint, pB->byJoint, 0);
+        }
+        mecha_add_frustum(pList, &hand, 0.0f,
+                          -0.14f * pB->fUpperY * pB->fGun, fHold,
                           0.20f * pB->fRadius * pB->fGun, 0.30f * pB->fRadius * pB->fGun,
                           0.22f * pB->fRadius * pB->fGun, 0.24f * pB->fRadius * pB->fGun,
                           0.13f * pB->fUpperY * pB->fGun, 0.0f,
                           -0.03f * pB->fRadius * pB->fGun, pB->byBody, pB->byBody, 0);
         /* A muzzle off the end of it, so a gun has a direction. */
         if (pB->iDetail >= MECHA_DETAIL_MID) {
-          mecha_add_frustum(pList, &fore, 0.0f,
-                            -fFore - 0.26f * pB->fUpperY * pB->fGun,
-                            0.16f * pB->fRadius * pB->fGun,
+          mecha_add_frustum(pList, &hand, 0.0f,
+                            -0.27f * pB->fUpperY * pB->fGun,
+                            fHold + 0.16f * pB->fRadius * pB->fGun,
                             0.09f * pB->fRadius * pB->fGun, 0.14f * pB->fRadius * pB->fGun,
                             0.07f * pB->fRadius * pB->fGun, 0.12f * pB->fRadius * pB->fGun,
                             0.05f * pB->fUpperY * pB->fGun, 0.0f, 0.0f,

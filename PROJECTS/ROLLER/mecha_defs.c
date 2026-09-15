@@ -956,7 +956,9 @@ static const tMechaMechDef s_aMechDefs[] = {
    * hips by two thirds, and a figure whose broadest point is its shoulders
    * reads as a T however narrow the waist under it. Measured off the
    * builder's own part tags rather than eyeballed, the hips were 0.58 of
-   * the shoulders where the male frames sit at 0.64. Now 0.77. [DEF-13]
+   * the shoulders where the male frames sit at 0.64. Now 1.00: the widest
+   * thing on this machine is its hips, which is true of nothing else on
+   * the roster. [DEF-13]
    */
   .fBuildShoulder = 0.52f, .fBuildTorso = 0.64f, .fBuildLimb = 0.76f,
   .fBuildHead = 0.86f, .fBuildGun = 0.80f,
