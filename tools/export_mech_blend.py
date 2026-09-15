@@ -25,6 +25,12 @@ Usage::
 
 Needs the ``bpy`` module (``pip install bpy``) and a C compiler.  Writes no
 retail data: the colours are the project's own fallback palette.
+
+**The .blend is written in the format of whichever bpy is installed**, and
+Blender does not open files from a later version than itself.  To produce a
+file for an older Blender, install the matching module in a virtualenv and
+run this script with it -- ``pip install "bpy==4.3.0" "numpy<2"`` gives a 4.3
+file.  The script itself is kept working across 4.x and 5.x.
 """
 
 import argparse
@@ -254,6 +260,11 @@ def build_blend(machine, out_path, scale):
         # makes an exported model come out looking bleached.
         lin = [_srgb_to_linear(c / 255.0) for c in rgb]
         mat.diffuse_color = (lin[0], lin[1], lin[2], 1.0)
+        # Blender 4.x hands back a material with no node tree and wants
+        # use_nodes set; 5.0 always has one and deprecates the flag. Asking
+        # for the tree first gets both right and warns on neither.
+        if getattr(mat, "node_tree", None) is None:
+            mat.use_nodes = True
         tree = getattr(mat, "node_tree", None)
         bsdf = tree.nodes.get("Principled BSDF") if tree else None
         if bsdf:
