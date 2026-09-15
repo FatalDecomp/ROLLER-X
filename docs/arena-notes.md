@@ -2974,6 +2974,58 @@ roll, their noise follows road speed, and it already did.
 
 ______________________________________________________________________
 
+## DEF-13 — Lilia was a T, and the measurement that said so was wrong twice
+
+The brief was "narrower shoulders and waist, she reads as a brick". The
+interesting part is that the first two attempts to *measure* the brick both
+lied, and either would have produced a worse machine.
+
+**The first lie was the height band.** Slicing the machine horizontally and
+taking the widest point of each slice is the obvious way to get a figure, and on
+this roster it is wrong: what sits level with a standing machine's hips is its
+hands. The hip band was reporting 4.51 m where the skirt is 3.09 m, because it
+was measuring gun barrels. Tuned against that number, the answer was to narrow
+the waist and widen the flare, and the flare made no difference at all to the
+figure -- which is the tell that the number was not reading the skirt.
+
+**The second was the ratio it led to.** With the arms counted, hip/shoulder came
+out 0.84, a hair off the roster average of 0.85, so by that measure Lilia was
+already proportioned like everyone else and the complaint was imaginary.
+
+Measured off the builder's own part and bone tags instead -- binders are
+`MECHA_PART_ARM` carried on `MECHA_BONE_TORSO`, the skirt is `MECHA_PART_SKIRT`
+-- the real figure appeared:
+
+| machine     | shoulder | waist | hip  | hip/shoulder |
+| ----------- | -------- | ----- | ---- | ------------ |
+| Exos 2000   | 5.30     | 2.79  | 3.41 | 0.64         |
+| Kira Type R | 7.24     | 3.78  | 4.62 | 0.64         |
+| Corvid 3    | 8.25     | 3.99  | 4.88 | 0.59         |
+| Lilia 07    | 5.37     | 2.16  | 3.09 | **0.58**     |
+
+The lightest frame on the roster had the second-widest shoulders relative to its
+own hips, behind only the eighty-tonne gunner. The waist was never the problem
+-- at 1.33 chest-to-waist it was already the most defined on the roster, against
+1.13 for everything else. The problem was that the broadest point of the machine
+was its shoulder binders, and a figure whose widest point is its shoulders reads
+as a T no matter what the waist under it does.
+
+`fBuildShoulder` 0.86 → 0.52 and `fBuildTorso` 0.74 → 0.64. Shoulders 5.37 →
+3.67, hip/shoulder 0.58 → 0.77, which puts her the other side of the male frames
+rather than level with them.
+
+The flare went 1.12 → 1.25 for one reason: the skirt is drawn off the torso
+width, so narrowing the waist takes the hips with it and the machine merely gets
+smaller instead of getting a shape. Even raised, the skirt ends up narrower than
+it started (3.09 → 2.82) -- nothing on this machine is wider than it was.
+
+The thing this could have broken is the one [DEF-10] warns about: she has to
+stay distinguishable from the interceptor at the range machines are read at. She
+gets *more* distinguishable, not less -- she was already a head shorter, and now
+she is the only frame on the roster whose hips lead. Her footprint in the render
+test's distance check went 296 px to 287 px, so there is as much of her to see
+as there was.
+
 ## DEF-12 — weapon fire owns every hue the arena does not
 
 Two complaints, one cause: green shots vanished against grass and violet ones

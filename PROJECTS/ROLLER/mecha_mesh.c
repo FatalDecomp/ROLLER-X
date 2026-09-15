@@ -2217,7 +2217,12 @@ static void mecha_build_setup(tMechaBuild *pB, const tMechaMech *pMech,
    * once the plates were actually joined to the waist, made the hips one
    * slab from one side to the other rather than armour hung on a frame.
    */
-  pB->fFlare = pB->iProfile == MECHA_PROFILE_SLENDER ? 1.12f : 1.0f;
+  /* Raised with the narrowed waist [DEF-13]: the skirt is drawn off the
+   * torso width, so bringing the torso in takes the hips with it and the
+   * figure merely gets smaller rather than more of a figure. This holds the
+   * skirt roughly where it was -- it is still narrower than before the
+   * waist came in, so nothing here is wider than it used to be. */
+  pB->fFlare = pB->iProfile == MECHA_PROFILE_SLENDER ? 1.25f : 1.0f;
   pB->fChest = pB->iProfile == MECHA_PROFILE_SLENDER ? 0.82f : 1.0f;
   {
     /*

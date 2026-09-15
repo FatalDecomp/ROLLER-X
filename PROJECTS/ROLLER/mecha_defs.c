@@ -949,15 +949,16 @@ static const tMechaMechDef s_aMechDefs[] = {
    * the frame is built on and the one thing that tells it apart from the
    * interceptor at range -- the two were written near enough as twins, and
    * the roster's own silhouette check caught it. [DEF-10]
+   *
+   * The shoulder number used to be the largest on the frame, on the theory
+   * that binders standing clear of a slight torso were the contrast. They
+   * were not: they were the widest thing on the machine, wider than its
+   * hips by two thirds, and a figure whose broadest point is its shoulders
+   * reads as a T however narrow the waist under it. Measured off the
+   * builder's own part tags rather than eyeballed, the hips were 0.58 of
+   * the shoulders where the male frames sit at 0.64. Now 0.77. [DEF-13]
    */
-  /*
-   * Wide across the shoulder armour and narrow through everything it is
-   * bolted to. The two are separate numbers for exactly this: the binders
-   * stand well clear of a torso that is slighter than any other frame's,
-   * which is the contrast the build is made of rather than a machine that
-   * is simply small. [DEF-10]
-   */
-  .fBuildShoulder = 0.86f, .fBuildTorso = 0.74f, .fBuildLimb = 0.76f,
+  .fBuildShoulder = 0.52f, .fBuildTorso = 0.64f, .fBuildLimb = 0.76f,
   .fBuildHead = 0.86f, .fBuildGun = 0.80f,
   /* Hips high and arms short: long legs under a small body, which is the
    * figure this frame is meant to cut. [DEF-10] */
@@ -1067,7 +1068,7 @@ static const tMechaMechDef s_aMechDefs[] = {
  * and its right lays mines that hang where they are put instead of falling,
  * which is a mine field at head height rather than under the feet. It
  * carries no gun in either hand, and the rack across its back is what says
- * so from any angle. [DEF-11]
+ * so from any angle. [DEF-13]
  */
 {
   .szName = "Corvid 3", .szClass = "DRONE CONTROL",
