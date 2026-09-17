@@ -458,6 +458,8 @@ void mecha_camera_update(tMechaCamera *pCamera, const tMechaWorld *pWorld,
   float fGround;
   float fFlat;
   float fRig;
+  float fFocusBlend;
+  int iCameraYaw;
   int iWantYaw;
   int iTargetIdx;
 
@@ -518,6 +520,26 @@ void mecha_camera_update(tMechaCamera *pCamera, const tMechaWorld *pWorld,
   fBack *= MECHA_METRE * fRig;
 
   /*
+   * The lock target can move from one side of the player to the other by a
+   * few centimetres each simulation tick.  Using that raw bearing both for
+   * the camera's heading and its orbit point made close combat visibly
+   * vibrate: the position chased a heading that was itself still easing.
+   * Keep the orbit on the already-smoothed camera heading, and ease the
+   * look-at point separately.
+   */
+  if (!pCamera->bFocusSettled) {
+    pCamera->fFocusX = fFocusX;
+    pCamera->fFocusY = fFocusY;
+    pCamera->fFocusZ = fFocusZ;
+    pCamera->bFocusSettled = true;
+  } else {
+    fFocusBlend = bClose ? 0.14f : 0.22f;
+    pCamera->fFocusX += (fFocusX - pCamera->fFocusX) * fFocusBlend;
+    pCamera->fFocusY += (fFocusY - pCamera->fFocusY) * fFocusBlend;
+    pCamera->fFocusZ += (fFocusZ - pCamera->fFocusZ) * fFocusBlend;
+  }
+
+  /*
    * The swing is about the machine itself, not about the point it stands
    * on. Orbiting the origin puts the pivot at the feet, so a camera coming
    * round at knife range carries the body across the frame and tips it as
@@ -528,8 +550,9 @@ void mecha_camera_update(tMechaCamera *pCamera, const tMechaWorld *pWorld,
   fPivotY = bClose ? mecha_mech_centre_height(pWorld, iViewMech)
                    : pMech->fY;
 
-  fWantX = pMech->fX - mecha_sin(iWantYaw) * fBack;
-  fWantZ = pMech->fZ - mecha_cos(iWantYaw) * fBack;
+  iCameraYaw = pCamera->bSettled ? pCamera->iYaw : iWantYaw;
+  fWantX = pMech->fX - mecha_sin(iCameraYaw) * fBack;
+  fWantZ = pMech->fZ - mecha_cos(iCameraYaw) * fBack;
   fWantY = fPivotY + MECHA_CAM_HEIGHT * MECHA_METRE * fRig
            * (bClose ? MECHA_CAM_CLOSE_LIFT : 1.0f);
 
@@ -556,9 +579,10 @@ void mecha_camera_update(tMechaCamera *pCamera, const tMechaWorld *pWorld,
   if (pCamera->fY < fGround + MECHA_CAM_FLOOR * MECHA_METRE * fRig)
     pCamera->fY = fGround + MECHA_CAM_FLOOR * MECHA_METRE * fRig;
 
-  fFlat = mecha_length2(fFocusX - pCamera->fX, fFocusZ - pCamera->fZ);
+  fFlat = mecha_length2(pCamera->fFocusX - pCamera->fX,
+                        pCamera->fFocusZ - pCamera->fZ);
   pCamera->iPitch = fFlat > 1.0f
-                    ? mecha_atan2_angle(fFocusY - pCamera->fY, fFlat)
+                    ? mecha_atan2_angle(pCamera->fFocusY - pCamera->fY, fFlat)
                     : 0;
 }
 

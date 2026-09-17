@@ -30,6 +30,8 @@ typedef struct
   int   iYaw;               /* 14-bit, same circle as every other heading */
   int   iPitch;
   bool  bSettled;           /* false until the first update places it */
+  bool  bFocusSettled;      /* false until the lock focus has been placed */
+  float fFocusX, fFocusY, fFocusZ;
 } tMechaCamera;
 
 void mecha_camera_reset(tMechaCamera *pCamera);
