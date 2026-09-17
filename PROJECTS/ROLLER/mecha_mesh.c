@@ -173,6 +173,7 @@ typedef struct
   float afRot[3][3];   /* local axes expressed in world space, as columns */
   float afOrigin[3];
   float fVerticalScale;
+  const tMechaMech *pMech;
   /*
    * Which joint of the skeleton this frame is, once something has named it.
    * A pose hung off a named one inherits the name, so the trim bolted to a
@@ -238,6 +239,7 @@ static void mecha_pose_build(tMechaPose *pPose, int iYaw, int iPitch,
   pPose->afOrigin[1] = fY;
   pPose->afOrigin[2] = fZ;
   pPose->fVerticalScale = fVerticalScale;
+  pPose->pMech = NULL;
   pPose->byBone = MECHA_BONE_NONE;
 }
 
@@ -278,6 +280,7 @@ static void mecha_pose_child(tMechaPose *pOut, const tMechaPose *pParent,
   pOut->afOrigin[1] = afOrigin[1];
   pOut->afOrigin[2] = afOrigin[2];
   pOut->fVerticalScale = pParent->fVerticalScale;
+  pOut->pMech = pParent->pMech;
   pOut->byBone = pParent->byBone;
 }
 
@@ -291,6 +294,37 @@ static void mecha_pose_child(tMechaPose *pOut, const tMechaPose *pParent,
 static void mecha_pose_name(tMechaPose *pPose, int iBone,
                             tMechaBoneFrame *paBones)
 {
+  if (pPose->pMech && iBone > MECHA_BONE_ROOT
+      && iBone < MECHA_BONE_COUNT) {
+    float fWeight = 0.0f;
+    int iAngle[MECHA_RAGDOLL_AXES];
+    tMechaPose ragdoll;
+    int iAxis;
+
+    switch (pPose->pMech->byMove) {
+    case MECHA_MOVE_DOWN:
+      fWeight = mecha_clampf((float)pPose->pMech->iStateTicks
+                             / (float)MECHA_FALL_TICKS, 0.0f, 1.0f);
+      break;
+    case MECHA_MOVE_RISE:
+      fWeight = mecha_clampf((float)pPose->pMech->iStunTicks
+                             / (float)MECHA_RISE_TICKS, 0.0f, 1.0f);
+      break;
+    case MECHA_MOVE_DESTROYED:
+      fWeight = 1.0f;
+      break;
+    default:
+      break;
+    }
+    if (fWeight > 0.0f) {
+      for (iAxis = 0; iAxis < MECHA_RAGDOLL_AXES; iAxis++)
+        iAngle[iAxis] = (int)((float)pPose->pMech
+                              ->aiRagdollAngle[iBone][iAxis] * fWeight);
+      mecha_pose_build(&ragdoll, iAngle[1], iAngle[0], iAngle[2],
+                       0.0f, 0.0f, 0.0f, 1.0f);
+      mecha_matrix_multiply(pPose->afRot, pPose->afRot, ragdoll.afRot);
+    }
+  }
   pPose->byBone = (uint8_t)iBone;
   if (!paBones || iBone <= MECHA_BONE_NONE || iBone >= MECHA_BONE_COUNT)
     return;
@@ -3684,6 +3718,7 @@ void mecha_mesh_mech_rigged(tMechaQuadList *pList, const tMechaWorld *pWorld,
     mecha_mesh_attitude(pMech, &iPoseYaw, &iPosePitch, &iPoseRoll);
     mecha_pose_build(&pose, iPoseYaw, iPosePitch, iPoseRoll,
                      pMech->fX, pMech->fY + fLift, pMech->fZ, fVertical);
+    pose.pMech = pMech;
     mecha_pose_name(&pose, MECHA_BONE_ROOT, build.paBones);
   }
 

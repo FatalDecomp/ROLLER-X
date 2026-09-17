@@ -32,12 +32,83 @@ static int mecha_car_throttle(const tMechaInput *pInput, bool bCanAct);
 
 /* A knockdown-grade hit that does not floor the mech still interrupts it. */
 #define MECHA_STAGGER_INTERRUPT 30.0f
+#define MECHA_RAGDOLL_DAMPING 15
+#define MECHA_RAGDOLL_LIMIT_PITCH (MECHA_ANGLE_QUARTER * 3 / 4)
+#define MECHA_RAGDOLL_LIMIT_YAW   (MECHA_ANGLE_QUARTER)
+#define MECHA_RAGDOLL_LIMIT_ROLL  (MECHA_ANGLE_HALF)
 
 //-------------------------------------------------------------------------------------------------
 
 static const tMechaMechDef *mecha_mech_def(const tMechaMech *pMech)
 {
   return mecha_def_get((int)pMech->byDefIdx);
+}
+
+static void mecha_ragdoll_begin(tMechaMech *pMech, float fPushX,
+                                float fPushZ, float fStrength)
+{
+  float fLength = mecha_length2(fPushX, fPushZ);
+  int i;
+  int iAxis;
+  int iKick;
+
+  if (fLength < 1e-3f) {
+    fPushX = mecha_sin(pMech->iFacing);
+    fPushZ = mecha_cos(pMech->iFacing);
+    fLength = 1.0f;
+  }
+  pMech->iRagdollImpactYaw = mecha_atan2_angle(fPushX, fPushZ);
+  iKick = mecha_clampi((int)(fStrength * 18.0f + fLength * 0.45f),
+                       900, 5200);
+  pMech->iRagdollImpactStrength = iKick;
+  memset(pMech->aiRagdollAngle, 0, sizeof(pMech->aiRagdollAngle));
+  memset(pMech->aiRagdollVelocity, 0, sizeof(pMech->aiRagdollVelocity));
+
+  /* The alternating signs are intentional: a hit rotates the connected
+   * limbs as a chain rather than turning the entire model into one rigid
+   * plate. */
+  for (i = 2; i < MECHA_RAGDOLL_BONES; i++) {
+    int iSide = (i & 1) ? -1 : 1;
+    int iBend = iKick * (70 + (i * 13) % 31) / 100;
+    int iTwist = (int)((float)iKick
+                       * mecha_sin(mecha_angle_delta(pMech->iFacing,
+                                                     pMech->iRagdollImpactYaw))
+                       / 3.0f);
+    for (iAxis = 0; iAxis < MECHA_RAGDOLL_AXES; iAxis++)
+      pMech->aiRagdollVelocity[i][iAxis] = 0;
+    pMech->aiRagdollVelocity[i][0] = iSide * iBend;
+    pMech->aiRagdollVelocity[i][1] = iTwist + iSide * iKick / 5;
+    pMech->aiRagdollVelocity[i][2] = -iSide * iBend / 2;
+  }
+}
+
+static void mecha_ragdoll_tick(tMechaMech *pMech)
+{
+  int i;
+  int iAxis;
+
+  if (pMech->byMove != MECHA_MOVE_DOWN
+      && pMech->byMove != MECHA_MOVE_RISE
+      && pMech->byMove != MECHA_MOVE_DESTROYED)
+    return;
+  for (i = 2; i < MECHA_RAGDOLL_BONES; i++) {
+    int aiLimit[MECHA_RAGDOLL_AXES] = {
+      MECHA_RAGDOLL_LIMIT_PITCH, MECHA_RAGDOLL_LIMIT_YAW,
+      MECHA_RAGDOLL_LIMIT_ROLL
+    };
+    for (iAxis = 0; iAxis < MECHA_RAGDOLL_AXES; iAxis++) {
+      int iVelocity = pMech->aiRagdollVelocity[i][iAxis];
+      int iAngle;
+      iVelocity = (iVelocity * MECHA_RAGDOLL_DAMPING) / 16;
+      pMech->aiRagdollVelocity[i][iAxis] = iVelocity;
+      /* Velocity is a fixed-point per-tick impulse.  Dividing by sixteen
+       * keeps the first eight fall ticks readable while the damping settles
+       * the wreck long before it can reach a joint limit. */
+      iAngle = pMech->aiRagdollAngle[i][iAxis] + iVelocity / 16;
+      pMech->aiRagdollAngle[i][iAxis] =
+        mecha_clampi(iAngle, -aiLimit[iAxis], aiLimit[iAxis]);
+    }
+  }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -594,6 +665,7 @@ void mecha_sim_damage(tMechaWorld *pWorld, int iVictimIdx, int iAttackerIdx,
 
   if (pVictim->fArmour <= 0.0f) {
     pVictim->fArmour = 0.0f;
+    mecha_ragdoll_begin(pVictim, fPushX, fPushZ, fDamage + fStagger);
     pVictim->byMove = MECHA_MOVE_DESTROYED;
     /* And it burns from here. [SIM-27] */
     pVictim->iBurnTicks = MECHA_WRECK_BURN;
@@ -622,6 +694,7 @@ void mecha_sim_damage(tMechaWorld *pWorld, int iVictimIdx, int iAttackerIdx,
 
   if (pVictim->fStagger >= MECHA_STAGGER_DOWN) {
     pVictim->fStagger = 0.0f;
+    mecha_ragdoll_begin(pVictim, fPushX, fPushZ, fStagger);
     pVictim->byMove = MECHA_MOVE_DOWN;
     /* The rest of this tick can still land on it; nothing after can. */
     pVictim->iDownTick = pWorld->iTick;
@@ -1656,6 +1729,8 @@ static void mecha_update_movement(tMechaWorld *pWorld, int iMechIdx,
   float fStick = bCanAct ? mecha_stick_direction(pMech, pInput, &fDirX, &fDirZ)
                          : 0.0f;
 
+  mecha_ragdoll_tick(pMech);
+
   if (pDef->bWheeled) {
     /*
      * Everything from here to the integration below is legs: states a
@@ -1956,6 +2031,8 @@ integrate:
     int iAirRoll = mecha_angle_signed(pMech->attitude.iAirRoll);
 
     if (iAirRoll > MECHA_CAMBER_UPRIGHT || iAirRoll < -MECHA_CAMBER_UPRIGHT) {
+      mecha_ragdoll_begin(pMech, pMech->fVelX, pMech->fVelZ,
+                          mecha_length2(pMech->fVelX, pMech->fVelZ));
       pMech->byMove = MECHA_MOVE_DOWN;
       pMech->iDownTick = pWorld->iTick;
       pMech->iStateTicks = 0;
@@ -3388,6 +3465,10 @@ static void mecha_reset_mech_for_round(tMechaWorld *pWorld, int iMechIdx,
   pMech->fStepPhase = 0.0f;
   pMech->iLegYaw = pMech->iFacing;
   pMech->bLegsBackward = false;
+  memset(pMech->aiRagdollAngle, 0, sizeof(pMech->aiRagdollAngle));
+  memset(pMech->aiRagdollVelocity, 0, sizeof(pMech->aiRagdollVelocity));
+  pMech->iRagdollImpactYaw = pMech->iFacing;
+  pMech->iRagdollImpactStrength = 0;
 
   memset(&pMech->attitude, 0, sizeof(pMech->attitude));
   /* Its own stream, and a different one per machine, so four identical

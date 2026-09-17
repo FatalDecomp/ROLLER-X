@@ -30,6 +30,8 @@
  * [AI-13] */
 #define MECHA_MAX_WAYS         2
 #define MECHA_WAY_POINTS       24
+#define MECHA_RAGDOLL_AXES     3
+#define MECHA_RAGDOLL_BONES   27
 
 /*
  * What is in an arena's sky. Clouds are the default and what every arena on
@@ -610,6 +612,14 @@ typedef struct
   /* Whether the stick has been let go since this dash began: the release is
    * what makes the crossing step a choice. [SIM-08] */
   bool  bDashStickFree;
+
+  /* Fixed-point ragdoll pose state.  Angles and angular velocities are in
+   * the same 14-bit units as the rest of the procedural rig, so the pose is
+   * replayable without a render-time random source. */
+  int16_t aiRagdollAngle[MECHA_RAGDOLL_BONES][MECHA_RAGDOLL_AXES];
+  int32_t aiRagdollVelocity[MECHA_RAGDOLL_BONES][MECHA_RAGDOLL_AXES];
+  int     iRagdollImpactYaw;
+  int     iRagdollImpactStrength;
 } tMechaMech;
 
 //-------------------------------------------------------------------------------------------------
