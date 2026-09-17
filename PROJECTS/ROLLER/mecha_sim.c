@@ -51,6 +51,10 @@ static void mecha_ragdoll_begin(tMechaMech *pMech, float fPushX,
   int i;
   int iAxis;
   int iKick;
+  int iForward;
+  int iSideward;
+  int iDirectionalPitch;
+  int iDirectionalRoll;
 
   if (fLength < 1e-3f) {
     fPushX = mecha_sin(pMech->iFacing);
@@ -63,6 +67,20 @@ static void mecha_ragdoll_begin(tMechaMech *pMech, float fPushX,
   pMech->iRagdollImpactStrength = iKick;
   memset(pMech->aiRagdollAngle, 0, sizeof(pMech->aiRagdollAngle));
   memset(pMech->aiRagdollVelocity, 0, sizeof(pMech->aiRagdollVelocity));
+
+  /*
+   * The impact vector is the direction the hit pushes the machine. Seed the
+   * main body in the opposite direction, so a frontal hit throws it back
+   * rather than making every death fold over the face.
+   */
+  iForward = (int)((float)iKick
+                   * mecha_cos(mecha_angle_delta(pMech->iFacing,
+                                                 pMech->iRagdollImpactYaw)));
+  iSideward = (int)((float)iKick
+                    * mecha_sin(mecha_angle_delta(pMech->iFacing,
+                                                  pMech->iRagdollImpactYaw)));
+  iDirectionalPitch = -iForward;
+  iDirectionalRoll = iSideward;
 
   /* The alternating signs are intentional: a hit rotates the connected
    * limbs as a chain rather than turning the entire model into one rigid
@@ -80,6 +98,12 @@ static void mecha_ragdoll_begin(tMechaMech *pMech, float fPushX,
     pMech->aiRagdollVelocity[i][1] = iTwist + iSide * iKick / 5;
     pMech->aiRagdollVelocity[i][2] = -iSide * iBend / 2;
   }
+  /* Bone indices are kept here locally to avoid coupling simulation to the
+   * renderer's mesh header: pelvis is 2 and torso is 3 in the shared rig. */
+  pMech->aiRagdollVelocity[2][0] += iDirectionalPitch / 2;
+  pMech->aiRagdollVelocity[2][2] += iDirectionalRoll / 2;
+  pMech->aiRagdollVelocity[3][0] += iDirectionalPitch;
+  pMech->aiRagdollVelocity[3][2] += iDirectionalRoll;
 }
 
 static void mecha_ragdoll_tick(tMechaMech *pMech)

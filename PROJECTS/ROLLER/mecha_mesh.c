@@ -3079,7 +3079,8 @@ static void mecha_build_root(tMechaPose *pPose, const tMechaMech *pMech,
                              int iLegYaw)
 {
   int iPoseYaw = iLegYaw;
-  int iPosePitch = mecha_mesh_fall_pitch(pMech);
+  int iPosePitch = pDef->byChassis == MECHA_CHASSIS_CAR
+                     ? mecha_mesh_fall_pitch(pMech) : 0;
   int iPoseRoll = mecha_mesh_fall_roll(pMech);
   float fLateral;
 
@@ -3947,6 +3948,7 @@ void mecha_mesh_mech_rigged(tMechaQuadList *pList, const tMechaWorld *pWorld,
 
 void mecha_mesh_shadows(tMechaQuadList *pList, const tMechaWorld *pWorld)
 {
+  static tMechaQuad aSource[MECHA_QUAD_CAPACITY];
   mecha_quads_part(pList, MECHA_PART_NONE);
   int i;
 
@@ -3955,33 +3957,68 @@ void mecha_mesh_shadows(tMechaQuadList *pList, const tMechaWorld *pWorld)
 
   for (i = 0; i < MECHA_MAX_MECHS; i++) {
     const tMechaMech *pMech = &pWorld->aMechs[i];
-    const tMechaMechDef *pDef;
+    tMechaQuadList source;
     float fGround;
-    float fSize;
+    int iQuad;
+    int iShadowCount = 0;
+    int iSampleStride;
+    int iNextSample = 0;
 
     if (!mecha_mech_alive(pMech))
       continue;
-    pDef = mecha_def_get((int)pMech->byDefIdx);
+    mecha_quads_reset(&source, aSource, MECHA_QUAD_CAPACITY);
+    mecha_mesh_mech(&source, pWorld, i, MECHA_DETAIL_FAR);
+    if (source.iCount <= 0)
+      continue;
+    iSampleStride = source.iCount / 12;
+    if (iSampleStride < 1)
+      iSampleStride = 1;
 
     /* The shadow sits on whatever the mech is standing over, so a mech on
      * top of a box casts onto the box rather than onto the floor below it. */
     fGround = mecha_arena_ground_height(&pWorld->arena, pMech->fX, pMech->fZ,
                                         pMech->fY);
-    /* Shrinking with altitude is the only cue the player gets for how high
-     * an airborne mech actually is. */
-    fSize = pDef->fRadius
-            * mecha_clampf(1.3f - (pMech->fY - fGround)
-                                  / (28.0f * MECHA_METRE), 0.45f, 1.3f);
     /*
-     * Staggered by index. Two shadows at exactly the same height overlap in
-     * one plane, and which of them wins where they cross is then decided by
-     * float noise -- a millimetre apiece costs nothing and settles it.
+     * Model 2 used a flattened copy of the machine silhouette projected
+     * onto the ground. Apply a shallow directional projection and put each
+     * resulting vertex on the local terrain height.
      */
-    mecha_add_floor_quad(pList, pMech->fX - fSize, pMech->fZ - fSize,
-                         pMech->fX + fSize, pMech->fZ + fSize,
-                         fGround + (0.04f + 0.004f * (float)i) * MECHA_METRE,
-                         MECHA_SHADE_SHADOW,
-                         MECHA_QUAD_TWO_SIDED | MECHA_QUAD_SHADOW);
+    for (iQuad = 0; iQuad < source.iCount; iQuad++) {
+      float afVert[4][3];
+      int iVert;
+
+      if (iQuad != iNextSample)
+        continue;
+      iNextSample += iSampleStride;
+      /* Weapons, exhaust and drones are visual effects rather than the
+       * machine's readable ground silhouette. */
+      if (source.paQuads[iQuad].byPart == MECHA_PART_GUN
+          || source.paQuads[iQuad].byPart == MECHA_PART_THRUST
+          || source.paQuads[iQuad].byPart == MECHA_PART_DRONE)
+        continue;
+      if (iShadowCount >= 12)
+        break;
+      if (pList->iCount >= MECHA_QUAD_CAPACITY)
+        break;
+
+      for (iVert = 0; iVert < 4; iVert++) {
+        float fHeight = source.paQuads[iQuad].afVert[iVert][1] - fGround;
+        float fX;
+        float fZ;
+
+        fHeight = mecha_clampf(fHeight, 0.0f, 18.0f * MECHA_METRE);
+        fX = source.paQuads[iQuad].afVert[iVert][0] + 0.18f * fHeight;
+        fZ = source.paQuads[iQuad].afVert[iVert][2] + 0.12f * fHeight;
+        afVert[iVert][0] = fX;
+        afVert[iVert][2] = fZ;
+        afVert[iVert][1] = mecha_arena_ground_height(&pWorld->arena,
+                                                     fX, fZ, fGround)
+                           + (0.04f + 0.004f * (float)i) * MECHA_METRE;
+      }
+      mecha_quads_add(pList, afVert, MECHA_SHADE_SHADOW,
+                      MECHA_QUAD_TWO_SIDED | MECHA_QUAD_SHADOW);
+      iShadowCount++;
+    }
   }
 }
 
@@ -4400,7 +4437,12 @@ float mecha_quad_depth_key(const tMechaQuad *pQuad, const float afEye[3],
    * their nearest corner and broad floors their farthest. [MESH-23]
    */
   if (pQuad->byFlags & (MECHA_QUAD_SHADOW | MECHA_QUAD_DECAL))
-    return fMin;
+    /*
+     * Projected silhouettes can span several source panels. Pull the
+     * nearest corner back by a small footprint allowance so a broad floor
+     * quad never sorts in front of the shadow it receives.
+     */
+    return fMin - MECHA_M(0.5f);
 
   /*
    * Self-lit geometry is drawn on top of whatever it is going off inside:
