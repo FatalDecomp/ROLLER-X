@@ -3961,8 +3961,6 @@ void mecha_mesh_shadows(tMechaQuadList *pList, const tMechaWorld *pWorld)
     float fGround;
     int iQuad;
     int iShadowCount = 0;
-    int iSampleStride;
-    int iNextSample = 0;
 
     if (!mecha_mech_alive(pMech))
       continue;
@@ -3970,9 +3968,6 @@ void mecha_mesh_shadows(tMechaQuadList *pList, const tMechaWorld *pWorld)
     mecha_mesh_mech(&source, pWorld, i, MECHA_DETAIL_FAR);
     if (source.iCount <= 0)
       continue;
-    iSampleStride = source.iCount / 12;
-    if (iSampleStride < 1)
-      iSampleStride = 1;
 
     /* The shadow sits on whatever the mech is standing over, so a mech on
      * top of a box casts onto the box rather than onto the floor below it. */
@@ -3987,16 +3982,18 @@ void mecha_mesh_shadows(tMechaQuadList *pList, const tMechaWorld *pWorld)
       float afVert[4][3];
       int iVert;
 
-      if (iQuad != iNextSample)
-        continue;
-      iNextSample += iSampleStride;
       /* Weapons, exhaust and drones are visual effects rather than the
        * machine's readable ground silhouette. */
       if (source.paQuads[iQuad].byPart == MECHA_PART_GUN
           || source.paQuads[iQuad].byPart == MECHA_PART_THRUST
           || source.paQuads[iQuad].byPart == MECHA_PART_DRONE)
         continue;
-      if (iShadowCount >= 12)
+      /*
+       * Keep the complete early body panels rather than striding through the
+       * source mesh. Striding made the shadow visibly hollow because a leg
+       * or torso face could be skipped while its neighbours survived.
+       */
+      if (iShadowCount >= 32)
         break;
       if (pList->iCount >= MECHA_QUAD_CAPACITY)
         break;
@@ -4013,7 +4010,8 @@ void mecha_mesh_shadows(tMechaQuadList *pList, const tMechaWorld *pWorld)
         afVert[iVert][2] = fZ;
         afVert[iVert][1] = mecha_arena_ground_height(&pWorld->arena,
                                                      fX, fZ, fGround)
-                           + (0.04f + 0.004f * (float)i) * MECHA_METRE;
+                           + (0.04f + 0.004f * (float)i
+                              + 0.001f * (float)iShadowCount) * MECHA_METRE;
       }
       mecha_quads_add(pList, afVert, MECHA_SHADE_SHADOW,
                       MECHA_QUAD_TWO_SIDED | MECHA_QUAD_SHADOW);
