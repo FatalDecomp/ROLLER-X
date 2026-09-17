@@ -3776,7 +3776,7 @@ void mecha_mesh_mech_rigged(tMechaQuadList *pList, const tMechaWorld *pWorld,
      * measures, with the toe tip below the heel on a raised foot. [MESH-53]
      */
     mecha_pose_child(&foot, &shin, 0.0f, -fShinLen, 0.0f, 0,
-                     aiThigh[iSide] - aiKnee[iSide] - aiAnkle[iSide],
+                     aiThigh[iSide] - aiKnee[iSide] + aiAnkle[iSide],
                      -(int)(fSide * (float)aiRoll[iSide]));
     mecha_pose_name(&foot, MECHA_BONE_FOOT_L + iSide, build.paBones);
     mecha_add_frustum(pList, &foot, 0.0f, -0.5f * fAnkle, 0.06f * fRadius,
