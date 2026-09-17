@@ -133,7 +133,7 @@ static void emit_json_string(const char *sz)
 
 int main(int argc, char **argv)
 {
-  const char *szWanted = argc > 1 ? argv[1] : "Lilia 07";
+  const char *szWanted = argc > 1 ? argv[1] : "Hiiragi 14A";
   const tMechaMechDef *pDef = NULL;
   tMechaBoneFrame aBones[MECHA_BONE_COUNT];
   tMechaQuadList list;

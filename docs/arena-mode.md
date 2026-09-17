@@ -1014,7 +1014,7 @@ on the stick, and pick what to spend the next round on.
   for them in the gauge: a third of a second of boost and a drain that empties
   the bar in three of them. The ZIZIN is still the car.
 
-- **Two of the bipeds are not built like the others.** Lilia 07 is the slender
+- **Two of the bipeds are not built like the others.** Hiiragi 14A is the slender
   frame: narrow waist, wide skirt, tapered limbs, crests swept back off the
   head, and a walk that puts its feet down on the centreline with the hips
   travelling across to follow them and the shoulders rolling the other way.

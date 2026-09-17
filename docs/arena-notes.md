@@ -174,7 +174,7 @@ published ways [AI-13].
 Nine machines on four drawn chassis \[TYPE-06\]: five ordinary bipeds, the
 wheeled ZIZIN (which gets its own pilot branch in `mecha_ai_think`), BASTION 88
 on tracks [MESH-38] and Tarant VZ on six legs [MESH-39]. Two of the bipeds wear
-their own trim package [TYPE-07] -- Lilia 07 the slender frame with a crossing
+their own trim package [TYPE-07] -- Hiiragi 14A the slender frame with a crossing
 walk [MESH-33, MESH-40] and Corvid 3 a rack of drone pods [MESH-36]. Machines
 are built at one of three detail tiers by range [MESH-32], and a machine that
 wins a round holds a pose [MESH-41, MESH-42].
@@ -2623,7 +2623,7 @@ drains at 620 a second against the roster's usual 300, so three dashes empty it:
 this machine crosses ground by walking fast on six legs, not by throwing itself
 about on thrusters.
 
-## DEF-10 — Lilia 07 is the lightest thing on the roster
+## DEF-10 — Hiiragi 14A is the lightest thing on the roster
 
 760 armour against the tracked gun's 2000, carried by the longest dash and the
 highest turn rate. It is the frame the slender profile was written for and the
@@ -2974,7 +2974,7 @@ roll, their noise follows road speed, and it already did.
 
 ______________________________________________________________________
 
-## DEF-13 — Lilia was a T, and the measurement that said so was wrong twice
+## DEF-13 — Hiiragi 14A was a T, and the measurement that said so was wrong twice
 
 The brief was "narrower shoulders and waist, she reads as a brick". The
 interesting part is that the first two attempts to *measure* the brick both
@@ -2989,7 +2989,7 @@ the waist and widen the flare, and the flare made no difference at all to the
 figure -- which is the tell that the number was not reading the skirt.
 
 **The second was the ratio it led to.** With the arms counted, hip/shoulder came
-out 0.84, a hair off the roster average of 0.85, so by that measure Lilia was
+out 0.84, a hair off the roster average of 0.85, so by that measure Hiiragi 14A was
 already proportioned like everyone else and the complaint was imaginary.
 
 Measured off the builder's own part and bone tags instead -- binders are
@@ -3001,7 +3001,7 @@ Measured off the builder's own part and bone tags instead -- binders are
 | Exos 2000   | 5.30     | 2.79  | 3.41 | 0.64         |
 | Kira Type R | 7.24     | 3.78  | 4.62 | 0.64         |
 | Corvid 3    | 8.25     | 3.99  | 4.88 | 0.59         |
-| Lilia 07    | 5.37     | 2.16  | 3.09 | **0.58**     |
+| Hiiragi 14A | 5.37     | 2.16  | 3.09 | **0.58**     |
 
 The lightest frame on the roster had the second-widest shoulders relative to its
 own hips, behind only the eighty-tonne gunner. The waist was never the problem
@@ -3963,7 +3963,7 @@ grip's top is tucked inside the fist now.
 
 **The stance test was measuring gun barrels.** `mesh_foot_extent` took
 everything below the ankle line, which was fine while nothing but feet was down
-there. Rehanging the weapon on a wrist dropped LANCER's muzzle a tenth of an
+there. Rehanging the weapon on a wrist dropped Lancer G's muzzle a tenth of an
 upper body, under the line, and the fighting stance's "feet apart" became its
 guns apart: 3.58 m of barrel against 1.76 m of actual foot, and the ratio the
 test wanted collapsed. The helper asks for `MECHA_PART_LEG` now. It is the same

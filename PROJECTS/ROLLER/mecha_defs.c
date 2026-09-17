@@ -105,7 +105,7 @@ static const tMechaMechDef s_aMechDefs[] = {
 
 //-------------------------------------------------------------------------------------------------
 {
-  .szName = "LANCER", .szClass = "LINE ASSAULT",
+  .szName = "Lancer G", .szClass = "LINE ASSAULT",
   .fGrip = MECHA_MPS(90.0f), .fDriveAccel = MECHA_MPS(70.0f),
   .fBrake = MECHA_MPS(60.0f),
   .fBuildShoulder = 1.00f, .fBuildTorso = 1.00f, .fBuildLimb = 1.00f,
@@ -933,14 +933,14 @@ static const tMechaMechDef s_aMechDefs[] = {
 
 //-------------------------------------------------------------------------------------------------
 /*
- * Lilia 07. The slender frame: narrow through the waist, wide at the skirt,
+ * Hiiragi 14A. The slender frame: narrow through the waist, wide at the skirt,
  * and the lightest armour on the roster carried by the longest dash. It
  * leads from the hips and puts its feet down on its own centreline, and the
  * whole machine rocks back when it fires, because it is small and its guns
  * are not. [DEF-10]
  */
 {
-  .szName = "Lilia 07", .szClass = "STRIKE DANCER",
+  .szName = "Hiiragi 14A", .szClass = "STRIKE DANCER",
   .byProfile = MECHA_PROFILE_SLENDER,
   .fGrip = MECHA_MPS(165.0f), .fDriveAccel = MECHA_MPS(135.0f),
   .fBrake = MECHA_MPS(120.0f),

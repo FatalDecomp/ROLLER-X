@@ -1141,7 +1141,7 @@ static int test_guard_turns_melee_aside(void)
  * Below the ankle line **and** on a leg. The height alone used to be the
  * whole of it, and it was measuring whatever happened to be low: a machine
  * at ease hangs its guns beside its knees, and once the weapon was rehung
- * on a wrist [MESH-54] LANCER's muzzle dipped under the line and the
+ * on a wrist [MESH-54] Lancer G's muzzle dipped under the line and the
  * stance's "feet apart" became its gun barrels apart -- 3.58 m of them
  * against 1.76 m of actual foot. The same trap as the hips [DEF-13], in a
  * helper written long before that one was found. A foot is a leg; ask for
@@ -8148,7 +8148,7 @@ static int test_machines_carry_their_weight(void)
     int aiTicks[3];
     int i;
     static const int aiDefs[3] = { 1, 0, 2 };   /* heavy, middle, light */
-    static const char *const aszNames[3] = { "SJ Mk.IV", "LANCER",
+    static const char *const aszNames[3] = { "SJ Mk.IV", "Lancer G",
                                              "Exos 2000" };
 
     for (i = 0; i < 3; i++)
@@ -8460,7 +8460,7 @@ static int test_builds_read_as_silhouettes(void)
     float fBulwark = build_aspect(1, aStorage);
     float fHalcyon = build_aspect(2, aStorage);
 
-    printf("   width/height  LANCER %.2f  SJ Mk.IV %.2f  Exos 2000 %.2f\n",
+    printf("   width/height  Lancer G %.2f  SJ Mk.IV %.2f  Exos 2000 %.2f\n",
            fLancer, fBulwark, fHalcyon);
 
     /*
