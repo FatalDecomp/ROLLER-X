@@ -2171,6 +2171,11 @@ typedef struct
    * [MESH-33]
    */
   float   fChest;
+  /* Hiiragi's reference mesh has a lowered, tucked toe and a taller crest.
+   * Keep these in the build description so animation poses remain unchanged. */
+  float   fFootToeDrop;
+  float   fCrestLift;
+  float   fCrestHeight;
   /*
    * Where the hips are, and what that does to everything above them. A
    * machine whose hips ride high has long legs and a short body, and the
@@ -2243,7 +2248,10 @@ static void mecha_build_setup(tMechaBuild *pB, const tMechaMech *pMech,
    * failed, which is the only reason a figure this high is safe.
    */
   pB->fFlare = pB->iProfile == MECHA_PROFILE_SLENDER ? 2.0f : 1.0f;
-  pB->fChest = pB->iProfile == MECHA_PROFILE_SLENDER ? 0.82f : 1.0f;
+  pB->fChest = pB->iProfile == MECHA_PROFILE_SLENDER ? 0.72f : 1.0f;
+  pB->fFootToeDrop = pB->iProfile == MECHA_PROFILE_SLENDER ? 0.18f : 0.0f;
+  pB->fCrestLift = pB->iProfile == MECHA_PROFILE_SLENDER ? 0.08f : 0.05f;
+  pB->fCrestHeight = pB->iProfile == MECHA_PROFILE_SLENDER ? 0.07f : 0.05f;
   {
     /*
      * The figure. MECHA_HIP_CLASSIC is where the hips sat when there was
@@ -2965,12 +2973,13 @@ static void mecha_build_arms_head(tMechaQuadList *pList,
            */
           mecha_add_frustum(pList, &head,
                             fSide * 0.17f * pB->fRadius * pB->fHead,
-                            0.05f * pB->fUpperY, -0.22f * pB->fRadius * pB->fHead,
+                            pB->fCrestLift * pB->fUpperY,
+                            -0.24f * pB->fRadius * pB->fHead,
                             0.07f * pB->fRadius * pB->fHead,
                             0.28f * pB->fRadius * pB->fHead,
                             0.03f * pB->fRadius * pB->fHead,
                             0.24f * pB->fRadius * pB->fHead,
-                            0.05f * pB->fUpperY * pB->fHead,
+                            pB->fCrestHeight * pB->fUpperY * pB->fHead,
                             fSide * 0.11f * pB->fRadius * pB->fHead,
                             -0.24f * pB->fRadius * pB->fHead, pB->byGlow, pB->byGlow, 0);
         } else {
@@ -3786,11 +3795,14 @@ void mecha_mesh_mech_rigged(tMechaQuadList *pList, const tMechaWorld *pWorld,
     /* A toe sloping up off the front of it. The foot was one slab, which
      * from the front is a brick the machine is standing on. */
     if (iDetail >= MECHA_DETAIL_MID) {
-      mecha_add_frustum(pList, &foot, 0.0f, -0.5f * fAnkle,
+      mecha_add_frustum(pList, &foot, 0.0f,
+                        -0.5f * fAnkle - build.fFootToeDrop * fAnkle,
                         0.44f * fRadius * fLimb,
                         0.24f * fRadius * fLimb, 0.10f * fRadius * fLimb,
                         0.19f * fRadius * fLimb, 0.06f * fRadius * fLimb,
-                        0.5f * fAnkle, 0.0f, 0.05f * fRadius * fLimb,
+                        (build.iProfile == MECHA_PROFILE_SLENDER
+                          ? 0.32f : 0.5f) * fAnkle,
+                        0.0f, 0.05f * fRadius * fLimb,
                         byTrim, byTrim, 0);
     }
     /* And a heel behind it, so the foot has a front and a back. */

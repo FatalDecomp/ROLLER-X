@@ -960,7 +960,7 @@ static const tMechaMechDef s_aMechDefs[] = {
    * thing on this machine is its hips, which is true of nothing else on
    * the roster. [DEF-13]
    */
-  .fBuildShoulder = 0.52f, .fBuildTorso = 0.64f, .fBuildLimb = 0.76f,
+  .fBuildShoulder = 0.58f, .fBuildTorso = 0.64f, .fBuildLimb = 0.76f,
   .fBuildHead = 0.86f, .fBuildGun = 0.80f,
   /* Hips high and arms short: long legs under a small body, which is the
    * figure this frame is meant to cut. [DEF-10] */
