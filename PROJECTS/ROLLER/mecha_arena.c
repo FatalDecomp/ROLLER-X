@@ -1023,6 +1023,13 @@ void mecha_arena_init(tMechaArena *pArena, int iArenaIdx)
     }
 
     /*
+     * The causeway rises and falls like a hill. Mark it non-magnetic so the
+     * grounded-contact rule keeps a car rolling onto the descending stations
+     * instead of making it hop from one terrain cell to the next.
+     */
+    mecha_arena_mark_all(pArena, MECHA_SURF_NON_MAGNETIC);
+
+    /*
      * And the last stretch at each end, from where the measurements stop out
      * to the base itself. Without it the causeway ends 24 m short of the
      * ground it is supposed to arrive on.

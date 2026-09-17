@@ -2210,6 +2210,48 @@ static int mecha_arc_pitch(float fDist, float fRise, float fSpeed,
 
 //-------------------------------------------------------------------------------------------------
 
+/*
+ * Time for a straight shot to meet a target moving on the ground plane.
+ * Unlike distance / speed, this accounts for the extra distance introduced
+ * by leading the target, which is important for a fast-moving target.
+ * Returns false when the target cannot be intercepted at this speed.
+ */
+static bool mecha_intercept_time(float fDx, float fDz, float fVelX,
+                                 float fVelZ, float fSpeed, float *pfTime)
+{
+  float fA = fVelX * fVelX + fVelZ * fVelZ - fSpeed * fSpeed;
+  float fB = 2.0f * (fDx * fVelX + fDz * fVelZ);
+  float fC = fDx * fDx + fDz * fDz;
+
+  if (fSpeed <= 0.0f || fC <= 1e-6f)
+    return false;
+  if (fabsf(fA) < 1e-4f) {
+    if (fabsf(fB) < 1e-4f)
+      return false;
+    *pfTime = -fC / fB;
+    return *pfTime > 0.0f;
+  }
+
+  {
+    float fDiscriminant = fB * fB - 4.0f * fA * fC;
+    float fRoot;
+    float fT0;
+    float fT1;
+
+    if (fDiscriminant < 0.0f)
+      return false;
+    fRoot = sqrtf(fDiscriminant);
+    fT0 = (-fB - fRoot) / (2.0f * fA);
+    fT1 = (-fB + fRoot) / (2.0f * fA);
+    *pfTime = fT0 > 0.0f && fT1 > 0.0f
+                ? (fT0 < fT1 ? fT0 : fT1)
+                : (fT0 > 0.0f ? fT0 : fT1);
+  }
+  return *pfTime > 0.0f;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static tMechaProjectile *mecha_alloc_projectile(tMechaWorld *pWorld)
 {
   tMechaProjectile *pOldest = NULL;
@@ -2314,17 +2356,27 @@ static void mecha_fire_weapon(tMechaWorld *pWorld, int iMechIdx, int iSlot)
     float fDz;
     float fFlat;
 
-    /* Lead the target by its own velocity over the time of flight. Beams are
-     * effectively instant and homing shots correct themselves, so neither
-     * needs it. */
-    if (pWeapon->byKind == MECHA_PROJ_BULLET
-        || pWeapon->byKind == MECHA_PROJ_ARC) {
+    /*
+     * Lead the target over the actual intercept time. Beams are effectively
+     * instant, arcs still use their simpler flat-flight estimate, and a
+     * direct bullet must account for the extra distance its lead creates.
+     */
+    if (pWeapon->byKind == MECHA_PROJ_BULLET) {
+      float fFlight;
+
+      if (mecha_intercept_time(pTarget->fX - fOriginX,
+                               pTarget->fZ - fOriginZ,
+                               pTarget->fVelX, pTarget->fVelZ,
+                               pWeapon->fSpeed, &fFlight)) {
+        fAimX += pTarget->fVelX * fFlight;
+        fAimZ += pTarget->fVelZ * fFlight;
+      }
+    } else if (pWeapon->byKind == MECHA_PROJ_ARC) {
       float fRough = mecha_length2(fAimX - fOriginX, fAimZ - fOriginZ);
       float fFlight = fRough / pWeapon->fSpeed;
-      float fLead = pWeapon->byKind == MECHA_PROJ_ARC ? 1.0f : 0.85f;
 
-      fAimX += pTarget->fVelX * fFlight * fLead;
-      fAimZ += pTarget->fVelZ * fFlight * fLead;
+      fAimX += pTarget->fVelX * fFlight;
+      fAimZ += pTarget->fVelZ * fFlight;
     }
 
     fDx = fAimX - fOriginX;
