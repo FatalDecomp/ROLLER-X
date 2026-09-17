@@ -955,16 +955,16 @@ static const tMechaMechDef s_aMechDefs[] = {
    * were not: they were the widest thing on the machine, wider than its
    * hips by two thirds, and a figure whose broadest point is its shoulders
    * reads as a T however narrow the waist under it. Measured off the
-   * builder's own part tags rather than eyeballed, the hips were 0.58 of
+   * builder's own part tags rather than eyeballed, the hips were 0.52 of
    * the shoulders where the male frames sit at 0.64. Now 1.00: the widest
    * thing on this machine is its hips, which is true of nothing else on
    * the roster. [DEF-13]
    */
-  .fBuildShoulder = 0.58f, .fBuildTorso = 0.64f, .fBuildLimb = 0.76f,
-  .fBuildHead = 0.86f, .fBuildGun = 0.80f,
+  .fBuildShoulder = 0.52f, .fBuildTorso = 0.60f, .fBuildLimb = 0.74f,
+  .fBuildHead = 0.82f, .fBuildGun = 0.80f,
   /* Hips high and arms short: long legs under a small body, which is the
    * figure this frame is meant to cut. [DEF-10] */
-  .fBuildHip = 0.60f, .fBuildArm = 0.88f,
+  .fBuildHip = 0.62f, .fBuildArm = 0.84f,
   /*
    * And the smallest thing on two legs in the game. A hip flare is three
    * pixels at the range machines are told apart at, so the difference

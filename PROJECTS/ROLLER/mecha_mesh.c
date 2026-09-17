@@ -2258,7 +2258,7 @@ static void mecha_build_setup(tMechaBuild *pB, const tMechaMech *pMech,
    * opposition -- thin legs under a wide flare -- that reads as the build
    * rather than as a mech drawn at three quarters. [MESH-33]
    */
-  pB->fTaper = pB->iProfile == MECHA_PROFILE_SLENDER ? 0.74f : 1.0f;
+  pB->fTaper = pB->iProfile == MECHA_PROFILE_SLENDER ? 0.70f : 1.0f;
   /*
    * Back off from the 1.9 this was briefly at. That was reaching for a
    * silhouette that would not read as the interceptor's at range, which is
@@ -2267,7 +2267,7 @@ static void mecha_build_setup(tMechaBuild *pB, const tMechaMech *pMech,
    * slab from one side to the other rather than armour hung on a frame.
    */
   /*
-   * Raised twice with the narrowed waist [DEF-13]. The skirt is drawn off
+   * Raised with the narrowed waist [DEF-13]. The skirt is drawn off
    * the torso width, so bringing the torso in takes the hips with it and
    * the figure merely gets smaller rather than getting a shape; 1.25 only
    * held the skirt where it was. This puts it past where it started, which
@@ -2277,12 +2277,12 @@ static void mecha_build_setup(tMechaBuild *pB, const tMechaMech *pMech,
    * There is headroom for it now that there was not at 1.9. What broke then
    * was the plates reaching a width they could not be joined to the waist
    * at, and width here is torso times flare: 1.9 on the old 0.74 torso is
-   * 1.41, where 2.0 on the 0.64 one is 1.28. The number went up by more
+   * 1.41, where 2.15 on the 0.60 one is 1.29. The number went up by more
    * than a tenth and the skirt still came out narrower than the one that
    * failed, which is the only reason a figure this high is safe.
    */
-  pB->fFlare = pB->iProfile == MECHA_PROFILE_SLENDER ? 2.0f : 1.0f;
-  pB->fChest = pB->iProfile == MECHA_PROFILE_SLENDER ? 0.72f : 1.0f;
+  pB->fFlare = pB->iProfile == MECHA_PROFILE_SLENDER ? 2.15f : 1.0f;
+  pB->fChest = pB->iProfile == MECHA_PROFILE_SLENDER ? 0.66f : 1.0f;
   pB->fFootToeDrop = pB->iProfile == MECHA_PROFILE_SLENDER ? 0.18f : 0.0f;
   pB->fCrestLift = pB->iProfile == MECHA_PROFILE_SLENDER ? 0.08f : 0.05f;
   pB->fCrestHeight = pB->iProfile == MECHA_PROFILE_SLENDER ? 0.07f : 0.05f;
@@ -2468,7 +2468,7 @@ static void mecha_build_torso(tMechaQuadList *pList, const tMechaBuild *pB,
  * paiThigh is the pair of thigh swings the front plates hinge on.
  */
 static void mecha_build_skirt(tMechaQuadList *pList, const tMechaBuild *pB,
-                              const tMechaPose *pTorso, const int *paiThigh)
+                              const tMechaPose *pPelvis, const int *paiThigh)
 {
   int iSide;
 
@@ -2508,9 +2508,13 @@ static void mecha_build_skirt(tMechaQuadList *pList, const tMechaBuild *pB,
     float fWaist = 0.52f * pB->fRadius * pB->fTorso * pB->fTaper;
     float fReach = 0.30f * pB->fRadius * pB->fTorso * pB->fFlare;
     float fHalf = 0.5f * fReach;
+    float fHinge = fWaist
+                 + (pB->iProfile == MECHA_PROFILE_SLENDER
+                      ? 0.02f * pB->fRadius : 0.0f);
     /* Narrower where it meets the waist than where it hangs, so the plate
      * has a taper of its own and reads as armour rather than as a slab. */
-    float fHalfTop = 0.45f * fHalf;
+    float fHalfTop = (pB->iProfile == MECHA_PROFILE_SLENDER
+                        ? 0.30f : 0.45f) * fHalf;
 
     for (iSide = 0; iSide < 2; iSide++) {
       float fSide = iSide == 0 ? -1.0f : 1.0f;
@@ -2523,8 +2527,9 @@ static void mecha_build_skirt(tMechaQuadList *pList, const tMechaBuild *pB,
        * geometry is unchanged: at rest the pivot puts it exactly where it
        * sat when it was bolted on.
        */
-      mecha_pose_child(&plate, pTorso, fSide * fWaist, 0.0f,
-                       -0.01f * pB->fRadius, 0,
+      mecha_pose_child(&plate, pPelvis, fSide * fHinge,
+                       -0.02f * pB->fUpperY,
+                       -0.04f * pB->fRadius, 0,
                        (int)(-0.30f * (float)iSwing), 0);
       mecha_pose_name(&plate, MECHA_BONE_SKIRT_SIDE_L + iSide, pB->paBones);
       mecha_add_frustum(pList, &plate,
@@ -2542,7 +2547,7 @@ static void mecha_build_skirt(tMechaQuadList *pList, const tMechaBuild *pB,
         /* Just over half the thigh's swing: enough that the plate is never
          * inside the leg, little enough that it still reads as armour rather
          * than as a second thigh. */
-        mecha_pose_child(&plate, pTorso,
+        mecha_pose_child(&plate, pPelvis,
                          fSide * 0.24f * pB->fRadius * pB->fTorso,
                          -0.02f * pB->fUpperY, 0.0f, 0,
                          (int)(-0.55f * (float)iSwing), 0);
@@ -2562,7 +2567,7 @@ static void mecha_build_skirt(tMechaQuadList *pList, const tMechaBuild *pB,
       /* And half a plate across the back of the waist, per leg. One plate
        * spanning both is a plate neither leg can move. */
       if (pB->iDetail >= MECHA_DETAIL_FULL) {
-        mecha_pose_child(&plate, pTorso,
+        mecha_pose_child(&plate, pPelvis,
                          fSide * 0.02f * pB->fRadius * pB->fTorso,
                          -0.02f * pB->fUpperY,
                          -0.10f * pB->fRadius * pB->fTorso, 0,
