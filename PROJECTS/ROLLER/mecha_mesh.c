@@ -2258,7 +2258,7 @@ static void mecha_build_setup(tMechaBuild *pB, const tMechaMech *pMech,
    * opposition -- thin legs under a wide flare -- that reads as the build
    * rather than as a mech drawn at three quarters. [MESH-33]
    */
-  pB->fTaper = pB->iProfile == MECHA_PROFILE_SLENDER ? 0.70f : 1.0f;
+  pB->fTaper = pB->iProfile == MECHA_PROFILE_SLENDER ? 0.74f : 1.0f;
   /*
    * Back off from the 1.9 this was briefly at. That was reaching for a
    * silhouette that would not read as the interceptor's at range, which is
@@ -2281,11 +2281,11 @@ static void mecha_build_setup(tMechaBuild *pB, const tMechaMech *pMech,
    * than a tenth and the skirt still came out narrower than the one that
    * failed, which is the only reason a figure this high is safe.
    */
-  pB->fFlare = pB->iProfile == MECHA_PROFILE_SLENDER ? 2.15f : 1.0f;
-  pB->fChest = pB->iProfile == MECHA_PROFILE_SLENDER ? 0.66f : 1.0f;
-  pB->fFootToeDrop = pB->iProfile == MECHA_PROFILE_SLENDER ? 0.18f : 0.0f;
-  pB->fCrestLift = pB->iProfile == MECHA_PROFILE_SLENDER ? 0.08f : 0.05f;
-  pB->fCrestHeight = pB->iProfile == MECHA_PROFILE_SLENDER ? 0.07f : 0.05f;
+  pB->fFlare = pB->iProfile == MECHA_PROFILE_SLENDER ? 2.0f : 1.0f;
+  pB->fChest = pB->iProfile == MECHA_PROFILE_SLENDER ? 0.82f : 1.0f;
+  pB->fFootToeDrop = pB->iProfile == MECHA_PROFILE_SLENDER ? 0.0f : 0.0f;
+  pB->fCrestLift = pB->iProfile == MECHA_PROFILE_SLENDER ? 0.05f : 0.05f;
+  pB->fCrestHeight = pB->iProfile == MECHA_PROFILE_SLENDER ? 0.05f : 0.05f;
   {
     /*
      * The figure. MECHA_HIP_CLASSIC is where the hips sat when there was
@@ -2361,8 +2361,8 @@ static void mecha_build_torso(tMechaQuadList *pList, const tMechaBuild *pB,
    * seeing a box. Further than 0.24 and the plate's top rear corner starts
    * cutting back through the chest it is supposed to be lying on. [MESH-54]
    */
-  mecha_add_frustum(pList, pTorso, 0.0f, 0.19f * pB->fUpperY,
-                    0.53f * pB->fRadius * pB->fTorso * pB->fChest,
+  mecha_add_frustum(pList, pTorso, 0.0f, 0.230f * pB->fUpperY,
+                    0.573f * pB->fRadius * pB->fTorso * pB->fChest,
                     0.52f * pB->fRadius * pB->fTorso * pB->fChest,
                     0.08f * pB->fRadius,
                     0.44f * pB->fRadius * pB->fTorso * pB->fChest,
@@ -2508,13 +2508,10 @@ static void mecha_build_skirt(tMechaQuadList *pList, const tMechaBuild *pB,
     float fWaist = 0.52f * pB->fRadius * pB->fTorso * pB->fTaper;
     float fReach = 0.30f * pB->fRadius * pB->fTorso * pB->fFlare;
     float fHalf = 0.5f * fReach;
-    float fHinge = fWaist
-                 + (pB->iProfile == MECHA_PROFILE_SLENDER
-                      ? 0.02f * pB->fRadius : 0.0f);
+
     /* Narrower where it meets the waist than where it hangs, so the plate
      * has a taper of its own and reads as armour rather than as a slab. */
-    float fHalfTop = (pB->iProfile == MECHA_PROFILE_SLENDER
-                        ? 0.30f : 0.45f) * fHalf;
+    float fHalfTop = 0.45f * fHalf;
 
     for (iSide = 0; iSide < 2; iSide++) {
       float fSide = iSide == 0 ? -1.0f : 1.0f;
@@ -2527,9 +2524,8 @@ static void mecha_build_skirt(tMechaQuadList *pList, const tMechaBuild *pB,
        * geometry is unchanged: at rest the pivot puts it exactly where it
        * sat when it was bolted on.
        */
-      mecha_pose_child(&plate, pPelvis, fSide * fHinge,
-                       -0.02f * pB->fUpperY,
-                       -0.04f * pB->fRadius, 0,
+      mecha_pose_child(&plate, pPelvis, fSide * fWaist, 0.0f,
+                       -0.01f * pB->fRadius, 0,
                        (int)(-0.30f * (float)iSwing), 0);
       mecha_pose_name(&plate, MECHA_BONE_SKIRT_SIDE_L + iSide, pB->paBones);
       mecha_add_frustum(pList, &plate,
@@ -2775,14 +2771,19 @@ static void mecha_build_arms_head(tMechaQuadList *pList,
       /* A lip along the top of it, in the joint colour, so the binder has
        * an edge instead of fading into the shoulder. */
       if (pB->iDetail >= MECHA_DETAIL_FULL) {
+        /* Carried out to the binder's outer edge and raked the other way,
+         * off the reference mesh: it reads as a cap on the end of the
+         * binder rather than a band across the middle of it. Same size,
+         * moved and re-skewed. [MESH-55] */
         mecha_add_frustum(pList, pTorso,
-                          fSide * (fBinderX + 0.02f * pB->fRadius),
+                          fSide * (fBinderX + 0.132f * pB->fRadius),
                           0.38f * pB->fUpperY * pB->fShoulder, 0.0f,
                           fBinderHx1,
                           0.30f * pB->fRadius * pB->fShoulder,
                           0.80f * fBinderHx1,
                           0.24f * pB->fRadius * pB->fShoulder,
-                          0.018f * pB->fUpperY, fSide * 0.02f * pB->fRadius, 0.0f,
+                          0.018f * pB->fUpperY,
+                          fSide * -0.02f * pB->fRadius, 0.0f,
                           pB->byJoint, pB->byJoint, 0);
       }
 
@@ -3753,8 +3754,15 @@ void mecha_mesh_mech_rigged(tMechaQuadList *pList, const tMechaWorld *pWorld,
     mecha_add_frustum(pList, &thigh, 0.0f, -0.5f * fThighLen, 0.0f,
                       0.20f * fRadius * fLimb * fTaper,
                       0.21f * fRadius * fLimb * fTaper,
-                      0.25f * fRadius * fLimb, 0.26f * fRadius * fLimb,
-                      0.5f * fThighLen, 0.0f, 0.0f, byBody, byBody, 0);
+                      0.187f * fRadius * fLimb, 0.226f * fRadius * fLimb,
+                      0.5f * fThighLen,
+                      /* The top of the thigh is narrower than it was and
+                       * carried inboard rather than centred on the hip, so
+                       * the gap between the legs opens at the top and the
+                       * outer line stays where it was. Read off the
+                       * reference mesh. [MESH-55] */
+                      -fSide * 0.106f * fRadius * fLimb, 0.0f,
+                      byBody, byBody, 0);
     /* The knee, standing proud of both thigh and shin so it reads as a
      * joint and its faces stay out of their planes. [MESH-18] */
     mecha_add_box(pList, &thigh, 0.0f, -fThighLen, 0.0f,
@@ -3841,8 +3849,7 @@ void mecha_mesh_mech_rigged(tMechaQuadList *pList, const tMechaWorld *pWorld,
                         0.44f * fRadius * fLimb,
                         0.24f * fRadius * fLimb, 0.10f * fRadius * fLimb,
                         0.19f * fRadius * fLimb, 0.06f * fRadius * fLimb,
-                        (build.iProfile == MECHA_PROFILE_SLENDER
-                          ? 0.32f : 0.5f) * fAnkle,
+                        0.5f * fAnkle,
                         0.0f, 0.05f * fRadius * fLimb,
                         byTrim, byTrim, 0);
     }

@@ -960,11 +960,11 @@ static const tMechaMechDef s_aMechDefs[] = {
    * thing on this machine is its hips, which is true of nothing else on
    * the roster. [DEF-13]
    */
-  .fBuildShoulder = 0.52f, .fBuildTorso = 0.60f, .fBuildLimb = 0.74f,
-  .fBuildHead = 0.82f, .fBuildGun = 0.80f,
+  .fBuildShoulder = 0.52f, .fBuildTorso = 0.64f, .fBuildLimb = 0.76f,
+  .fBuildHead = 0.86f, .fBuildGun = 0.80f,
   /* Hips high and arms short: long legs under a small body, which is the
    * figure this frame is meant to cut. [DEF-10] */
-  .fBuildHip = 0.62f, .fBuildArm = 0.84f,
+  .fBuildHip = 0.60f, .fBuildArm = 0.88f,
   /*
    * And the smallest thing on two legs in the game. A hip flare is three
    * pixels at the range machines are told apart at, so the difference
