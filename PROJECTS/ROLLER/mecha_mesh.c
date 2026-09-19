@@ -445,19 +445,37 @@ static void mecha_add_box(tMechaQuadList *pList, const tMechaPose *pPose,
 //-------------------------------------------------------------------------------------------------
 
 /*
- * A box whose top face is a different size from its bottom, and may be
- * offset from directly above it. Every side stays planar because both of
- * its horizontal edges keep their axis, so this costs exactly what a box
+ * A box whose top face is a different size from its bottom, may be offset
+ * from directly above it, and may be raked -- tipped about its own aft
+ * edge so the forward end sits lower. Every side stays planar because both
+ * of its horizontal edges keep their axis, so this costs exactly what a box
  * costs and buys the tapers, wedges and sloped plates the boxes could not
  * make. [MESH-31]
+ *
+ * The rake is the one degree of freedom a tilted sub-pose cannot stand in
+ * for. A sub-pose turns the whole solid, floor face and all, which is fine
+ * for a limb and wrong for a plate: rake a foot by rotating it and the sole
+ * leaves the ground. Raking here shears the top face alone, measured as the
+ * drop per unit of +Z across it and hinged on the aft edge, so a rake only
+ * ever cuts material away from a shape that already fits -- the sole, the
+ * silhouette's high point and every other face stay exactly where they
+ * were. [MESH-55]
+ *
+ * The nose is the one parameter that costs something. Give the two ends of
+ * a face different widths and the side quads stop being planar -- on the
+ * shapes here by a couple of centimetres on an eleven-metre machine, which
+ * is under a pixel at any range the mesh is drawn at, and is the same warp
+ * the hand-sculpted reference carries. Everything else here keeps every
+ * face flat. [MESH-55]
  */
-static void mecha_add_frustum(tMechaQuadList *pList, const tMechaPose *pPose,
-                              float fCx, float fCy, float fCz,
-                              float fHx0, float fHz0,
-                              float fHx1, float fHz1,
-                              float fHy, float fSkewX, float fSkewZ,
-                              uint8_t byPalette, uint8_t byTopPalette,
-                              uint8_t byFlags)
+static void mecha_add_hull(tMechaQuadList *pList, const tMechaPose *pPose,
+                           float fCx, float fCy, float fCz,
+                           float fHx0, float fHz0,
+                           float fHx1, float fHz1,
+                           float fHy, float fSkewX, float fSkewZ,
+                           float fRakeZ, float fNoseX0, float fNoseX1,
+                           uint8_t byPalette, uint8_t byTopPalette,
+                           uint8_t byFlags)
 {
   float afCorner[8][3];
   int iCorner;
@@ -473,10 +491,18 @@ static void mecha_add_frustum(tMechaQuadList *pList, const tMechaPose *pPose,
     float fHz = bTop ? fHz1 : fHz0;
     float fOffX = bTop ? fSkewX : 0.0f;
     float fOffZ = bTop ? fSkewZ : 0.0f;
+    /* Hinged on the aft edge: the -Z corners of the top face do not move,
+     * the +Z corners drop by the rake over the face's whole depth. */
+    float fRake = (bTop && (iCorner & 4)) ? fRakeZ * 2.0f * fHz1 : 0.0f;
+
+    /* The nose narrows the forward edge of each face on its own, which is
+     * what makes a chin a chin and a prow a prow. */
+    if (iCorner & 4)
+      fHx *= bTop ? fNoseX1 : fNoseX0;
 
     mecha_pose_apply(pPose,
                      fCx + fOffX + ((iCorner & 1) ? fHx : -fHx),
-                     fCy + (bTop ? fHy : -fHy),
+                     fCy + (bTop ? fHy : -fHy) - fRake,
                      fCz + fOffZ + ((iCorner & 4) ? fHz : -fHz),
                      afCorner[iCorner]);
   }
@@ -490,6 +516,35 @@ static void mecha_add_frustum(tMechaQuadList *pList, const tMechaPose *pPose,
     mecha_quads_add(pList, afVert,
                     iFace == 2 ? byTopPalette : byPalette, byFlags);
   }
+}
+
+/* The same solid with its forward edges full width. */
+static void mecha_add_raked(tMechaQuadList *pList, const tMechaPose *pPose,
+                            float fCx, float fCy, float fCz,
+                            float fHx0, float fHz0,
+                            float fHx1, float fHz1,
+                            float fHy, float fSkewX, float fSkewZ,
+                            float fRakeZ,
+                            uint8_t byPalette, uint8_t byTopPalette,
+                            uint8_t byFlags)
+{
+  mecha_add_hull(pList, pPose, fCx, fCy, fCz, fHx0, fHz0, fHx1, fHz1,
+                 fHy, fSkewX, fSkewZ, fRakeZ, 1.0f, 1.0f,
+                 byPalette, byTopPalette, byFlags);
+}
+
+/* The same solid with a flat top, which is what almost every call wants. */
+static void mecha_add_frustum(tMechaQuadList *pList, const tMechaPose *pPose,
+                              float fCx, float fCy, float fCz,
+                              float fHx0, float fHz0,
+                              float fHx1, float fHz1,
+                              float fHy, float fSkewX, float fSkewZ,
+                              uint8_t byPalette, uint8_t byTopPalette,
+                              uint8_t byFlags)
+{
+  mecha_add_raked(pList, pPose, fCx, fCy, fCz, fHx0, fHz0, fHx1, fHz1,
+                  fHy, fSkewX, fSkewZ, 0.0f, byPalette, byTopPalette,
+                  byFlags);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1455,6 +1510,16 @@ static int mecha_blend_angle(int iFrom, int iTo, float fAmount)
  * Its whole job is that the arm does not read as one straight piece from
  * shoulder to muzzle. [MESH-54] */
 #define MECHA_WRIST_BREAK  MECHA_DEG(9)
+/*
+ * Two pieces the reference mesh has tilted, which a frustum cannot be: its
+ * top and bottom faces are flat in its own frame by construction, so a
+ * sloped toe or a raked fin is not a number you can pick, it is a frame you
+ * have to give it. Both are sub-poses of the part they sit on, which also
+ * means they inherit its bone and cost no extra skinning. [MESH-55]
+ */
+#define MECHA_CREST_SWEEP MECHA_DEG(29.85f)
+#define MECHA_CHEST_PITCH MECHA_DEG(8.99f)
+#define MECHA_SKULL_NOD   MECHA_DEG(5.716f)
 #define MECHA_SLIM_SWING   MECHA_DEG(45)
 #define MECHA_SLIM_KNEE    MECHA_DEG(74)
 /* A deeper knee picks the foot up higher, so the toe drops further.
@@ -2284,8 +2349,11 @@ static void mecha_build_setup(tMechaBuild *pB, const tMechaMech *pMech,
   pB->fFlare = pB->iProfile == MECHA_PROFILE_SLENDER ? 2.0f : 1.0f;
   pB->fChest = pB->iProfile == MECHA_PROFILE_SLENDER ? 0.82f : 1.0f;
   pB->fFootToeDrop = pB->iProfile == MECHA_PROFILE_SLENDER ? 0.0f : 0.0f;
-  pB->fCrestLift = pB->iProfile == MECHA_PROFILE_SLENDER ? 0.05f : 0.05f;
-  pB->fCrestHeight = pB->iProfile == MECHA_PROFILE_SLENDER ? 0.05f : 0.05f;
+  /* Both read only by the slender crest, which is swept back in a frame of
+   * its own [MESH-55]: the lift is off the brow line and the height is the
+   * blade's thickness, not its length. */
+  pB->fCrestLift = 0.0026f;
+  pB->fCrestHeight = 0.0161f;
   {
     /*
      * The figure. MECHA_HIP_CLASSIC is where the hips sat when there was
@@ -2328,24 +2396,45 @@ static void mecha_build_torso(tMechaQuadList *pList, const tMechaBuild *pB,
    * the skirt below: a machine with a waist has three shapes stacked up
    * where a machine without one has a column. [MESH-34]
    */
-  mecha_add_frustum(pList, pTorso, 0.0f, 0.0f, 0.0f,
-                    0.52f * pB->fRadius * pB->fTorso * pB->fTaper,
-                    0.38f * pB->fRadius * pB->fTorso * pB->fTaper,
-                    0.58f * pB->fRadius * pB->fTorso * pB->fTaper,
-                    0.40f * pB->fRadius * pB->fTorso * pB->fTaper,
-                    0.07f * pB->fUpperY, 0.0f, 0.0f, pB->byJoint, pB->byJoint, 0);
+  /* The waist, which keeps its widths and gains a twist: the belly flares
+   * forward of the hip and the small of the back stays broad, while above
+   * it that reverses and the front draws in under the chest. [MESH-55] */
+  mecha_add_hull(pList, pTorso, 0.0f, 0.0f, 0.0f,
+                 0.52f * pB->fRadius * pB->fTorso * pB->fTaper,
+                 0.38f * pB->fRadius * pB->fTorso * pB->fTaper,
+                 0.58f * pB->fRadius * pB->fTorso * pB->fTaper,
+                 0.40f * pB->fRadius * pB->fTorso * pB->fTaper,
+                 0.07f * pB->fUpperY, 0.0f, 0.0f, 0.0f,
+                 1.1436f, 0.7487f, pB->byJoint, pB->byJoint, 0);
 
   /*
    * The chest, widening from the waist to the shoulders. Everything about
    * a mecha's build is in that one taper, which is why it is a frustum and
    * the thing it replaced was a box.
+   *
+   * Pitched forward in a frame of its own and raked on top of that, so it
+   * leans into the machine's own front rather than standing square on the
+   * waist: the breastbone runs out and down and the deck behind it falls
+   * away to the spine. It is narrower than it was, and deeper, which is
+   * the trade that stops a slender frame reading as a crate. The binders
+   * and the arms keep hanging off fChestW and do not move with it, which
+   * is why that width is worked out separately. [MESH-55]
    */
-  mecha_add_frustum(pList, pTorso, 0.0f, 0.17f * pB->fUpperY, 0.02f * pB->fRadius,
-                    0.58f * pB->fRadius * pB->fTorso * pB->fTaper,
-                    0.46f * pB->fRadius * pB->fTorso * pB->fChest,
-                    0.76f * pB->fRadius * pB->fTorso * pB->fChest,
-                    0.50f * pB->fRadius * pB->fTorso * pB->fChest,
-                    0.13f * pB->fUpperY, 0.0f, 0.0f, pB->byBody, pB->byTrim, 0);
+  {
+    tMechaPose chest;
+
+    mecha_pose_child(&chest, pTorso, 0.0f, 0.0f, 0.0f, 0,
+                     MECHA_CHEST_PITCH, 0);
+    mecha_add_hull(pList, &chest, 0.0f, 0.160f * pB->fUpperY,
+                   -0.013f * pB->fRadius,
+                   0.618f * pB->fRadius * pB->fTorso * pB->fTaper,
+                   0.380f * pB->fRadius * pB->fTorso * pB->fChest,
+                   0.6616f * pB->fRadius * pB->fTorso * pB->fChest,
+                   0.583f * pB->fRadius * pB->fTorso * pB->fChest,
+                   0.1306f * pB->fUpperY, 0.0f,
+                   -0.0626f * pB->fRadius, 0.0774f, 0.865f, 0.768f,
+                   pB->byBody, pB->byTrim, 0);
+  }
 
   /*
    * The glacis. This was a plate laid on the front of the chest with four
@@ -2377,13 +2466,21 @@ static void mecha_build_torso(tMechaQuadList *pList, const tMechaBuild *pB,
     for (iSide = 0; iSide < 2; iSide++) {
       float fSide = iSide == 0 ? -1.0f : 1.0f;
 
+      /* Narrower, deeper at the root and swept outboard and aft as they
+       * rise, which is the reference's shape: a pair of gills raked back
+       * along the chest rather than two lamps stuck on the front of it.
+       * [MESH-55] */
       mecha_add_frustum(pList, pTorso,
-                        fSide * 0.50f * pB->fRadius * pB->fTorso,
-                        0.20f * pB->fUpperY, 0.42f * pB->fRadius * pB->fTorso,
-                        0.17f * pB->fRadius * pB->fTorso, 0.13f * pB->fRadius,
-                        0.12f * pB->fRadius * pB->fTorso, 0.10f * pB->fRadius,
-                        0.06f * pB->fUpperY,
-                        fSide * 0.03f * pB->fRadius * pB->fTorso, 0.0f,
+                        fSide * 0.422f * pB->fRadius * pB->fTorso,
+                        0.198f * pB->fUpperY,
+                        0.4392f * pB->fRadius * pB->fTorso,
+                        0.1229f * pB->fRadius * pB->fTorso,
+                        0.1155f * pB->fRadius,
+                        0.120f * pB->fRadius * pB->fTorso,
+                        0.0592f * pB->fRadius,
+                        0.0619f * pB->fUpperY,
+                        fSide * 0.1079f * pB->fRadius * pB->fTorso,
+                        -0.0531f * pB->fRadius,
                         pB->byGlow, pB->byGlow, MECHA_QUAD_GLOW);
     }
   }
@@ -2407,8 +2504,8 @@ static void mecha_build_torso(tMechaQuadList *pList, const tMechaBuild *pB,
                     0.50f * pB->fRadius * pB->fTorso * pB->fChest,
                     0.16f * pB->fRadius,
                     0.44f * pB->fRadius * pB->fTorso * pB->fChest,
-                    0.12f * pB->fRadius,
-                    0.11f * pB->fUpperY, 0.0f, -0.02f * pB->fRadius,
+                    0.0806f * pB->fRadius,
+                    0.11f * pB->fUpperY, 0.0f, 0.0194f * pB->fRadius,
                     pB->byJoint, pB->byJoint, 0);
 
   /*
@@ -2718,7 +2815,10 @@ static void mecha_build_arms_head(tMechaQuadList *pList,
      * mistake the skirt plates had. [MESH-34]
      */
     float fChestW = 0.76f * pB->fRadius * pB->fTorso * pB->fChest;
-    float fBinderHx0 = 0.34f * pB->fRadius * pB->fShoulder;
+    /* Flared at the root off the reference mesh: the binder's underside
+     * reaches further outboard than its top, so the outer face slopes in
+     * as it rises instead of standing straight up. [MESH-55] */
+    float fBinderHx0 = 0.421f * pB->fRadius * pB->fShoulder;
     float fBinderHx1 = 0.24f * pB->fRadius * pB->fShoulder;
     /* Seated so its inner face overlaps the shoulder rather than meeting it
      * exactly, because two faces in one plane have nothing to sort them
@@ -2766,7 +2866,7 @@ static void mecha_build_arms_head(tMechaQuadList *pList,
                         fBinderHx1,
                         0.30f * pB->fRadius * pB->fShoulder,
                         0.09f * pB->fUpperY * pB->fShoulder,
-                        fSide * (fBinderHx0 - fBinderHx1), 0.0f,
+                        fSide * 0.0229f * pB->fRadius * pB->fShoulder, 0.0f,
                         pB->byTrim, pB->byTrim, 0);
       /* A lip along the top of it, in the joint colour, so the binder has
        * an edge instead of fading into the shoulder. */
@@ -2776,7 +2876,7 @@ static void mecha_build_arms_head(tMechaQuadList *pList,
          * binder rather than a band across the middle of it. Same size,
          * moved and re-skewed. [MESH-55] */
         mecha_add_frustum(pList, pTorso,
-                          fSide * (fBinderX + 0.132f * pB->fRadius),
+                          fSide * (fBinderX + 0.0882f * pB->fRadius),
                           0.38f * pB->fUpperY * pB->fShoulder, 0.0f,
                           fBinderHx1,
                           0.30f * pB->fRadius * pB->fShoulder,
@@ -2970,28 +3070,64 @@ static void mecha_build_arms_head(tMechaQuadList *pList,
        * turn with what it carries. [MESH-44]
        */
       if (pB->iDetail >= MECHA_DETAIL_MID) {
-        mecha_add_frustum(pList, pTorso, 0.0f, 0.33f * pB->fUpperY, 0.0f,
-                          0.15f * pB->fRadius * pB->fHead,
-                          0.15f * pB->fRadius * pB->fHead,
-                          0.13f * pB->fRadius * pB->fHead,
-                          0.13f * pB->fRadius * pB->fHead,
-                          0.03f * pB->fUpperY, 0.0f, 0.0f,
-                          pB->byJoint, pB->byJoint, 0);
+        mecha_add_hull(pList, pTorso, 0.0f, 0.33f * pB->fUpperY, 0.0f,
+                       0.132f * pB->fRadius * pB->fHead,
+                       0.15f * pB->fRadius * pB->fHead,
+                       0.1144f * pB->fRadius * pB->fHead,
+                       0.13f * pB->fRadius * pB->fHead,
+                       0.03f * pB->fUpperY, 0.0f, 0.0f, 0.0f,
+                       0.779f, 0.779f, pB->byJoint, pB->byJoint, 0);
       }
       mecha_pose_child(&head, pTorso, 0.0f, 0.38f * pB->fUpperY, 0.0f,
                        iHeadYaw, -iHeadPitch, 0);
       mecha_pose_name(&head, MECHA_BONE_HEAD, pB->paBones);
-      /* The skull narrows towards the crown and juts at the jaw. */
-      mecha_add_frustum(pList, &head, 0.0f, 0.02f * pB->fUpperY,
-                        0.05f * pB->fRadius,
-                        0.26f * pB->fRadius * pB->fHead, 0.27f * pB->fRadius * pB->fHead,
-                        0.21f * pB->fRadius * pB->fHead, 0.22f * pB->fRadius * pB->fHead,
-                        0.05f * pB->fUpperY * pB->fHead, 0.0f,
-                        -0.03f * pB->fRadius * pB->fHead, pB->byTrim, pB->byTrim, 0);
-      mecha_add_box(pList, &head, 0.0f, 0.03f * pB->fUpperY,
-                    0.30f * pB->fRadius * pB->fHead,
-                    0.20f * pB->fRadius * pB->fHead, 0.02f * pB->fUpperY, 0.03f * pB->fRadius,
-                    pB->byGlow, pB->byGlow, MECHA_QUAD_GLOW);
+      /*
+       * The skull. It narrows towards the crown and juts at the jaw, and
+       * the jaw now draws to a chin: the underside is cut away to under
+       * half its width by the time it reaches the front, while the crown
+       * above it widens the other way. Two tapers pulling opposite ways
+       * along the same axis is the whole difference between a face and a
+       * cardboard box, and the head is nodded forward a few degrees so it
+       * is looking at you rather than past you. [MESH-55]
+       */
+      {
+        tMechaPose skull;
+
+        mecha_pose_child(&skull, &head, 0.0f, 0.0f, 0.0f, 0,
+                         MECHA_SKULL_NOD, 0);
+        mecha_add_hull(pList, &skull, 0.0f, 0.0202f * pB->fUpperY,
+                       0.0268f * pB->fRadius,
+                       0.260f * pB->fRadius * pB->fHead,
+                       0.2866f * pB->fRadius * pB->fHead,
+                       0.159f * pB->fRadius * pB->fHead,
+                       0.2219f * pB->fRadius * pB->fHead,
+                       0.0515f * pB->fUpperY * pB->fHead, 0.0f,
+                       -0.0244f * pB->fRadius * pB->fHead,
+                       0.0359f, 0.451f, 1.226f,
+                       pB->byTrim, pB->byTrim, 0);
+      }
+      /*
+       * The visor. Drawn in a frame stood on its nose, so the frustum's own
+       * bottom-to-top taper runs fore and aft instead of up and down and
+       * the glass narrows to a beak the way a helmet does. A box could not:
+       * its taper only ever runs up. [MESH-55]
+       */
+      {
+        tMechaPose visor;
+
+        mecha_pose_child(&visor, &head, 0.0f, 0.0f, 0.0f, 0,
+                         MECHA_DEG(90), 0);
+        mecha_add_raked(pList, &visor, 0.0f,
+                        0.290f * pB->fRadius * pB->fHead,
+                        -0.0160f * pB->fUpperY,
+                        0.289f * pB->fRadius * pB->fHead,
+                        0.0188f * pB->fUpperY,
+                        0.200f * pB->fRadius * pB->fHead,
+                        0.0100f * pB->fUpperY,
+                        0.0893f * pB->fRadius * pB->fHead,
+                        0.0f, -0.00826f * pB->fUpperY, 0.0253f,
+                        pB->byGlow, pB->byGlow, MECHA_QUAD_GLOW);
+      }
 
       /*
        * The crest. Two blades off the brow, swept up and out -- and on a
@@ -3011,17 +3147,28 @@ static void mecha_build_arms_head(tMechaQuadList *pList,
            * two and a half times that, which from the side is not a crest,
            * it is a pair of banners the machine is towing. [MESH-35]
            */
-          mecha_add_frustum(pList, &head,
-                            fSide * 0.17f * pB->fRadius * pB->fHead,
-                            pB->fCrestLift * pB->fUpperY,
-                            -0.24f * pB->fRadius * pB->fHead,
-                            0.07f * pB->fRadius * pB->fHead,
-                            0.28f * pB->fRadius * pB->fHead,
-                            0.03f * pB->fRadius * pB->fHead,
-                            0.24f * pB->fRadius * pB->fHead,
-                            pB->fCrestHeight * pB->fUpperY * pB->fHead,
-                            fSide * 0.11f * pB->fRadius * pB->fHead,
-                            -0.24f * pB->fRadius * pB->fHead, pB->byGlow, pB->byGlow, 0);
+          tMechaPose crest;
+
+          /* Swept back in a frame of its own, so the blade lies along the
+           * skull instead of standing off it, and raked on top of that so
+           * its two long edges are not parallel -- the fin is deepest at
+           * the brow and tapers out to the tip. One rotation cannot do
+           * that; the sweep turns the whole blade and the rake shears the
+           * outer edge alone. [MESH-55] */
+          mecha_pose_child(&crest, &head, 0.0f, 0.0f, 0.0f, 0,
+                           MECHA_CREST_SWEEP, 0);
+          mecha_add_raked(pList, &crest,
+                          fSide * 0.152f * pB->fRadius * pB->fHead,
+                          pB->fCrestLift * pB->fUpperY,
+                          -0.206f * pB->fRadius * pB->fHead,
+                          0.0624f * pB->fRadius * pB->fHead,
+                          0.487f * pB->fRadius * pB->fHead,
+                          0.0268f * pB->fRadius * pB->fHead,
+                          0.440f * pB->fRadius * pB->fHead,
+                          pB->fCrestHeight * pB->fUpperY * pB->fHead,
+                          fSide * 0.0981f * pB->fRadius * pB->fHead,
+                          -0.286f * pB->fRadius * pB->fHead, -0.182f,
+                          pB->byGlow, pB->byGlow, 0);
         } else {
           mecha_add_frustum(pList, &head,
                             fSide * 0.14f * pB->fRadius * pB->fHead,
@@ -3827,31 +3974,38 @@ void mecha_mesh_mech_rigged(tMechaQuadList *pList, const tMechaWorld *pWorld,
      * foot leaves the ground and zero again on the tick it lands, so the
      * two rules never argue.
      *
-     * Subtracted, not added. A positive pose pitch swings a limb aft
-     * [MESH-04], and the foot is the one limb on the machine that points
-     * forwards rather than down: swinging it aft lifts the toe. Reasoning
-     * from the rotation got this backwards; the sign is the one the mesh
-     * measures, with the toe tip below the heel on a raised foot. [MESH-53]
+     * Added, so the ankle's lift stacks on what the knee already did.
+     * MESH-53 argued the other way from how a forward-pointing limb ought
+     * to swing and was wrong: a positive pose pitch carries +Z downwards,
+     * so this is what drops the toe. Fitting the toe to the reference mesh
+     * wanted the same sign, independently. [MESH-55]
      */
     mecha_pose_child(&foot, &shin, 0.0f, -fShinLen, 0.0f, 0,
                      aiThigh[iSide] - aiKnee[iSide] + aiAnkle[iSide],
                      -(int)(fSide * (float)aiRoll[iSide]));
     mecha_pose_name(&foot, MECHA_BONE_FOOT_L + iSide, build.paBones);
-    mecha_add_frustum(pList, &foot, 0.0f, -0.5f * fAnkle, 0.06f * fRadius,
-                      0.27f * fRadius * fLimb, 0.38f * fRadius * fLimb,
-                      0.24f * fRadius * fLimb, 0.34f * fRadius * fLimb,
-                      0.5f * fAnkle, 0.0f, 0.0f, byTrim, byTrim, 0);
-    /* A toe sloping up off the front of it. The foot was one slab, which
-     * from the front is a brick the machine is standing on. */
+    mecha_add_raked(pList, &foot, 0.0f, -0.5f * fAnkle, 0.06f * fRadius,
+                    0.27f * fRadius * fLimb, 0.38f * fRadius * fLimb,
+                    0.24f * fRadius * fLimb, 0.34f * fRadius * fLimb,
+                    0.5f * fAnkle, 0.0f, 0.0f, 0.19f,
+                    byTrim, byTrim, 0);
+    /* A toe wedge off the front of it. The foot was one slab, which from
+     * the front is a brick the machine is standing on.
+     *
+     * Raked hard and reaching past the slab, so the machine has a chisel
+     * toe rather than a kerb: the sole stays flat on the floor and the
+     * armour above it falls away towards the tip. Rotating the toe instead
+     * would put the tip through the ground, which the walk cycle checks
+     * for. [MESH-55] */
     if (iDetail >= MECHA_DETAIL_MID) {
-      mecha_add_frustum(pList, &foot, 0.0f,
-                        -0.5f * fAnkle - build.fFootToeDrop * fAnkle,
-                        0.44f * fRadius * fLimb,
-                        0.24f * fRadius * fLimb, 0.10f * fRadius * fLimb,
-                        0.19f * fRadius * fLimb, 0.06f * fRadius * fLimb,
-                        0.5f * fAnkle,
-                        0.0f, 0.05f * fRadius * fLimb,
-                        byTrim, byTrim, 0);
+      mecha_add_raked(pList, &foot,
+                      0.0f, -(0.723f + build.fFootToeDrop) * fAnkle,
+                      (0.30f + 0.14f) * fRadius * fLimb,
+                      0.24f * fRadius * fLimb, 0.10f * fRadius * fLimb,
+                      0.19f * fRadius * fLimb, 0.0925f * fRadius * fLimb,
+                      0.277f * fAnkle,
+                      0.0f, 0.0732f * fRadius * fLimb, 0.55f,
+                      byTrim, byTrim, 0);
     }
     /* And a heel behind it, so the foot has a front and a back. */
     if (iDetail >= MECHA_DETAIL_FULL) {

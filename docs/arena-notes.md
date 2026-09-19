@@ -4071,3 +4071,108 @@ is pointing.
 Widened to everything below the knee -- the shin's bottom and the whole foot, in
 the window however the foot is turned -- it reads 304 level and 287 pitched. The
 claim the test makes did not change; the thing it measures did.
+
+## MESH-55 — fitting the generator to a hand-sculpted reference
+
+A `.blend` came back hand-edited: the same 464 vertices the exporter had written
+out, with 114 of them moved. The job was not to import that mesh -- there is no
+model file anywhere in this tree and there is not going to be one -- but to work
+out what the generator would have to say to produce it, and then to say that.
+
+### Measure by tag, never by altitude
+
+The first pass compared per-vertex-group bounding boxes and reported two edits.
+There were ten. A box is a summary, and a summary of a box that got longer at
+one end and thinner at the other is a box the same size. What found them was a
+straight per-vertex diff -- the two files share a vertex order, so vertex *i*
+means the same corner in both -- grouped by vertex group and material. That gave
+ten clusters, and they matched, one for one, what the edits had actually been.
+
+This is the third time on this mode that a measurement taken by height band has
+lied, and the third time that a measurement taken by bone or part tag has told
+the truth. The band ones are recorded in MESH-42 and MESH-53. There is no fourth
+kind of mistake here; it is the same one.
+
+### Read the constants off, in the builder's own frame
+
+A vertex in the export is in world units. A constant in the builder is a
+fraction of `fRadius` or `fUpperY` in some bone's frame. Standing at rest, the
+bone frames are pure translations, so subtracting the bone origin -- which
+`mech_export` already writes -- turns one into the other, and the new constant
+can be divided out by hand and checked against the old one. Every fit below was
+arrived at that way and then confirmed by re-exporting and re-diffing. None of
+it was guessed.
+
+The conversion is the same left-to-right-handed swap the exporter does,
+backwards: Blender `(bx, by, bz)` is game `(-bx, bz, -by)` in metres.
+
+### Compare point sets, not vertex indices
+
+Halfway through, the head's crest read 0.516 m out while looking perfect. It was
+perfect. Replacing a box with a turned frustum emits the same eight corners in a
+different order, and an index-wise diff calls that eight errors. Once a
+primitive changes, the only honest measure is a set comparison -- for each
+reference point, the distance to the nearest generated point, both ways. The
+index-wise number is still worth printing beside it: when the two disagree, the
+difference is ordering and the shape is right.
+
+### What the sculpt actually asked for
+
+Three degrees of freedom, none of which the frustum had.
+
+**A sheared top face.** The foot's top slopes down towards the toe while its
+sole stays flat on the floor. The obvious answer -- hinge the toe in a sub-pose
+and rotate it -- is wrong, and the walk cycle says so: a rotation turns the
+whole solid, so the tip goes through the ground, and
+`legs walk on jointed knees` fails on the sole. What the reference does is shear
+the top face alone and leave every z=0 vertex untouched, to the last bit. So
+`fRakeZ` shears the top face about its own aft edge.
+
+**A fore-and-aft taper.** The skull's underside narrows to under half its width
+by the time it reaches the chin, while the crown above it widens the other way.
+The chest does the same thing and the waist does it in reverse. A frustum tapers
+bottom-to-top only, so `fNoseX0`/`fNoseX1` scale the forward edge of each face
+on its own. This is the one parameter here that costs something: two different
+widths on one face means the side quads are no longer planar. On these shapes
+the warp is around 12 units -- five centimetres on an eleven-metre machine,
+under a pixel at any range the mesh is drawn at -- and it is the same warp the
+reference carries, because a hand edit does not keep quads planar either.
+
+**A frame of its own.** The crest, the visor, the skull and the chest each sit
+at an angle to the bone that carries them. That is what a sub-pose is for, and
+the rake handles the leftover: sweep the crest back 29.85 degrees and its two
+long edges are *still* not parallel, because the fin is deepest at the brow. One
+rotation cannot do both. The sweep turns the blade; the rake shears one edge.
+
+### Where it landed
+
+Worst cluster, reference against generated, before and after:
+
+| part                                         | before | after |
+| -------------------------------------------- | ------ | ----- |
+| head crest                                   | 0.804  | 0.001 |
+| visor                                        | --     | 0.001 |
+| skull                                        | 0.370  | 0.001 |
+| chest                                        | 0.563  | 0.003 |
+| joint pieces (waist, neck, pack, binder cap) | 0.228  | 0.004 |
+| feet                                         | 0.594  | 0.002 |
+| thighs                                       | 0.020  | 0.020 |
+| glacis                                       | 0.257  | 0.036 |
+| chest intakes                                | 0.263  | 0.071 |
+
+The three that did not close are not failures of the fit. The thighs and the
+glacis are the reference's own left-right asymmetry -- the left binder root sits
+at 510.49 and the right at 522.77, which no mirrored generator can produce, so
+both get the mean and carry six units of error each. The intakes are two
+genuinely irregular quadrilaterals, four corners each at four different widths
+and four different depths, and a frustum face is a rectangle. They get the
+best-fit rectangle: 0.071 m, down from 0.263.
+
+### The ankle stays where it is
+
+MESH-53 argued the foot's pitch should be subtracted and measured its way there.
+It was reverted to an addition, and the reference agrees with the revert:
+fitting the toe independently in this pass wanted a positive pitch, twice, from
+two different directions. The note's *reasoning* about which way a
+forward-pointing limb swings is wrong, and the comment in the source that
+repeated it has gone.
