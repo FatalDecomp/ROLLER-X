@@ -1629,6 +1629,15 @@ int main(int argc, char **argv)
             s_World.aMechs[1].fZ = s_World.aMechs[iSelf].fZ + MECHA_M(120.0f);
             s_World.aMechs[1].bActive = false;
 
+            /*
+             * An outline is the machine, not what it throws on the floor.
+             * Every machine's shadow is much the same shape as every
+             * other's, so counting it into this measurement pushes any two
+             * machines together -- and this is the one measurement whose
+             * whole job is telling them apart. [MESH-59]
+             */
+            mecha_mesh_set_shadows(false);
+
             /* Side on, at the range the far tier starts, which is the
              * hardest case an outline has to survive. */
             s_Camera.fX = s_World.aMechs[iSelf].fX + MECHA_M(130.0f);
@@ -1656,6 +1665,7 @@ int main(int argc, char **argv)
                                s_aFrame, FRAME_W, FRAME_H, s_aQuads,
                                MECHA_QUAD_CAPACITY);
             s_World.aMechs[iSelf].bActive = true;
+            mecha_mesh_set_shadows(true);
 
             aiInk[iDef] = 0;
             for (i = 0; i < FRAME_W * FRAME_H; i++) {

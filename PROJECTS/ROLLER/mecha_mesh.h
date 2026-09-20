@@ -287,6 +287,9 @@ void mecha_mesh_mech_rigged(tMechaQuadList *pList, const tMechaWorld *pWorld,
  * want different sizes. Defaults to false.
  */
 void mecha_mesh_set_sprites(bool bAvailable);
+/* Turns ground shadows off, for a measurement of what a machine looks like
+ * rather than of what it casts. On by default. [MESH-59] */
+void mecha_mesh_set_shadows(bool bOn);
 
 /* And whether the gun car's own skin is. Without it the body falls back to
  * the machine's two palette entries, which is a car and not the car. */

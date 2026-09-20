@@ -14,6 +14,13 @@
  * layer. Both start false, so a checkout with no data draws flat. */
 static bool s_bSprites = false;
 static bool s_bCarSkin = false;
+/*
+ * Shadows, which a measurement of a machine's own outline wants turned off:
+ * what a machine casts is not what a machine looks like, and every machine's
+ * shadow looks much like every other's, so counting it in dilutes exactly
+ * the difference such a measurement is there to find. [MESH-59]
+ */
+static bool s_bShadows = true;
 
 //-------------------------------------------------------------------------------------------------
 /* Palette indices used only by the geometry; see mecha_arena.c for the rest. */
@@ -4309,21 +4316,74 @@ void mecha_mesh_mech_rigged(tMechaQuadList *pList, const tMechaWorld *pWorld,
 
 //-------------------------------------------------------------------------------------------------
 
+/*
+ * The shadow is a silhouette, not a pile of projected faces.
+ *
+ * What was here took the first thirty-two quads the builder emitted and
+ * slid each one along the light. Two things were wrong with that. The
+ * first is that the builder emits the legs first, so every machine on the
+ * roster cast a shadow of its legs and feet and nothing above them.
+ *
+ * The second only showed up once that was fixed: a slanted projection
+ * moves each face by its own height, so the separate boxes of a machine
+ * land as separate parallelograms and the shadow comes out as a scatter
+ * of strips rather than a shape. Worse, shadow quads render as
+ * transparent darkening rather than flat colour [REND-08], so wherever
+ * two of those strips overlap the ground goes twice as dark.
+ *
+ * So the outline is found instead, by asking a dozen directions which
+ * projected vertex lies furthest that way, and the answers are filled as
+ * a fan. One convex patch per group, no overlaps inside it, no
+ * double-darkening, and about fifteen quads a machine against the
+ * twenty-five the per-face version spent. Convex loses the daylight
+ * between the ankles, so the legs get a patch each and the body a third:
+ * a machine still reads as standing on two of something. [MESH-59]
+ */
+#define MECHA_SHADOW_DIRS 12
+
+static const float s_aafShadowDir[MECHA_SHADOW_DIRS][2] = {
+  {  1.000000f,  0.000000f }, {  0.866025f,  0.500000f },
+  {  0.500000f,  0.866025f }, {  0.000000f,  1.000000f },
+  { -0.500000f,  0.866025f }, { -0.866025f,  0.500000f },
+  { -1.000000f,  0.000000f }, { -0.866025f, -0.500000f },
+  { -0.500000f, -0.866025f }, {  0.000000f, -1.000000f },
+  {  0.500000f, -0.866025f }, {  0.866025f, -0.500000f },
+};
+
+/* Left leg, right leg, and everything else. */
+static int mecha_shadow_group(uint8_t byBone)
+{
+  switch (byBone) {
+  case MECHA_BONE_HIP_L: case MECHA_BONE_THIGH_L:
+  case MECHA_BONE_SHIN_L: case MECHA_BONE_FOOT_L:
+    return 0;
+  case MECHA_BONE_HIP_R: case MECHA_BONE_THIGH_R:
+  case MECHA_BONE_SHIN_R: case MECHA_BONE_FOOT_R:
+    return 1;
+  default:
+    return 2;
+  }
+}
+
 void mecha_mesh_shadows(tMechaQuadList *pList, const tMechaWorld *pWorld)
 {
   static tMechaQuad aSource[MECHA_QUAD_CAPACITY];
-  mecha_quads_part(pList, MECHA_PART_NONE);
   int i;
 
-  if (!pList || !pWorld)
+  if (!pList || !pWorld || !s_bShadows)
     return;
+  mecha_quads_part(pList, MECHA_PART_NONE);
 
   for (i = 0; i < MECHA_MAX_MECHS; i++) {
     const tMechaMech *pMech = &pWorld->aMechs[i];
     tMechaQuadList source;
+    float aaafHull[3][MECHA_SHADOW_DIRS][2];
+    float aafFar[3][MECHA_SHADOW_DIRS];
+    int aiSeen[3];
     float fGround;
     int iQuad;
-    int iShadowCount = 0;
+    int iGroup;
+    int iDir;
 
     if (!mecha_mech_alive(pMech))
       continue;
@@ -4336,49 +4396,115 @@ void mecha_mesh_shadows(tMechaQuadList *pList, const tMechaWorld *pWorld)
      * top of a box casts onto the box rather than onto the floor below it. */
     fGround = mecha_arena_ground_height(&pWorld->arena, pMech->fX, pMech->fZ,
                                         pMech->fY);
-    /*
-     * Model 2 used a flattened copy of the machine silhouette projected
-     * onto the ground. Apply a shallow directional projection and put each
-     * resulting vertex on the local terrain height.
-     */
+    for (iGroup = 0; iGroup < 3; iGroup++) {
+      aiSeen[iGroup] = 0;
+      for (iDir = 0; iDir < MECHA_SHADOW_DIRS; iDir++)
+        aafFar[iGroup][iDir] = -1.0e30f;
+    }
+
+    /* One pass over the machine, sliding every vertex along the light and
+     * keeping only how far out it reaches in each direction. */
     for (iQuad = 0; iQuad < source.iCount; iQuad++) {
-      float afVert[4][3];
+      const tMechaQuad *pQuad = &source.paQuads[iQuad];
       int iVert;
 
       /* Weapons, exhaust and drones are visual effects rather than the
        * machine's readable ground silhouette. */
-      if (source.paQuads[iQuad].byPart == MECHA_PART_GUN
-          || source.paQuads[iQuad].byPart == MECHA_PART_THRUST
-          || source.paQuads[iQuad].byPart == MECHA_PART_DRONE)
+      if (pQuad->byPart == MECHA_PART_GUN
+          || pQuad->byPart == MECHA_PART_THRUST
+          || pQuad->byPart == MECHA_PART_DRONE)
         continue;
-      /*
-       * Keep the complete early body panels rather than striding through the
-       * source mesh. Striding made the shadow visibly hollow because a leg
-       * or torso face could be skipped while its neighbours survived.
-       */
-      if (iShadowCount >= 32)
-        break;
-      if (pList->iCount >= MECHA_QUAD_CAPACITY)
-        break;
-
+      iGroup = mecha_shadow_group(pQuad->byBone);
       for (iVert = 0; iVert < 4; iVert++) {
-        float fHeight = source.paQuads[iQuad].afVert[iVert][1] - fGround;
+        float fHeight = pQuad->afVert[iVert][1] - fGround;
         float fX;
         float fZ;
 
         fHeight = mecha_clampf(fHeight, 0.0f, 18.0f * MECHA_METRE);
-        fX = source.paQuads[iQuad].afVert[iVert][0] + 0.18f * fHeight;
-        fZ = source.paQuads[iQuad].afVert[iVert][2] + 0.12f * fHeight;
-        afVert[iVert][0] = fX;
-        afVert[iVert][2] = fZ;
-        afVert[iVert][1] = mecha_arena_ground_height(&pWorld->arena,
-                                                     fX, fZ, fGround)
-                           + (0.04f + 0.004f * (float)i
-                              + 0.001f * (float)iShadowCount) * MECHA_METRE;
+        fX = pQuad->afVert[iVert][0] + 0.18f * fHeight;
+        fZ = pQuad->afVert[iVert][2] + 0.12f * fHeight;
+        aiSeen[iGroup] = 1;
+        for (iDir = 0; iDir < MECHA_SHADOW_DIRS; iDir++) {
+          float fDot = fX * s_aafShadowDir[iDir][0]
+                     + fZ * s_aafShadowDir[iDir][1];
+
+          if (fDot > aafFar[iGroup][iDir]) {
+            aafFar[iGroup][iDir] = fDot;
+            aaafHull[iGroup][iDir][0] = fX;
+            aaafHull[iGroup][iDir][1] = fZ;
+          }
+        }
       }
-      mecha_quads_add(pList, afVert, MECHA_SHADE_SHADOW,
-                      MECHA_QUAD_TWO_SIDED | MECHA_QUAD_SHADOW);
-      iShadowCount++;
+    }
+
+    for (iGroup = 0; iGroup < 3; iGroup++) {
+      float afVert[4][3];
+      float fLift;
+      float fCx;
+      float fCz;
+      int iStep;
+
+      if (!aiSeen[iGroup])
+        continue;
+      /*
+       * Laid flat on the ground, because that is what a shadow is. The
+       * patches were being stacked a few centimetres apart to keep them
+       * out of each other's plane, which is solving a problem shadows do
+       * not have: they are transparent darkening [REND-08], so two of them
+       * in one plane cannot flicker against each other whichever way the
+       * sort falls -- the pixel comes out the same. Lifting them only
+       * bought parallax, which slides a shadow off its own feet as the
+       * camera drops. What keeps them off the floor they lie on is the
+       * draw order, not daylight. [MESH-59]
+       */
+      fLift = 0.0f;
+
+      /*
+       * A fan of wedges from the middle outwards, six of them round the
+       * dozen points. Fanning from one of the points instead would work
+       * and would cost one quad fewer, but each of those quads reaches
+       * right across the patch -- and a broad quad on the floor is exactly
+       * what the draw order cannot place, because it is sorted whole and
+       * the far end of it is a long way behind the near end. Wedges are
+       * about a radius across instead of a diameter. Points that came back
+       * the same collapse an edge, which costs a sliver and never a hole.
+       */
+      fCx = 0.0f;
+      fCz = 0.0f;
+      for (iDir = 0; iDir < MECHA_SHADOW_DIRS; iDir++) {
+        fCx += aaafHull[iGroup][iDir][0];
+        fCz += aaafHull[iGroup][iDir][1];
+      }
+      fCx /= (float)MECHA_SHADOW_DIRS;
+      fCz /= (float)MECHA_SHADOW_DIRS;
+
+      for (iStep = 0; iStep < MECHA_SHADOW_DIRS; iStep += 2) {
+        int iCorner;
+
+        if (pList->iCount >= MECHA_QUAD_CAPACITY)
+          break;
+        for (iCorner = 0; iCorner < 4; iCorner++) {
+          float fX;
+          float fZ;
+
+          if (iCorner == 0) {
+            fX = fCx;
+            fZ = fCz;
+          } else {
+            int iPt = (iStep + iCorner - 1) % MECHA_SHADOW_DIRS;
+
+            fX = aaafHull[iGroup][iPt][0];
+            fZ = aaafHull[iGroup][iPt][1];
+          }
+          afVert[iCorner][0] = fX;
+          afVert[iCorner][2] = fZ;
+          afVert[iCorner][1] = mecha_arena_ground_height(&pWorld->arena,
+                                                         fX, fZ, fGround)
+                               + fLift;
+        }
+        mecha_quads_add(pList, afVert, MECHA_SHADE_SHADOW,
+                        MECHA_QUAD_TWO_SIDED | MECHA_QUAD_SHADOW);
+      }
     }
   }
 }
@@ -4437,6 +4563,11 @@ static int mecha_sprite_frame(int iFirst, int iLast, float fAge)
  * wraps, where the effect sprites walk theirs once and stop.
  */
 #define MECHA_PLASMA_TICKS_PER_FRAME 2
+
+void mecha_mesh_set_shadows(bool bOn)
+{
+  s_bShadows = bOn;
+}
 
 void mecha_mesh_set_sprites(bool bAvailable)
 {
@@ -4797,13 +4928,39 @@ float mecha_quad_depth_key(const tMechaQuad *pQuad, const float afEye[3],
    * The middle of the quad is the honest key for most geometry; decals take
    * their nearest corner and broad floors their farthest. [MESH-23]
    */
-  if (pQuad->byFlags & (MECHA_QUAD_SHADOW | MECHA_QUAD_DECAL))
+  if (pQuad->byFlags & (MECHA_QUAD_SHADOW | MECHA_QUAD_DECAL)) {
     /*
-     * Projected silhouettes can span several source panels. Pull the
-     * nearest corner back by a small footprint allowance so a broad floor
+     * Projected silhouettes can span several source panels, so the nearest
+     * corner is pulled back by a footprint allowance and a broad floor
      * quad never sorts in front of the shadow it receives.
+     *
+     * The allowance is the quad's own footprint, not half a metre flat. A
+     * fixed figure only covers a decal about that big, and a silhouette
+     * drawn as one patch rather than as a scatter of panels is several
+     * metres across -- at which point the floor it lies on starts winning
+     * the sort again. Capped, because a shadow pulled arbitrarily far
+     * forward would start painting over whatever is standing between it
+     * and the camera. [MESH-59]
      */
-    return fMin - MECHA_M(0.5f);
+    float fLowX = pQuad->afVert[0][0];
+    float fHighX = fLowX;
+    float fLowZ = pQuad->afVert[0][2];
+    float fHighZ = fLowZ;
+    float fReach;
+
+    for (v = 1; v < 4; v++) {
+      if (pQuad->afVert[v][0] < fLowX)  fLowX  = pQuad->afVert[v][0];
+      if (pQuad->afVert[v][0] > fHighX) fHighX = pQuad->afVert[v][0];
+      if (pQuad->afVert[v][2] < fLowZ)  fLowZ  = pQuad->afVert[v][2];
+      if (pQuad->afVert[v][2] > fHighZ) fHighZ = pQuad->afVert[v][2];
+    }
+    fSpanX = fHighX - fLowX;
+    fSpanZ = fHighZ - fLowZ;
+    fReach = 0.5f * (fSpanX > fSpanZ ? fSpanX : fSpanZ) + MECHA_M(0.5f);
+    if (fReach > MECHA_M(4.0f))
+      fReach = MECHA_M(4.0f);
+    return fMin - fReach;
+  }
 
   /*
    * Self-lit geometry is drawn on top of whatever it is going off inside:
