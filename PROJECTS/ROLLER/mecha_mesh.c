@@ -2866,7 +2866,7 @@ static void mecha_build_arms_head(tMechaQuadList *pList,
        * the arm, so it is measured off this and not off the weapon: the
        * fist has to come out of the wrist square and centred whatever gun
        * the machine happens to carry. [MESH-56] */
-      float fWristR = 0.17f * pB->fRadius * pB->fLimb;
+      float fWristR = 0.105f * pB->fRadius * pB->fLimb;
       int iSlot = iSide == 0 ? MECHA_SLOT_LEFT : MECHA_SLOT_RIGHT;
       int iKick = 0;
       tMechaPose shoulder;
@@ -2973,15 +2973,16 @@ static void mecha_build_arms_head(tMechaQuadList *pList,
                        iUpperPitch, 0);
       mecha_pose_name(&upper, MECHA_BONE_UPPERARM_L + iSide, pB->paBones);
       mecha_add_frustum(pList, &upper, 0.0f, -0.5f * fUpper, 0.0f,
-                        0.13f * pB->fRadius * pB->fLimb * pB->fTaper,
-                        0.13f * pB->fRadius * pB->fLimb * pB->fTaper,
-                        0.17f * pB->fRadius * pB->fLimb, 0.17f * pB->fRadius * pB->fLimb,
+                        0.122f * pB->fRadius * pB->fLimb * pB->fTaper,
+                        0.122f * pB->fRadius * pB->fLimb * pB->fTaper,
+                        0.150f * pB->fRadius * pB->fLimb,
+                        0.150f * pB->fRadius * pB->fLimb,
                         0.5f * fUpper, 0.0f, 0.0f, pB->byBody, pB->byBody, 0);
       /* Proud of both the upper arm and the forearm, for the reason the
        * knee is. */
       mecha_add_box(pList, &upper, 0.0f, -fUpper, 0.0f,
-                    0.19f * pB->fRadius * pB->fLimb, 0.04f * pB->fUpperY,
-                    0.20f * pB->fRadius * pB->fLimb, pB->byJoint, pB->byJoint, 0);
+                    0.152f * pB->fRadius * pB->fLimb, 0.04f * pB->fUpperY,
+                    0.162f * pB->fRadius * pB->fLimb, pB->byJoint, pB->byJoint, 0);
 
       /* The elbow makes up the rest of the right angle, so the forearm and
        * the gun on the end of it come out level along the line of aim --
@@ -2994,9 +2995,9 @@ static void mecha_build_arms_head(tMechaQuadList *pList,
        * carry one with. */
       if (pB->iDetail >= MECHA_DETAIL_MID) {
         mecha_add_frustum(pList, &fore, 0.0f, -0.5f * fFore, 0.0f,
-                          0.17f * pB->fRadius * pB->fLimb, 0.17f * pB->fRadius * pB->fLimb,
-                          0.12f * pB->fRadius * pB->fLimb * pB->fTaper,
-                          0.12f * pB->fRadius * pB->fLimb * pB->fTaper,
+                          fWristR, fWristR,
+                          0.130f * pB->fRadius * pB->fLimb,
+                          0.130f * pB->fRadius * pB->fLimb,
                           0.5f * fFore, 0.0f, 0.0f, pB->byTrim, pB->byTrim, 0);
       } else {
         /*
@@ -3129,7 +3130,7 @@ static void mecha_build_arms_head(tMechaQuadList *pList,
          * The gun grew out of the wrist before, which is not a machine
          * holding a pistol, it is a machine whose arm ends in one.
          */
-        float fBore = 1.41f * fWristR;
+        float fBore = 0.88f * fWristR + 0.085f * fG;
 
         /* Below MID the forearm already drew the whole limb as one
          * block, weapon included. */
@@ -3148,8 +3149,8 @@ static void mecha_build_arms_head(tMechaQuadList *pList,
           mecha_pose_child(&grip, &hand, 0.0f, -0.055f * fUG,
                            0.40f * fWristR, 0, MECHA_GRIP_RAKE, 0);
           mecha_add_frustum(pList, &grip, 0.0f, 0.009f * fUG, 0.0f,
-                            0.078f * fG, 0.062f * fG,
-                            0.068f * fG, 0.050f * fG,
+                            0.065f * fG, 0.054f * fG,
+                            0.057f * fG, 0.044f * fG,
                             0.080f * fUG, 0.0f, 0.0f,
                             pB->byTrim, pB->byTrim, 0);
         }
