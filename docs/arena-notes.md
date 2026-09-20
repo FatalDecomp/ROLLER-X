@@ -4220,6 +4220,44 @@ they do:
 That one cost three renders and was settled in one dump of the hand's vertices
 in its own frame. The renders said "wrong"; the numbers said where.
 
+### Measure the hand off the arm, not off the gun
+
+All of the above was first built in `fRadius * fGun`, because it was written
+while thinking about the weapon. That is the wrong unit and it produced three
+separate faults at once, which is what a wrong unit does: the fist had no
+relationship to the wrist it grows out of, so it was too big; it was placed by
+offsets that meant nothing to the forearm, so it came out of the wrist
+off-centre and at an angle; and the weapon, sized the same way, reached back
+past the wrist face into the forearm itself. A machine whose gun is part of its
+wrist is not holding the gun.
+
+The hand is part of the arm. It is measured off `fWristR`, the forearm's own
+half-width where it ends, and it is centred on that end face -- equidistant from
+its corners -- touching it at y=0 and growing forward only. The thumb is the one
+piece still offset to a side, which is the whole of what a thumb is.
+
+The weapon takes one number from the same place: the bore sits at 1.41 times the
+wrist radius, so it clears the forearm on any machine whatever size gun that
+machine carries. Everything else about the weapon stays in its own units, and
+every piece of it is held ahead of the wrist face. The grip is the only thing
+allowed to reach back into the hand, which is the point of it.
+
+|                                   | before | after                    |
+| --------------------------------- | ------ | ------------------------ |
+| palm, across                      | ±71    | ±85 (the forearm is ±94) |
+| palm centre, in z                 | −67    | 0                        |
+| hand length                       | 275    | 154                      |
+| deepest reach toward the elbow    | +39    | 0.00                     |
+| nearest weapon piece to the wrist | +21    | −45                      |
+
+There is a second lesson buried in finding this. The probe that measured it
+transposed the bone's axis matrix, which costs nothing on a frame that is a pure
+translation at rest -- every torso and head fit in MESH-55 was read through the
+same bug and none of them were wrong -- and shows up the moment a frame carries
+a rotation, which the wrist does at nine degrees. It read as a phantom six-unit
+offset on a box whose numbers were exact. The export writes each bone's axes as
+rows: local *i* is the dot of the world delta with row *i*.
+
 ### Where the quads came from
 
 The worst scene was at 9154 of 12288 quads before any of this, against a test
