@@ -4822,6 +4822,142 @@ static void mecha_add_blade(tMechaQuadList *pList, float fX, float fY,
 
 //-------------------------------------------------------------------------------------------------
 
+/*
+ * The other melee shape: a spiked club. Same trick as the blade -- two
+ * planes through the same axis so it is never edge-on, and no camera in the
+ * geometry [MESH-22] -- with the crossguard dropped and spikes put on
+ * instead.
+ *
+ * The beam is blunter than the blade and it keeps its width most of the way
+ * out before a short taper, because the whole read is weight on the end of a
+ * stick rather than a point on the end of one. It does not narrow towards
+ * the tip the way a sword does.
+ *
+ * The spikes are triangles, built the way the blade builds its point: a quad
+ * with its last two corners on the same spot. Three rings of four, and every
+ * other ring is turned 45 degrees about the axis so that the silhouette has
+ * spikes in eight directions rather than four -- which is what makes it read
+ * as radial from any angle, rather than as a beam with four fins. They cost
+ * twelve quads, against the blade's five for the whole weapon; three swings
+ * in the air at once is still under fifty, which the buffer does not notice.
+ * [MESH-61]
+ */
+static void mecha_add_club(tMechaQuadList *pList, float fX, float fY,
+                           float fZ, float fDirX, float fDirZ,
+                           float fReach, uint8_t byPalette)
+{
+  /* Against the reach: where the grip sits, how thick the beam is, where
+   * the blunt end starts, and how far the spikes stand out. */
+  const float fHilt = 0.34f;
+  const float fWide = 0.075f;
+  const float fShoulder = 0.86f;
+  const float fSpike = 0.16f;
+  static const float afRing[3] = { 0.42f, 0.62f, 0.82f };
+  float fLen = mecha_length2(fDirX, fDirZ);
+  float fAxisX;
+  float fAxisZ;
+  float fSideX;
+  float fSideZ;
+  float fBackX;
+  float fBackZ;
+  float fBackY = fY;
+  float afVert[4][3];
+  int iPlane;
+  int iRing;
+
+  if (fLen < 1e-4f)
+    return;
+  fAxisX = fDirX / fLen;
+  fAxisZ = fDirZ / fLen;
+  fSideX = fAxisZ;
+  fSideZ = -fAxisX;
+  fBackX = fX - fAxisX * fReach * fHilt;
+  fBackZ = fZ - fAxisZ * fReach * fHilt;
+
+  for (iPlane = 0; iPlane < 2; iPlane++) {
+    /* The flat of the beam, then the same beam stood on edge. */
+    float fOutX = iPlane == 0 ? fSideX * fReach * fWide : 0.0f;
+    float fOutZ = iPlane == 0 ? fSideZ * fReach * fWide : 0.0f;
+    float fOutY = iPlane == 0 ? 0.0f : fReach * fWide;
+    float fShoulderX = fBackX + fAxisX * fReach * fShoulder;
+    float fShoulderZ = fBackZ + fAxisZ * fReach * fShoulder;
+    float fTipX = fBackX + fAxisX * fReach;
+    float fTipZ = fBackZ + fAxisZ * fReach;
+
+    /* Body: grip end out to the shoulder, parallel the whole way. */
+    afVert[0][0] = fBackX - fOutX;
+    afVert[0][1] = fBackY - fOutY;
+    afVert[0][2] = fBackZ - fOutZ;
+    afVert[1][0] = fBackX + fOutX;
+    afVert[1][1] = fBackY + fOutY;
+    afVert[1][2] = fBackZ + fOutZ;
+    afVert[2][0] = fShoulderX + fOutX;
+    afVert[2][1] = fBackY + fOutY;
+    afVert[2][2] = fShoulderZ + fOutZ;
+    afVert[3][0] = fShoulderX - fOutX;
+    afVert[3][1] = fBackY - fOutY;
+    afVert[3][2] = fShoulderZ - fOutZ;
+    mecha_quads_add(pList, afVert, byPalette,
+                    MECHA_QUAD_TWO_SIDED | MECHA_QUAD_GLOW);
+
+    /* The end, cut back to half width rather than to a point. */
+    afVert[0][0] = fShoulderX - fOutX;
+    afVert[0][1] = fBackY - fOutY;
+    afVert[0][2] = fShoulderZ - fOutZ;
+    afVert[1][0] = fShoulderX + fOutX;
+    afVert[1][1] = fBackY + fOutY;
+    afVert[1][2] = fShoulderZ + fOutZ;
+    afVert[2][0] = fTipX + fOutX * 0.5f;
+    afVert[2][1] = fBackY + fOutY * 0.5f;
+    afVert[2][2] = fTipZ + fOutZ * 0.5f;
+    afVert[3][0] = fTipX - fOutX * 0.5f;
+    afVert[3][1] = fBackY - fOutY * 0.5f;
+    afVert[3][2] = fTipZ - fOutZ * 0.5f;
+    mecha_quads_add(pList, afVert, byPalette,
+                    MECHA_QUAD_TWO_SIDED | MECHA_QUAD_GLOW);
+  }
+
+  /* The spikes. Four to a ring, the odd rings turned half a step. */
+  for (iRing = 0; iRing < 3; iRing++) {
+    float fAtX = fBackX + fAxisX * fReach * afRing[iRing];
+    float fAtZ = fBackZ + fAxisZ * fReach * afRing[iRing];
+    float fRootX = fAxisX * fReach * fWide;
+    float fRootZ = fAxisZ * fReach * fWide;
+    int iSpoke;
+
+    for (iSpoke = 0; iSpoke < 4; iSpoke++) {
+      /*
+       * The outward direction, as a turn about the axis. Even rings point
+       * along the side and the vertical; odd rings land between them.
+       */
+      int iTurn = iSpoke * (MECHA_ANGLE_FULL / 4)
+                  + (iRing & 1 ? MECHA_ANGLE_FULL / 8 : 0);
+      float fCos = mecha_cos(iTurn);
+      float fSin = mecha_sin(iTurn);
+      float fOutX = fSideX * fCos * fReach * fSpike;
+      float fOutZ = fSideZ * fCos * fReach * fSpike;
+      float fOutY = fSin * fReach * fSpike;
+
+      afVert[0][0] = fAtX - fRootX;
+      afVert[0][1] = fBackY;
+      afVert[0][2] = fAtZ - fRootZ;
+      afVert[1][0] = fAtX + fRootX;
+      afVert[1][1] = fBackY;
+      afVert[1][2] = fAtZ + fRootZ;
+      afVert[2][0] = fAtX + fOutX;
+      afVert[2][1] = fBackY + fOutY;
+      afVert[2][2] = fAtZ + fOutZ;
+      afVert[3][0] = fAtX + fOutX;
+      afVert[3][1] = fBackY + fOutY;
+      afVert[3][2] = fAtZ + fOutZ;
+      mecha_quads_add(pList, afVert, byPalette,
+                      MECHA_QUAD_TWO_SIDED | MECHA_QUAD_GLOW);
+    }
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
 /* A streak along the segment the shot covered this tick, widened towards the
  * camera. This is what makes a fast round readable at 60 Hz instead of a dot
  * that teleports across the arena. */
@@ -5588,9 +5724,14 @@ void mecha_mesh_projectiles(tMechaQuadList *pList, const tMechaWorld *pWorld,
        * Long against the hitbox it draws, because a sword that is as wide
        * as its reach is a shield.
        */
-      mecha_add_blade(pList, pShot->fX, pShot->fY, pShot->fZ,
-                      pShot->fVelX, pShot->fVelZ,
-                      pShot->fRadius * MECHA_BLADE_REACH, pShot->byPalette);
+      if (pShot->byMelee == MECHA_MELEE_CLUB)
+        mecha_add_club(pList, pShot->fX, pShot->fY, pShot->fZ,
+                       pShot->fVelX, pShot->fVelZ,
+                       pShot->fRadius * MECHA_BLADE_REACH, pShot->byPalette);
+      else
+        mecha_add_blade(pList, pShot->fX, pShot->fY, pShot->fZ,
+                        pShot->fVelX, pShot->fVelZ,
+                        pShot->fRadius * MECHA_BLADE_REACH, pShot->byPalette);
       break;
 
     case MECHA_PROJ_BEAM:

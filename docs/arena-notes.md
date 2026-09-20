@@ -4329,16 +4329,39 @@ already does mechanically rather than picked for flavour and bolted on:
   became RAZOR -- thrown blades scatter, and a beam is the one committed cut.
   RAZOR / RAZOR OPEN / RAZOR SPRAY / RAZOR RAIN. The jump rack arcs, and RAIN is
   what the roster already calls an arc (SCATTER RAIN, SPINE RAIN).
-- The centre rack is all melee, so it became the bike chain: CHAIN WHIP at a
-  stand (three hits across 40 degrees, which is a chain spun round her), CHAIN
-  WRAP on guard (one close heavy blow from the lowest muzzle on the machine),
-  CHAIN RUSH on a dash, CHAIN DROP off a jump.
-- The right rack is all homing, and the steel yo-yo is the one weapon in the
-  reference that tracks and comes back -- so the mechanic picked the family
-  rather than the other way round. Its trick names then landed on the stances
-  for nothing: a SLEEPER hangs at the end of the string, which is the guard
-  rack's six slow high-tracking shots; a WALK runs out flat, which is the dash's
-  two fast tight ones; a LOOP goes overhead, which is the jump's eight.
+- The centre rack is all melee, and it swings a spiked club: CLUB SWING at a
+  stand (three hits across 40 degrees), CLUB RISE on guard (one close heavy blow
+  from the lowest muzzle on the machine, which is a blow coming up), CLUB RUSH
+  on a dash, CLUB DROP off a jump.
+- The right rack is all homing, so it wanted something that hunts rather than
+  something that is thrown: HORNET at a stand, HORNET NEST on guard (six slow
+  shots with the highest tracking rate on the machine, which is a cloud of them
+  hanging and hunting), HORNET RUN on a dash (two fast tight ones), HORNET SWARM
+  off a jump (eight, the widest spread, from the highest muzzle).
+
+The centre and right racks took two goes. The first pass gave the melee rack a
+bike chain and the homing rack a steel yo-yo, and both were wrong for reasons
+worth writing down, because neither was wrong about the *naming*.
+
+The chain was wrong because of what it implied about the model. Melee is not a
+label on this roster -- it is geometry, drawn as a real weapon swung along the
+line of the lunge [MESH-22] -- so naming the rack after a chain is a promise to
+model a chain, and a chain is a rope of links that a builder made of boxes and
+frusta has no good way to draw. The rule it broke is one this project keeps
+running into from the other direction: name the thing you are willing to build.
+A spiked club is a beam with spikes on it, which is four quads and twelve
+triangles [MESH-61].
+
+The yo-yo was wrong in a way that is harder to admit, because on paper it was
+the best idea in the first pass. It is the one weapon in the sukeban reference
+that tracks and comes back, which is exactly what the homing rack does, and its
+trick names -- sleeper, walk the dog, loop the loop -- landed on the four
+stances without being forced. All of which was true and none of which mattered:
+a steel yo-yo on a string is a toy at eleven metres tall, and reading YO-YO
+SLEEPER off a HUD in the middle of a fight is funny in a way the machine is not.
+A derivation being elegant is not evidence that the result is good, and that is
+the whole lesson here. HORNET replaced it on the same mechanical argument -- a
+thing that hunts, for the rack that hunts -- with none of the cleverness.
 
 The class string went with them, STRIKE DANCER to STREET BOSS. It is the only
 class on the roster that describes an attitude rather than a chassis, which was
@@ -4440,3 +4463,58 @@ solve only knows about the ankle, so anything that sits lower than the foot -- a
 skirt, a pelvis plate -- is unaccounted for. The squat hid it by tucking both
 legs under the body; a kneel splays them and shows it. Pre-existing, out of
 scope here, and worth its own pass.
+
+## TYPE-10 -- a melee shape is not a projectile kind
+
+Hiiragi's melee had to draw as a spiked club while the rest of the roster kept
+its sword. The obvious move is a new `eMechaProjectileKind` beside
+MECHA_PROJ_MELEE, and it is the wrong one.
+
+A club and a blade are the same hitbox on the same clock. They differ in nothing
+the simulation can observe: same lunge, same guard scaling, same reach for the
+AI, same sound. Ten places ask whether a shot is melee, and a second melee kind
+forks every one of them -- and every one is a place where forgetting the new
+kind is a silent bug, not a compile error. The mesh is the only code that cares
+about the difference.
+
+So the shape rides as its own field, `byMelee`, on the weapon def and on the
+shot, and the only code that reads it is the one `switch` arm that draws the
+swing. It follows the precedent `byChassis` and `byProfile` already set
+\[TYPE-06\]: drawing-only state, documented as such, with zero meaning what
+every entry written before it existed already gets. Nothing else in the roster
+needed editing, and no behavioural code changed at all.
+
+## MESH-61 -- a spiked club, and why not a chain
+
+The melee rack wanted a weapon that reads as a delinquent's rather than a
+duellist's. A chain was the first idea and got thrown out on the modelling cost:
+a chain is a rope of links, and the builder assembles machines out of boxes and
+frusta, so drawing one convincingly is a lot of geometry to animate for a weapon
+that is on screen for sixteen ticks. A spiked club is a beam with spikes on it,
+which is nearly free.
+
+It reuses the blade's central trick \[MESH-22\]: two planes through the same
+axis, so the weapon is never edge-on and there is no camera anywhere in the
+geometry. What changes is everything hung off that. The crossguard goes, because
+a club has no guard. The beam is blunter, 0.075 of the reach against the blade's
+0.055, and it holds that width to 0.86 of its length before a short taper to
+half width rather than running out to a point -- a club is weight on the end of
+a stick, and a shape that narrows towards the tip reads as a sword whatever else
+is done to it.
+
+The spikes are triangles, built the way the blade already builds its point: a
+quad with its last two corners on the same spot, which is how this quad list
+spells a triangle. Three rings of four along the outer half of the beam, where
+the weight belongs.
+
+The one detail worth keeping is that every other ring is turned 45 degrees about
+the axis. Four spikes a ring, all rings aligned, gives a beam with four fins:
+from a bad angle you see two spikes and a stick. Turning the odd rings half a
+step puts spikes in eight directions across the silhouette without paying for
+eight a ring, and that is what makes it read as radial from wherever the fight
+happens to be.
+
+Sixteen quads against the blade's five. Three swings in the air at once -- which
+is what the stand rack throws -- is under fifty, against a buffer of twelve
+thousand and a worst-case scene budget of nine. The club is not something the
+quad accounting has to think about.

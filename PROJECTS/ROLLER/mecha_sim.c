@@ -2577,6 +2577,7 @@ static void mecha_fire_weapon(tMechaWorld *pWorld, int iMechIdx, int iSlot)
     memset(pShot, 0, sizeof(*pShot));
     pShot->bActive = true;
     pShot->byKind = pWeapon->byKind;
+    pShot->byMelee = pWeapon->byMelee;
     pShot->byOwner = (uint8_t)iMechIdx;
     pShot->byPalette = pWeapon->byPalette;
     pShot->fX = pShot->fPrevX = fOriginX;

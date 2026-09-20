@@ -192,6 +192,23 @@ typedef enum
 
 //-------------------------------------------------------------------------------------------------
 
+/*
+ * What a melee swing looks like. Drawing only, and deliberately not another
+ * eMechaProjectileKind: a club and a blade are the same hitbox on the same
+ * clock, and giving them separate kinds would fork the ten places that ask
+ * whether a shot is melee -- the lunge, the guard's damage scaling, the AI's
+ * reach, the sound -- to no purpose. Zero is the blade, which is what every
+ * weapon written before this existed still gets. [TYPE-10]
+ */
+typedef enum
+{
+  MECHA_MELEE_BLADE = 0,  /* pointed, edged, with a crossguard */
+  MECHA_MELEE_CLUB  = 1,  /* blunt beam, no guard, radial spikes */
+  MECHA_MELEE_COUNT = 2
+} eMechaMeleeShape;
+
+//-------------------------------------------------------------------------------------------------
+
 typedef enum
 {
   MECHA_FX_MUZZLE    = 0,
@@ -267,6 +284,7 @@ typedef struct
   float   fStagger;         /* stagger inflicted; see MECHA_STAGGER_DOWN */
   float   fMuzzleHeight;    /* fraction of mech height the shot leaves from */
   float   fMuzzleSide;      /* lateral muzzle offset, fraction of mech radius */
+  uint8_t byMelee;          /* eMechaMeleeShape; drawing only, MELEE kinds */
 } tMechaWeaponDef;
 
 //-------------------------------------------------------------------------------------------------
@@ -630,6 +648,7 @@ typedef struct
   uint8_t byKind;           /* eMechaProjectileKind */
   uint8_t byOwner;
   uint8_t byPalette;
+  uint8_t byMelee;          /* eMechaMeleeShape; drawing only */
 
   float fX, fY, fZ;
   float fPrevX, fPrevY, fPrevZ;   /* start of this tick's segment */
