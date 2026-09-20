@@ -2847,7 +2847,10 @@ static void mecha_build_arms_head(tMechaQuadList *pList,
      * exactly, because two faces in one plane have nothing to sort them
      * with. [MESH-18] */
     float fBinderX = fChestW + fBinderHx0 - 0.12f * pB->fRadius;
-    float fArmX = fChestW + 0.14f * pB->fRadius;
+    /* The arm chain hangs off this and the binder off fBinderX, so the
+     * shoulders can be brought in without the pauldrons following them.
+     * [MESH-56] */
+    float fArmX = fChestW + 0.09f * pB->fRadius;
     int iProfile = pB->iProfile < MECHA_PROFILE_COUNT ? pB->iProfile
                                                       : MECHA_PROFILE_STANDARD;
 
@@ -4054,7 +4057,12 @@ void mecha_mesh_mech_rigged(tMechaQuadList *pList, const tMechaWorld *pWorld,
     mecha_add_frustum(pList, &thigh, 0.0f, -0.5f * fThighLen, 0.0f,
                       0.20f * fLegW * fTaper,
                       0.21f * fLegW * fTaper,
-                      0.187f * fLegW, 0.226f * fLegW,
+                      /* Flared hard at the hip and left slim at the knee.
+                       * The skirt hides the top third of the thigh, so a
+                       * change made at the hip itself is a change nobody
+                       * sees: it has to be big enough that what comes out
+                       * from under the hem is still thickening. [MESH-56] */
+                      0.29f * fLegW, 0.30f * fLegW,
                       0.5f * fThighLen,
                       /* The top of the thigh is narrower than it was and
                        * carried inboard rather than centred on the hip, so
