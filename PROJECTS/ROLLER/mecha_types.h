@@ -209,6 +209,22 @@ typedef enum
 
 //-------------------------------------------------------------------------------------------------
 
+/*
+ * How a swing is thrown, which is decided by where the machine's feet are
+ * rather than by the weapon. A machine with the floor under it winds up over
+ * its shoulder and cuts across; one in the air has nothing to brace against,
+ * so it turns at the waist and puts the point out in front instead.
+ * Drawing and timing only -- both do the same damage. [SIM-31]
+ */
+typedef enum
+{
+  MECHA_SWING_SLASH  = 0, /* raise, then cut across: the grounded swing */
+  MECHA_SWING_THRUST = 1, /* coil at the waist, then stab: the aerial one */
+  MECHA_SWING_COUNT  = 2
+} eMechaSwingKind;
+
+//-------------------------------------------------------------------------------------------------
+
 typedef enum
 {
   MECHA_FX_MUZZLE    = 0,
@@ -517,6 +533,19 @@ typedef struct
    * movement until it runs out. */
   int   iLungeTicks;
   float fLungeSpeed;
+
+  /*
+   * The swing, as a clock the mesh animates against. iSwingTicks runs from
+   * iSwingTotal down to zero; the first iSwingWindup of those ticks are the
+   * wind-up, with the blade not out yet, and the rest are the strike. So
+   * the elapsed count, iSwingTotal - iSwingTicks, is what says which phase
+   * the machine is in. The total is carried because an animation wants a
+   * fraction and the weapons differ in how long they take. [SIM-31]
+   */
+  int     iSwingTicks;
+  int     iSwingTotal;
+  int     iSwingWindup;
+  uint8_t bySwingKind;      /* eMechaSwingKind */
 
   /* Edge detection. Every trigger in the mode fires on the press rather than
    * on the hold, and the AI produces the same held-button struct a pad does,

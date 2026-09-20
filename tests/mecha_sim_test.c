@@ -5426,7 +5426,11 @@ static int test_close_quarters_swings_a_blade(void)
         for (i = 0; i < MECHA_MAX_PROJECTILES; i++) {
             const tMechaProjectile *pShot = &world.aProjectiles[i];
 
-            if (pShot->bActive && pShot->byKind == MECHA_PROJ_MELEE) {
+            /* Once it is actually out. A swing spends its first ticks
+             * being raised, and there is no geometry to measure until the
+             * wind-up is over. [SIM-31] */
+            if (pShot->bActive && pShot->byKind == MECHA_PROJ_MELEE
+                && pShot->iArmTicks == 0) {
                 float fLen = mecha_length2(pShot->fVelX, pShot->fVelZ);
 
                 CHECK(fLen > 0.0f);
@@ -8880,6 +8884,128 @@ static int test_a_guard_keeps_the_speed_it_came_in_with(void)
 
 //-------------------------------------------------------------------------------------------------
 
+/*
+ * A swing is raised before it lands. The wind-up is the animation's, and it
+ * has to be honest: no geometry and no hitbox until the blade is out, or
+ * the machine is hitting people with a weapon it has not swung. [SIM-31]
+ */
+static int test_a_swing_is_raised_before_it_lands(void)
+{
+    static tMechaQuad aStorage[MECHA_QUAD_CAPACITY];
+    tMechaWorld world;
+    tMechaInput aInputs[2];
+    tMechaQuadList list;
+    int iMelee = -1;
+    int iSlot = -1;
+    int iDef;
+    int iTick;
+    int iDrawnFirstAt = -1;
+    float fArmourAtFire;
+
+    for (iDef = 0; iDef < mecha_def_count() && iMelee < 0; iDef++) {
+        int iTry;
+
+        for (iTry = 0; iTry < MECHA_WEAPON_SLOTS; iTry++)
+            if (mecha_def_get(iDef)->aWeapons[iTry][MECHA_STANCE_STAND].byKind
+                == MECHA_PROJ_MELEE) {
+                iMelee = iDef;
+                iSlot = iTry;
+                break;
+            }
+    }
+    CHECK(iMelee >= 0 && iSlot >= 0);
+
+    start_duel(&world, 0, iMelee, iMelee, 0x5B0Du, 1);
+    memset(aInputs, 0, sizeof(aInputs));
+    world.aMechs[0].byLock = MECHA_LOCK_HELD;
+    world.aMechs[0].iTargetIdx = 1;
+
+    /* Nose to nose, so a live hitbox would connect on the first tick. */
+    world.aMechs[1].fX = world.aMechs[0].fX;
+    world.aMechs[1].fZ = world.aMechs[0].fZ
+                         + mecha_def_get(iMelee)->fRadius * 2.0f;
+    fArmourAtFire = world.aMechs[1].fArmour;
+
+    aInputs[0].bFireLeft = iSlot == MECHA_SLOT_LEFT;
+    aInputs[0].bFireCenter = iSlot == MECHA_SLOT_CENTER;
+    aInputs[0].bFireRight = iSlot == MECHA_SLOT_RIGHT;
+    mecha_sim_tick(&world, aInputs, 2);
+
+    /* Fired, and it is a grounded swing. */
+    CHECK(world.aMechs[0].iSwingTicks > 0);
+    CHECK(world.aMechs[0].bySwingKind == MECHA_SWING_SLASH);
+    CHECK(world.aMechs[0].iSwingWindup == MECHA_MELEE_WINDUP);
+
+    /* Through the wind-up, point blank, nobody is hurt. */
+    for (iTick = 1; iTick < MECHA_MELEE_WINDUP; iTick++) {
+        CHECK(world.aMechs[1].fArmour == fArmourAtFire);
+        mecha_sim_tick(&world, aInputs, 2);
+    }
+    /* And once it is out, it bites -- so the wind-up was a delay and not a
+     * swing that quietly does nothing. */
+    for (iTick = 0; iTick < MECHA_TICK_HZ
+                    && world.aMechs[1].fArmour == fArmourAtFire; iTick++)
+        mecha_sim_tick(&world, aInputs, 2);
+    CHECK(world.aMechs[1].fArmour < fArmourAtFire);
+    printf("   point blank: unhurt for %d ticks, then hit\n",
+           MECHA_MELEE_WINDUP);
+
+    /*
+     * Again with nobody in reach, because the geometry is the other half of
+     * it: a swing that has not been thrown yet must not be on screen.
+     */
+    start_duel(&world, 0, iMelee, iMelee, 0x5B0Du, 1);
+    memset(aInputs, 0, sizeof(aInputs));
+    world.aMechs[0].byLock = MECHA_LOCK_HELD;
+    world.aMechs[0].iTargetIdx = 1;
+    world.aMechs[1].bActive = false;
+    aInputs[0].bFireLeft = iSlot == MECHA_SLOT_LEFT;
+    aInputs[0].bFireCenter = iSlot == MECHA_SLOT_CENTER;
+    aInputs[0].bFireRight = iSlot == MECHA_SLOT_RIGHT;
+    mecha_sim_tick(&world, aInputs, 2);
+
+    for (iTick = 1; iTick < MECHA_MELEE_WINDUP; iTick++) {
+        mecha_quads_reset(&list, aStorage, MECHA_QUAD_CAPACITY);
+        mecha_mesh_projectiles(&list, &world, 0, s_afTestEye);
+        CHECK(list.iCount == 0);
+        mecha_sim_tick(&world, aInputs, 2);
+    }
+    for (iTick = 0; iTick < MECHA_TICK_HZ && iDrawnFirstAt < 0; iTick++) {
+        mecha_quads_reset(&list, aStorage, MECHA_QUAD_CAPACITY);
+        mecha_mesh_projectiles(&list, &world, 0, s_afTestEye);
+        if (list.iCount > 0)
+            iDrawnFirstAt = iTick;
+        else
+            mecha_sim_tick(&world, aInputs, 2);
+    }
+    CHECK(iDrawnFirstAt >= 0);
+    printf("   raised for %d ticks, then the swing drew %d quads\n",
+           MECHA_MELEE_WINDUP, list.iCount);
+
+    /* The aerial swing is the other one. Off the ground, the stance the
+     * machine fires from is the jump stance, and that is thrown as a
+     * thrust rather than a slash. */
+    start_duel(&world, 0, iMelee, iMelee, 0x5B0Du, 1);
+    memset(aInputs, 0, sizeof(aInputs));
+    world.aMechs[0].byLock = MECHA_LOCK_HELD;
+    world.aMechs[0].iTargetIdx = 1;
+    aInputs[0].bJump = true;
+    for (iTick = 0; iTick < 12; iTick++)
+        mecha_sim_tick(&world, aInputs, 2);
+    aInputs[0].bJump = false;
+    CHECK(world.aMechs[0].byMove == MECHA_MOVE_JUMP);
+
+    aInputs[0].bFireLeft = iSlot == MECHA_SLOT_LEFT;
+    aInputs[0].bFireCenter = iSlot == MECHA_SLOT_CENTER;
+    aInputs[0].bFireRight = iSlot == MECHA_SLOT_RIGHT;
+    mecha_sim_tick(&world, aInputs, 2);
+    CHECK(world.aMechs[0].iSwingTicks > 0);
+    CHECK(world.aMechs[0].bySwingKind == MECHA_SWING_THRUST);
+    return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 int main(void)
 {
     struct {
@@ -9040,6 +9166,8 @@ int main(void)
           test_pilots_walk_a_causeway_to_close },
         { "a guard keeps the speed it came in with",
           test_a_guard_keeps_the_speed_it_came_in_with },
+        { "a swing is raised before it lands",
+          test_a_swing_is_raised_before_it_lands },
     };
     size_t i;
 

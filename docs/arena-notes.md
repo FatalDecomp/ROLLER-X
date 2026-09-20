@@ -4518,3 +4518,75 @@ Sixteen quads against the blade's five. Three swings in the air at once -- which
 is what the stand rack throws -- is under fifty, against a buffer of twelve
 thousand and a worst-case scene budget of nine. The club is not something the
 quad accounting has to think about.
+
+## SIM-31 -- a swing needs somewhere to come from
+
+Melee had no startup. The button went down and the hitbox was out on the same
+tick, which is fine as a hitbox and impossible as an animation: there is no way
+to draw a machine raising a weapon it has already hit somebody with.
+
+So the swing got a wind-up, and the wind-up had to be honest. Eight ticks, an
+eighth of a second, during which the swing exists but is not out: no hitbox, not
+drawn, and not travelling. Two of those three are the interesting ones.
+
+Not travelling matters because a melee shot is carried along the line of the
+lunge. Left to run during the wind-up it would start its strike eight ticks
+downrange of where the machine actually swung, so the wind-up pins it to the
+owner and it starts moving when it is released. Not spending its life matters
+for the same kind of reason: the tick that holds the swing still skips the life
+clock, so the active window is exactly what the weapon asked for. Only startup
+is added, and the reach and duration of every melee weapon on the roster are
+untouched.
+
+This is a balance change and should be recorded as one. Melee can now be whiffed
+and punished in a way it could not be when the hitbox and the button were
+simultaneous, which is the shape a close-range attack is supposed to have in a
+game like this -- but it is a change, and the whole of it is one constant.
+MECHA_MELEE_WINDUP set to zero restores the old behaviour exactly, because every
+piece of the new code is a function of it.
+
+Which swing gets thrown is read off the stance rather than the weapon: the jump
+stance is by definition the one fired with nothing under the machine, so that is
+the aerial one. Both do the same damage. The kind is drawing and timing only.
+
+The existing blade test had to move, and the way it broke is worth keeping. It
+looked for the first active melee shot and measured the geometry around it,
+which used to be the same tick the swing appeared. Now the first active tick is
+the wind-up, when there is deliberately nothing to measure, so it was asserting
+on an empty quad list. The fix was to wait for the strike -- the test's intent
+was always the shape of the swing, not the moment of the button.
+
+## MESH-62 -- two swings, and the waist is what tells them apart
+
+The arm chain already spoke four numbers -- shoulder yaw, shoulder roll, upper-
+arm pitch, elbow -- blended between what the aim wants and what a win pose
+wants. A swing is a third claimant on the same four, and it outranks both: a
+machine mid-swing is not also pointing a gun at anybody. So it goes on last, on
+the weapon arm only.
+
+Two keyframes per swing: where the wind-up ends and where the follow-through
+finishes. Everything else is interpolation.
+
+The signs were taken off the win poses rather than guessed. That table documents
+its own convention -- upper-arm pitch of zero hangs the arm, -90 is forward,
+-180 is straight up -- and it uses a positive yaw on the right arm to bring the
+gun arm up across the chest. So positive yaw on that arm is inward. A right-
+handed swing therefore starts at negative yaw, drawn back, and finishes
+positive, having crossed the body; the waist follows the same sense, coiling
+negative and releasing positive. Getting this from an existing known-good pose
+rather than from reasoning about the frames is the only reason it came out right
+first time, and it is the fourth or fifth time on this project that reading a
+measurement has beaten deriving one.
+
+A slash is thrown from the shoulder: up and back until the forearm is cocked
+behind the head, then down and across. A thrust is thrown from the waist, and
+that is the whole reason it is the aerial one -- a machine in the air has no
+floor to push against, so the rotation has to come from the body. The arm folds
+tight against the ribs, the waist winds up further than it ever does for a
+slash, and the whole thing unwinds behind a locked-out elbow.
+
+The strike is eased rather than run linearly, which matters more than the angles
+do. A swing that travels at a constant rate reads as a machine moving an arm;
+what makes it read as a blow is that nearly all of the travel happens in the
+first third. The weight then falls away over the last third so the arm hands
+itself back to the aim instead of snapping there.

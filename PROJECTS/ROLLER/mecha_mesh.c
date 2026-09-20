@@ -2826,6 +2826,115 @@ static const tMechaArmPose s_aaWinPose[MECHA_PROFILE_COUNT][2] = {
 };
 
 /*
+ * A swing, as five numbers: the four the arm chain already speaks plus the
+ * waist. Two keyframes per kind -- where the wind-up ends, and where the
+ * follow-through finishes -- and everything between them is interpolated.
+ *
+ * The signs come off the win poses above rather than being guessed at.
+ * iUpper is documented there: zero hangs, -90 is forward, -180 is straight
+ * up. And the right arm's win pose uses a positive yaw to bring the gun arm
+ * "up across the chest", so positive yaw on that arm is inward, across the
+ * body. A right-handed swing therefore starts at negative yaw, drawn back,
+ * and finishes positive, having crossed. The waist follows the same sense,
+ * so it coils negative and releases positive -- the shoulders and the hips
+ * turning together through the blow rather than fighting each other.
+ *
+ * A slash is thrown from the shoulder: up and back until the forearm is
+ * cocked behind the head, then down and across. A thrust is thrown from the
+ * waist, which is the whole reason it is the aerial one -- there is no
+ * floor to push off, so the rotation has to come from the body: the arm
+ * folds tight against the ribs, the waist winds up further than it ever
+ * does for a slash, and then the whole thing unwinds behind a locked-out
+ * elbow. [MESH-62]
+ */
+typedef struct
+{
+  int iYaw;
+  int iRoll;
+  int iUpper;
+  int iElbow;
+  int iTwist;    /* the waist, added to the torso's own yaw */
+} tMechaSwingPose;
+
+static const tMechaSwingPose s_aaSwing[MECHA_SWING_COUNT][2] = {
+  /* SLASH: over the shoulder, then down and across. */
+  {
+    { MECHA_DEG(-34), MECHA_DEG(-16), MECHA_DEG(-168), MECHA_DEG(-74),
+      MECHA_DEG(-20) },
+    { MECHA_DEG(42),  MECHA_DEG(12),  MECHA_DEG(-62),  MECHA_DEG(-8),
+      MECHA_DEG(26) },
+  },
+  /* THRUST: wound up at the waist, then put straight out in front. */
+  {
+    { MECHA_DEG(-30), MECHA_DEG(-8),  MECHA_DEG(-54),  MECHA_DEG(-126),
+      MECHA_DEG(-32) },
+    { MECHA_DEG(-2),  MECHA_DEG(0),   MECHA_DEG(-96),  MECHA_DEG(-6),
+      MECHA_DEG(16) },
+  },
+};
+
+/*
+ * Where the swing is now, and how much of the upper body it owns. Returns
+ * zero when the machine is not swinging, which is the common case and the
+ * one that has to cost nothing.
+ *
+ * The strike is eased out rather than run linearly: a swing that travels at
+ * a constant rate reads as a machine moving an arm, and what makes it read
+ * as a blow is that nearly all of the travel happens in the first third of
+ * it. The weight then falls away over the tail so the arm hands itself back
+ * to the aim instead of snapping there. [MESH-62]
+ */
+static float mecha_swing_pose(const tMechaMech *pMech, tMechaSwingPose *pOut)
+{
+  int iKind = pMech->bySwingKind < MECHA_SWING_COUNT
+                ? (int)pMech->bySwingKind : MECHA_SWING_SLASH;
+  const tMechaSwingPose *pCock = &s_aaSwing[iKind][0];
+  const tMechaSwingPose *pThrough = &s_aaSwing[iKind][1];
+  int iElapsed;
+
+  if (pMech->iSwingTicks <= 0 || pMech->iSwingTotal <= 0)
+    return 0.0f;
+
+  iElapsed = pMech->iSwingTotal - pMech->iSwingTicks;
+  if (iElapsed < 0)
+    return 0.0f;
+
+  if (iElapsed < pMech->iSwingWindup) {
+    /* The raise. Easing in, so the machine gathers rather than twitches. */
+    float fT = pMech->iSwingWindup > 0
+                 ? (float)iElapsed / (float)pMech->iSwingWindup : 1.0f;
+
+    *pOut = *pCock;
+    return fT * fT;
+  }
+
+  {
+    int iStrike = pMech->iSwingTotal - pMech->iSwingWindup;
+    int iInto = iElapsed - pMech->iSwingWindup;
+    float fT = iStrike > 0 ? (float)iInto / (float)iStrike : 1.0f;
+    float fEase;
+    float fWeight = 1.0f;
+
+    if (fT > 1.0f)
+      fT = 1.0f;
+    fEase = 1.0f - (1.0f - fT) * (1.0f - fT) * (1.0f - fT);
+
+    pOut->iYaw = mecha_blend_angle(pCock->iYaw, pThrough->iYaw, fEase);
+    pOut->iRoll = mecha_blend_angle(pCock->iRoll, pThrough->iRoll, fEase);
+    pOut->iUpper = mecha_blend_angle(pCock->iUpper, pThrough->iUpper, fEase);
+    pOut->iElbow = mecha_blend_angle(pCock->iElbow, pThrough->iElbow, fEase);
+    pOut->iTwist = mecha_blend_angle(pCock->iTwist, pThrough->iTwist, fEase);
+
+    /* Handed back over the last third. */
+    if (fT > 0.66f)
+      fWeight = (1.0f - fT) / 0.34f;
+    return fWeight;
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+/*
  * Whether this machine is holding a pose, and how far into it. Zero is
  * fighting; one is fully posed. A round ends on a phase change rather than
  * on a tick, so the ease comes off how long the phase has been running --
@@ -3030,6 +3139,28 @@ static void mecha_build_arms_head(tMechaQuadList *pList,
         iShoulderRoll = mecha_blend_angle(0, pPose->iRoll, fPosed);
         iUpperPitch = mecha_blend_angle(iAimUpper, pPose->iUpper, fPosed);
         iElbowPitch = mecha_blend_angle(iAimElbow, pPose->iElbow, fPosed);
+
+        /*
+         * And over the top of all of it, the swing -- on the weapon arm
+         * only, which is the right. It goes last because it outranks both
+         * the aim and the walk: a machine mid-swing is not also pointing a
+         * gun at anybody. [MESH-62]
+         */
+        if (iSide == 1) {
+          tMechaSwingPose swing;
+          float fSwingHow = mecha_swing_pose(pB->pMech, &swing);
+
+          if (fSwingHow > 0.0f) {
+            iShoulderYaw = mecha_blend_angle(iShoulderYaw, swing.iYaw,
+                                             fSwingHow);
+            iShoulderRoll = mecha_blend_angle(iShoulderRoll, swing.iRoll,
+                                              fSwingHow);
+            iUpperPitch = mecha_blend_angle(iUpperPitch, swing.iUpper,
+                                            fSwingHow);
+            iElbowPitch = mecha_blend_angle(iElbowPitch, swing.iElbow,
+                                            fSwingHow);
+          }
+        }
       }
 
       mecha_pose_child(&shoulder, pTorso, fSide * fArmX,
@@ -4324,6 +4455,20 @@ void mecha_mesh_mech_rigged(tMechaQuadList *pList, const tMechaWorld *pWorld,
      */
     if (build.iProfile == MECHA_PROFILE_SLENDER && pMech->iRecovery > 0)
       iRecoil = MECHA_ARM_RECOIL * mecha_clampi(pMech->iRecovery, 0, 8) / 8;
+
+    /*
+     * The waist turns with the swing. This is what separates the two
+     * attacks: a slash borrows a little of it on the way through, and a
+     * thrust is mostly this, because a machine with no floor under it has
+     * nothing else to turn against. [MESH-62]
+     */
+    {
+      tMechaSwingPose swing;
+      float fSwingHow = mecha_swing_pose(pMech, &swing);
+
+      if (fSwingHow > 0.0f)
+        iTwist = mecha_blend_angle(iTwist, iTwist + swing.iTwist, fSwingHow);
+    }
 
     /*
      * Two frames off the same point: the pelvis, which the skirt hangs on
@@ -5724,6 +5869,9 @@ void mecha_mesh_projectiles(tMechaQuadList *pList, const tMechaWorld *pWorld,
        * Long against the hitbox it draws, because a sword that is as wide
        * as its reach is a shield.
        */
+      /* Not out yet: the machine is still raising it. [SIM-31] */
+      if (pShot->iArmTicks > 0)
+        break;
       if (pShot->byMelee == MECHA_MELEE_CLUB)
         mecha_add_club(pList, pShot->fX, pShot->fY, pShot->fZ,
                        pShot->fVelX, pShot->fVelZ,

@@ -287,6 +287,21 @@
  */
 #define MECHA_GUARD_GRIP_SCALE  0.45f
 
+/*
+ * How long a melee swing spends winding up before the blade is out. A raise
+ * that takes no time is not a raise, so an animated swing needs real ticks
+ * in front of it -- and once they exist they have to be honest ones, with
+ * no hitbox, or the machine is hitting people with a weapon it has not
+ * swung yet.
+ *
+ * This is a balance change as much as an animation one: melee now has
+ * startup, and a whiffed swing can be punished in a way it could not be
+ * when the hitbox appeared on the same tick as the button. Eight ticks is
+ * an eighth of a second against active windows of sixteen to twenty-six.
+ * Setting it to zero restores exactly the old behaviour. [SIM-31]
+ */
+#define MECHA_MELEE_WINDUP      8
+
 /* Two ways to change a committed dash: the cancel and the crossing step.
  * [SIM-08] */
 #define MECHA_DASH_CANCEL_DOT   (-0.35f)

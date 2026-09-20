@@ -726,6 +726,7 @@ void mecha_sim_damage(tMechaWorld *pWorld, int iVictimIdx, int iAttackerIdx,
     pVictim->iStunTicks = MECHA_DOWN_TICKS;
     pVictim->iRecovery = 0;
     pVictim->iLungeTicks = 0;
+    pVictim->iSwingTicks = 0;
   } else if (fStagger >= MECHA_STAGGER_INTERRUPT
              && pVictim->byMove != MECHA_MOVE_JUMP) {
     /* Enough to break a firing animation, not enough to floor anyone.
@@ -736,6 +737,7 @@ void mecha_sim_damage(tMechaWorld *pWorld, int iVictimIdx, int iAttackerIdx,
     pVictim->iStunTicks = MECHA_STAGGER_TICKS;
     pVictim->iRecovery = 0;
     pVictim->iLungeTicks = 0;
+    pVictim->iSwingTicks = 0;
   }
 }
 
@@ -1858,6 +1860,12 @@ static void mecha_update_movement(tMechaWorld *pWorld, int iMechIdx,
 
   /* --- velocity -------------------------------------------------------- */
 
+  /* The animation clock runs on its own, beside the lunge it was started
+   * with, because the mesh has to keep drawing the follow-through after the
+   * drag has stopped. [SIM-31] */
+  if (pMech->iSwingTicks > 0)
+    pMech->iSwingTicks--;
+
   if (pMech->iLungeTicks > 0) {
     /* A melee swing carries the mech with it; the lunge is the attack. */
     pMech->iLungeTicks--;
@@ -2514,12 +2522,25 @@ static void mecha_fire_weapon(tMechaWorld *pWorld, int iMechIdx, int iSlot)
   }
 
   if (pWeapon->byKind == MECHA_PROJ_MELEE) {
-    /* The swing drags the mech into it. */
+    /* The swing drags the mech into it. The drag covers the wind-up too:
+     * a machine steps into a swing as it raises, it does not stand still
+     * and then jump. */
     pMech->fDashDirX = mecha_sin(iBaseYaw);
     pMech->fDashDirZ = mecha_cos(iBaseYaw);
     pMech->fLungeSpeed = pWeapon->fSpeed;
-    pMech->iLungeTicks = pWeapon->iLifeTicks;
+    pMech->iLungeTicks = MECHA_MELEE_WINDUP + pWeapon->iLifeTicks;
     iBasePitch = 0;
+
+    /*
+     * And it starts the animation clock. Which swing it is comes off the
+     * feet rather than the weapon: the jump stance is the one thrown with
+     * nothing underneath the machine. [SIM-31]
+     */
+    pMech->iSwingTotal = MECHA_MELEE_WINDUP + pWeapon->iLifeTicks;
+    pMech->iSwingTicks = pMech->iSwingTotal;
+    pMech->iSwingWindup = MECHA_MELEE_WINDUP;
+    pMech->bySwingKind = eStance == MECHA_STANCE_JUMP
+                           ? MECHA_SWING_THRUST : MECHA_SWING_SLASH;
   }
 
   mecha_sim_spawn_effect(pWorld, MECHA_FX_MUZZLE, fOriginX, fOriginY,
@@ -2596,8 +2617,19 @@ static void mecha_fire_weapon(tMechaWorld *pWorld, int iMechIdx, int iSlot)
     /* A missile launched off a broken lock has nothing to home on. It is
      * still a missile; it just flies where it was pointed. */
     pShot->iTarget = pTarget ? pMech->iTargetIdx : -1;
-    pShot->iArmTicks = pWeapon->byKind == MECHA_PROJ_MINE
-                       ? MECHA_MINE_ARM_TICKS : 0;
+    /*
+     * A swing spends its wind-up armed but not out: no hitbox, not drawn,
+     * and not travelling. Its life is not spent either -- the tick that
+     * holds it still skips the life clock -- so the active window is
+     * exactly what the weapon asked for and only startup is added.
+     * [SIM-31]
+     */
+    if (pWeapon->byKind == MECHA_PROJ_MELEE)
+      pShot->iArmTicks = MECHA_MELEE_WINDUP;
+    else if (pWeapon->byKind == MECHA_PROJ_MINE)
+      pShot->iArmTicks = MECHA_MINE_ARM_TICKS;
+    else
+      pShot->iArmTicks = 0;
     pShot->fHuntSpeed = pWeapon->fSpeed * MECHA_MINE_HUNT_SCALE;
   }
 }
@@ -3086,6 +3118,19 @@ static void mecha_update_projectiles(tMechaWorld *pWorld)
       pShot->iArmTicks--;
     pShot->iAge++;
 
+    /*
+     * A swing being raised stays with the machine that is raising it. The
+     * blade is not out yet, so it must not run out along the lunge either,
+     * or the strike starts from wherever the wind-up carried it. [SIM-31]
+     */
+    if (pShot->byKind == MECHA_PROJ_MELEE && pShot->iArmTicks > 0) {
+      const tMechaMech *pOwner = &pWorld->aMechs[pShot->byOwner];
+
+      pShot->fX = pShot->fPrevX = pOwner->fX;
+      pShot->fZ = pShot->fPrevZ = pOwner->fZ;
+      continue;
+    }
+
     if (pShot->byKind == MECHA_PROJ_HOMING)
       mecha_home_projectile(pWorld, pShot);
 
@@ -3470,6 +3515,7 @@ static void mecha_reset_mech_for_round(tMechaWorld *pWorld, int iMechIdx,
   pMech->iHitTakenTick = -1;
   pMech->iHitDealtTick = -1;
   pMech->iLungeTicks = 0;
+  pMech->iSwingTicks = 0;
   pMech->fLungeSpeed = 0.0f;
   pMech->iLastFiredSlot = -1;
   pMech->iLastFiredStance = MECHA_STANCE_STAND;
