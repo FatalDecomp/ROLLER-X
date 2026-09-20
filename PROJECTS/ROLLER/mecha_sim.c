@@ -1906,8 +1906,20 @@ static void mecha_update_movement(tMechaWorld *pWorld, int iMechIdx,
                                    pDef->fAirSpeed * 6.0f * MECHA_DT);
     pMech->fVelY = -MECHA_CANCEL_FALL_SPEED;
   } else if (pMech->byMove == MECHA_MOVE_GUARD) {
-    pMech->fVelX = 0.0f;
-    pMech->fVelZ = 0.0f;
+    /*
+     * A brace is not a brake. Guard used to write both velocities to zero,
+     * which stopped the machine dead on the frame the button went down --
+     * so the surest way to kill a dash you regretted was to guard out of
+     * it, and a machine that had been moving went from full speed to
+     * planted with nothing in between.
+     *
+     * It keeps what it was carrying now and scrubs it off on its feet.
+     * There is no stick authority here on purpose: guarding cannot steer
+     * and cannot accelerate, so this is momentum being spent, never
+     * gained, and the machine still ends up stopped -- it just takes the
+     * distance to do it. [SIM-30]
+     */
+    mecha_drive(pMech, pDef, 0.0f, 0.0f, 0.0f, 1.0f, MECHA_GUARD_GRIP_SCALE);
   } else if (pMech->iCoastTicks > 0
              && (pMech->byMove == MECHA_MOVE_WALK
                  || pMech->byMove == MECHA_MOVE_STAND)) {

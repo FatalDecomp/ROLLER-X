@@ -8808,6 +8808,78 @@ static int test_a_full_effect_table_does_not_move_the_fight(void)
 
 //-------------------------------------------------------------------------------------------------
 
+/*
+ * Guarding used to write both velocities to zero, so the button was also
+ * the strongest brake in the game. It carries its speed now and scrubs it
+ * off on its feet. [SIM-30]
+ */
+static int test_a_guard_keeps_the_speed_it_came_in_with(void)
+{
+    tMechaWorld world;
+    tMechaInput aInputs[2];
+    float fEntry;
+    float fHeldSpeed;
+    float fGuardX;
+    float fGuardZ;
+    float fSlid;
+
+    start_duel(&world, 0, 0, 0, 1234u, 2);
+    memset(aInputs, 0, sizeof(aInputs));
+
+    /* Up to walking speed first. */
+    aInputs[0].iMoveZ = 100;
+    run_ticks(&world, aInputs, 2, 40);
+    CHECK(world.aMechs[0].byMove == MECHA_MOVE_WALK);
+    fEntry = mecha_length2(world.aMechs[0].fVelX, world.aMechs[0].fVelZ);
+    CHECK(fEntry > 0.0f);
+
+    /*
+     * Guard, stick released. The frame the button goes down the machine is
+     * still carrying most of what it had -- that is the whole change, and
+     * a dead stop would fail here.
+     */
+    memset(aInputs, 0, sizeof(aInputs));
+    aInputs[0].bGuard = true;
+    fGuardX = world.aMechs[0].fX;
+    fGuardZ = world.aMechs[0].fZ;
+    run_ticks(&world, aInputs, 2, 1);
+    CHECK(world.aMechs[0].byMove == MECHA_MOVE_GUARD);
+    fHeldSpeed = mecha_length2(world.aMechs[0].fVelX, world.aMechs[0].fVelZ);
+    CHECK(fHeldSpeed > fEntry * 0.8f);
+
+    /* And it covers real ground on the way down. */
+    run_ticks(&world, aInputs, 2, 24);
+    fSlid = mecha_length2(world.aMechs[0].fX - fGuardX,
+                          world.aMechs[0].fZ - fGuardZ);
+    CHECK(world.aMechs[0].byMove == MECHA_MOVE_GUARD);
+    CHECK(fSlid > MECHA_M(1.0f));
+    printf("   guarded at %.0f m/s and slid %.1f m\n",
+           fEntry / MECHA_METRE, fSlid / MECHA_METRE);
+
+    /*
+     * Spent, not kept. A slide that never ended would be a machine that
+     * guards its way around the arena for free.
+     */
+    run_ticks(&world, aInputs, 2, 180);
+    CHECK(mecha_length2(world.aMechs[0].fVelX, world.aMechs[0].fVelZ)
+          < MECHA_MPS(1.0f));
+
+    /*
+     * And it is momentum, never thrust: holding the stick into a guard
+     * from a standstill moves the machine nowhere.
+     */
+    fGuardX = world.aMechs[0].fX;
+    fGuardZ = world.aMechs[0].fZ;
+    aInputs[0].iMoveZ = 100;
+    run_ticks(&world, aInputs, 2, 60);
+    CHECK(world.aMechs[0].byMove == MECHA_MOVE_GUARD);
+    CHECK(mecha_length2(world.aMechs[0].fX - fGuardX,
+                        world.aMechs[0].fZ - fGuardZ) < MECHA_M(0.5f));
+    return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 int main(void)
 {
     struct {
@@ -8966,6 +9038,8 @@ int main(void)
           test_a_causeway_publishes_a_way_along_it },
         { "pilots walk a causeway to close",
           test_pilots_walk_a_causeway_to_close },
+        { "a guard keeps the speed it came in with",
+          test_a_guard_keeps_the_speed_it_came_in_with },
     };
     size_t i;
 

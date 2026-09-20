@@ -1508,15 +1508,43 @@ static int mecha_blend_angle(int iFrom, int iTo, float fAmount)
 #define MECHA_LEG_HANGKNEE  MECHA_DEG(30)
 #define MECHA_LEG_TRAIL     MECHA_DEG(22)
 #define MECHA_LEG_TRAILKNEE MECHA_DEG(46)
-/* A guard is a squat, and a human squat has to be deep to lower anything:
- * the knee travels forward as far as the hip drops, so the two cosines all
- * but cancel until the angles get large. Bird-legged, half of this was
- * enough; on a knee that bends the right way it is not -- and it went
- * deeper again once standing stopped being a machine on locked knees, since
- * a crouch is only a crouch relative to whatever the machine does the rest
- * of the time. */
-#define MECHA_LEG_SQUAT   MECHA_DEG(54)
-#define MECHA_LEG_SQKNEE  MECHA_DEG(108)
+/*
+ * A guard is a kneel, not a squat. What it used to be was symmetric -- both
+ * thighs forward 54, both knees folded 108 -- and symmetric is exactly what
+ * makes a pose read as a squat: a machine sinking straight down between its
+ * own feet, which is a machine getting shorter rather than a machine
+ * bracing.
+ *
+ * A kneel is asymmetric, and that is the whole difference. One leg goes
+ * out in front with the shin stood up under it to take the load, and the
+ * other folds underneath until its knee is nearly on the floor. The body
+ * sits on the front leg. Nothing else about the pose had to change.
+ *
+ * The angles are picked off the reach, because the reach is what sets the
+ * ride height: reach = 0.52*cos(t) + 0.48*cos(t - k) of the leg span, and
+ * the builder drops the body onto whichever leg reaches furthest. Those
+ * weights matter -- the thigh and the shin are not the same length, and
+ * doing this sum with them equal is out by three per cent.
+ *
+ * The lead leg is the one that reaches, at 0.587, against the old squat's
+ * 0.588: the same ride height to within a tenth of a per cent, so a guard
+ * still sinks exactly as far as it always did and the silhouette keeps its
+ * height. That is the whole reason these two angles are 78 and 82 and not
+ * some rounder pair -- they were solved for the height the squat already
+ * had, so nothing downstream of the pose had to be retuned.
+ *
+ * The down leg reaches 0.515, a tenth of a leg span short, and that
+ * shortfall is not a bug to be solved: it is precisely how far the knee
+ * ends up off the floor, 0.45 m on the slender frame, and the ankle hangs
+ * on it for free [MESH-53].
+ *
+ * Left leads, which is the side the victory pose already leads with.
+ * [MESH-60]
+ */
+#define MECHA_KNEEL_LEAD_THIGH  MECHA_DEG(78)
+#define MECHA_KNEEL_LEAD_KNEE   MECHA_DEG(82)
+#define MECHA_KNEEL_DOWN_THIGH  MECHA_DEG(8)
+#define MECHA_KNEEL_DOWN_KNEE   MECHA_DEG(98)
 
 /*
  * The slender frame walks differently, and the difference is not that it
@@ -1755,8 +1783,14 @@ static void mecha_leg_angles(int iGait, float fPhase, int iSide, int iTick,
   }
 
   case MECHA_GAIT_GUARD:
-    *piThigh = MECHA_LEG_SQUAT;
-    *piKnee = MECHA_LEG_SQKNEE;
+    /* Front leg takes the weight, back leg drops its knee. [MESH-60] */
+    if (iSide == 0) {
+      *piThigh = MECHA_KNEEL_LEAD_THIGH;
+      *piKnee = MECHA_KNEEL_LEAD_KNEE;
+    } else {
+      *piThigh = MECHA_KNEEL_DOWN_THIGH;
+      *piKnee = MECHA_KNEEL_DOWN_KNEE;
+    }
     return;
 
   case MECHA_GAIT_AIR:

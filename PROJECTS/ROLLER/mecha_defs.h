@@ -275,6 +275,18 @@
 #define MECHA_COAST_ACCEL_SCALE 0.22f
 #define MECHA_COAST_GRIP_SCALE  0.18f
 
+/*
+ * How hard a guarding machine scrubs off the speed it entered the guard
+ * with, as a fraction of its own grip. Between the two numbers that already
+ * bracket it: a coast is 0.18 and freewheels a long way, and letting go of
+ * the stick leans on the brakes at fBrake/fGrip, which is around 0.73 on
+ * most of the roster. A guard sits under that because the machine is braced
+ * rather than braking -- it is sliding on its feet, not stepping on them --
+ * so it holds a slide a little longer than simply releasing the stick would.
+ * One number, and the whole feel of guarding out of a dash is in it. [SIM-30]
+ */
+#define MECHA_GUARD_GRIP_SCALE  0.45f
+
 /* Two ways to change a committed dash: the cancel and the crossing step.
  * [SIM-08] */
 #define MECHA_DASH_CANCEL_DOT   (-0.35f)

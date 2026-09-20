@@ -4353,3 +4353,90 @@ machine has, and a shared name undoes that as surely as a shared outline. It had
 been sitting there since both entries were written. Worth noting that it took a
 rename for an unrelated reason to surface it -- nothing checks weapon names for
 collisions, and nothing caught this one.
+
+## SIM-30 -- a brace is not a brake
+
+Guarding wrote both velocities to zero. Not damped, not scrubbed -- assigned, on
+the frame the button went down, every tick the guard was held. That had two
+consequences and neither of them was intended.
+
+The first is how it looked. A machine at a dash stopped as if it had hit a wall,
+with no slide and no weight to it, which is the one thing in the movement model
+that did not obey its own momentum: the coast out of a dash exists precisely so
+a burst ends where it was going [SIM-08], and guard threw that away.
+
+The second is what it did to the game. Guard was the hardest brake on the
+roster, harder than the brakes, and instant. Any dash you regretted could be
+cancelled into a dead stop with a button that also cuts melee damage to 15% and
+regenerates the gauge at three times the standing rate. Stopping is supposed to
+cost something.
+
+It carries its speed now and scrubs it off on its feet, at a fraction of grip
+set by one constant. There is no stick authority in that branch on purpose --
+`mecha_drive` is called with a zero direction, so the machine can spend momentum
+but never gain it, cannot steer on the guard, and still ends up stopped. What
+changed is that it takes the distance to do it: about five metres from a walk,
+and most of an arena length out of a full dash.
+
+The number lives between two that already existed. A dash coast is 0.18 of grip
+and freewheels a long way; letting go of the stick leans on the brakes at
+fBrake/fGrip, around 0.73 on most of the roster. A guard sits under the second
+because the machine is braced rather than braking -- sliding on its feet, not
+stepping on them -- so it holds a slide slightly longer than simply releasing
+would. 0.45, and the whole feel of guarding out of a dash is in it.
+
+Worth saying what the test checks, because a test that only asserted 'moves a
+bit' would pass on the old code the moment a rounding error left a millimetre of
+velocity. It measures the speed one tick into the guard against the speed going
+in, and requires four fifths of it to survive. It then requires the slide to be
+real ground, requires it to end, and requires a stick held into a guard from a
+standstill to move the machine nowhere -- momentum spent, never gained. Run
+against the old branch it fails on the first of those, which is the one that
+matters.
+
+## MESH-60 -- a guard is a kneel, not a squat
+
+The guard pose put both thighs forward 54 degrees and folded both knees 108,
+identically. Symmetric is what made it read as a squat, and a squat is a machine
+getting shorter rather than a machine bracing -- it sinks straight down between
+its own feet and there is nothing in the shape that says which way the hit is
+coming from.
+
+A kneel is asymmetric and that is the entire difference. One leg goes out in
+front with the shin stood up under it to take the load; the other folds
+underneath until its knee is nearly on the floor. Nothing else about the pose
+needed touching, and no new machinery: guard is not in `mecha_gait_plants`, so
+it already ran down the one-foot-down branch that puts the body on whichever leg
+reaches furthest and hangs the other foot off the difference [MESH-53]. A
+symmetric squat made that branch a no-op. An asymmetric kneel is exactly what it
+was written for.
+
+The angles were solved rather than eyeballed, against the reach:
+`0.52*cos(t) + 0.48*cos(t - k)` of the leg span. Those weights are the thigh and
+the shin, and they are not equal -- doing the sum with them equal is out by
+three per cent, which is enough to move the ride height visibly. The lead leg at
+78 and 82 reaches 0.587 against the old squat's 0.588. That is the same height
+to within a tenth of a per cent, and it was the point of picking those two
+numbers over some rounder pair: a guard sinks exactly as far as it always did,
+so nothing downstream of the pose had to be retuned. The down leg reaches 0.515,
+and the tenth of a span it falls short is not an error to be corrected -- it is
+how far the knee ends up off the floor, 0.45 m on the slender frame.
+
+One thing about the result looks wrong and is not. From the side the lead thigh
+is close to horizontal and the foot lands well in front, which reads at first
+like a hurdle stretch rather than a kneel. It is correct: once the back knee is
+near the floor the hip is about one thigh length up, and a front leg reaching
+the floor from there with its shin upright has nowhere to put the thigh but
+flat. Kneel depth and lead-thigh angle are locked together by the geometry, and
+a shallower kneel is a machine that barely crouches.
+
+What this did not fix, and did not cause, is that the guard crouch already
+pushes geometry through the floor on the bulkier frames -- 1.16 m on the line-
+assault frame, 0.41 m on the close-quarters one, and the siege platform is 3.69
+m under before it guards at all. The numbers are identical before and after, to
+the centimetre, which is a consequence of the ride height being preserved so
+exactly: the same parts hang the same distance below the same hip. The floor
+solve only knows about the ankle, so anything that sits lower than the foot -- a
+skirt, a pelvis plate -- is unaccounted for. The squat hid it by tucking both
+legs under the body; a kneel splays them and shows it. Pre-existing, out of
+scope here, and worth its own pass.
