@@ -940,7 +940,7 @@ static const tMechaMechDef s_aMechDefs[] = {
  * are not. [DEF-10]
  */
 {
-  .szName = "Hiiragi 14A", .szClass = "STRIKE DANCER",
+  .szName = "Hiiragi 14A", .szClass = "STREET BOSS",
   .byProfile = MECHA_PROFILE_SLENDER,
   .fGrip = MECHA_MPS(165.0f), .fDriveAccel = MECHA_MPS(135.0f),
   .fBrake = MECHA_MPS(120.0f),
@@ -989,27 +989,40 @@ static const tMechaMechDef s_aMechDefs[] = {
   .iBoostJumpDrain = 210, .iBoostRegen = 175, .iBoostGuardRegen = 520,
   .iDashTicks = MECHA_SEC(0.95f), .iLandTicks = MECHA_SEC(0.20f),
   .abyPalette = { PAL_HULL_PALE, PAL_HULL_PALE_T, PAL_JOINT, PAL_TRACER_MAGENTA },
+  /*
+   * The frame was named for a delinquent, not a dancer, and the old names
+   * were still the ballet: PIROUETTE, CURTSEY, GRAND JETE. One family per
+   * slot, picked to fit what the slot actually does -- thrown blades on the
+   * scatter, a bike chain on the melee, and the steel yo-yo on the homing
+   * rack, which is the one weapon that tracks and comes back. Its trick
+   * names fall on the stances for free: a sleeper hangs, a walk runs out
+   * flat, a loop goes overhead, and the jump rack is the one that arcs.
+   *
+   * This also settles a collision. The right rack used to be NEEDLE, which
+   * the interceptor already owns four of; two machines sharing a weapon
+   * family is the same failure as two sharing a silhouette. [DEF-15]
+   */
   .aWeapons = {
     [MECHA_SLOT_LEFT] = {
-      [MECHA_STANCE_STAND] = { .szName = "RIBBON", .byKind = MECHA_PROJ_BULLET,
+      [MECHA_STANCE_STAND] = { .szName = "RAZOR", .byKind = MECHA_PROJ_BULLET,
         .byCount = 4, .byPalette = PAL_TRACER_MAGENTA, .iSpreadAngle = MECHA_DEG(3),
         .fSpeed = MECHA_MPS(175.0f), .fDamage = 19.0f, .fRadius = MECHA_M(0.6f),
         .iLifeTicks = 100, .iAmmo = 12, .iReloadTicks = MECHA_SEC(1.7f),
         .iRecoveryTicks = 6, .fStagger = 4.0f,
         .fMuzzleHeight = 0.64f, .fMuzzleSide = -1.0f },
-      [MECHA_STANCE_GUARD] = { .szName = "RIBBON DRAWN", .byKind = MECHA_PROJ_BEAM,
+      [MECHA_STANCE_GUARD] = { .szName = "RAZOR OPEN", .byKind = MECHA_PROJ_BEAM,
         .byCount = 1, .byPalette = PAL_TRACER_MAGENTA,
         .fSpeed = MECHA_MPS(430.0f), .fDamage = 112.0f, .fRadius = MECHA_M(1.2f),
         .iLifeTicks = 120, .iAmmo = 4, .iReloadTicks = MECHA_SEC(2.6f),
         .iRecoveryTicks = 26, .fStagger = 30.0f,
         .fMuzzleHeight = 0.50f, .fMuzzleSide = -1.0f },
-      [MECHA_STANCE_DASH] = { .szName = "RIBBON SWEEP", .byKind = MECHA_PROJ_BULLET,
+      [MECHA_STANCE_DASH] = { .szName = "RAZOR SPRAY", .byKind = MECHA_PROJ_BULLET,
         .byCount = 5, .byPalette = PAL_TRACER_MAGENTA, .iSpreadAngle = MECHA_DEG(7),
         .fSpeed = MECHA_MPS(160.0f), .fDamage = 16.0f, .fRadius = MECHA_M(0.6f),
         .iLifeTicks = 85, .iAmmo = 10, .iReloadTicks = MECHA_SEC(1.9f),
         .iRecoveryTicks = 6, .fStagger = 3.0f,
         .fMuzzleHeight = 0.64f, .fMuzzleSide = -1.0f },
-      [MECHA_STANCE_JUMP] = { .szName = "RIBBON FALL", .byKind = MECHA_PROJ_ARC,
+      [MECHA_STANCE_JUMP] = { .szName = "RAZOR RAIN", .byKind = MECHA_PROJ_ARC,
         .byCount = 6, .byPalette = PAL_TRACER_MAGENTA, .iSpreadAngle = MECHA_DEG(6),
         .fSpeed = MECHA_MPS(92.0f), .fDamage = 22.0f, .fRadius = MECHA_M(0.8f),
         .fArcGravity = MECHA_MPS(42.0f),
@@ -1018,25 +1031,25 @@ static const tMechaMechDef s_aMechDefs[] = {
         .fMuzzleHeight = 0.68f, .fMuzzleSide = -1.0f },
     },
     [MECHA_SLOT_CENTER] = {
-      [MECHA_STANCE_STAND] = { .szName = "PIROUETTE", .byKind = MECHA_PROJ_MELEE,
+      [MECHA_STANCE_STAND] = { .szName = "CHAIN WHIP", .byKind = MECHA_PROJ_MELEE,
         .byCount = 3, .byPalette = PAL_TRACER_WHITE, .iSpreadAngle = MECHA_DEG(40),
         .fSpeed = MECHA_MPS(46.0f), .fDamage = 74.0f, .fRadius = MECHA_M(4.6f),
         .iLifeTicks = 16, .iAmmo = 3, .iReloadTicks = MECHA_SEC(2.2f),
         .iRecoveryTicks = 22, .fStagger = 54.0f,
         .fMuzzleHeight = 0.58f, .fMuzzleSide = 0.0f },
-      [MECHA_STANCE_GUARD] = { .szName = "CURTSEY", .byKind = MECHA_PROJ_MELEE,
+      [MECHA_STANCE_GUARD] = { .szName = "CHAIN WRAP", .byKind = MECHA_PROJ_MELEE,
         .byCount = 1, .byPalette = PAL_TRACER_WHITE,
         .fSpeed = MECHA_MPS(34.0f), .fDamage = 142.0f, .fRadius = MECHA_M(4.2f),
         .iLifeTicks = 20, .iAmmo = 2, .iReloadTicks = MECHA_SEC(3.0f),
         .iRecoveryTicks = 32, .fStagger = 92.0f,
         .fMuzzleHeight = 0.38f, .fMuzzleSide = 0.0f },
-      [MECHA_STANCE_DASH] = { .szName = "GRAND JETE", .byKind = MECHA_PROJ_MELEE,
+      [MECHA_STANCE_DASH] = { .szName = "CHAIN RUSH", .byKind = MECHA_PROJ_MELEE,
         .byCount = 1, .byPalette = PAL_TRACER_WHITE,
         .fSpeed = MECHA_MPS(104.0f), .fDamage = 164.0f, .fRadius = MECHA_M(5.6f),
         .iLifeTicks = 26, .iAmmo = 2, .iReloadTicks = MECHA_SEC(2.8f),
         .iRecoveryTicks = 26, .fStagger = 88.0f,
         .fMuzzleHeight = 0.56f, .fMuzzleSide = 0.0f },
-      [MECHA_STANCE_JUMP] = { .szName = "DESCENT", .byKind = MECHA_PROJ_MELEE,
+      [MECHA_STANCE_JUMP] = { .szName = "CHAIN DROP", .byKind = MECHA_PROJ_MELEE,
         .byCount = 1, .byPalette = PAL_TRACER_WHITE,
         .fSpeed = MECHA_MPS(82.0f), .fDamage = 150.0f, .fRadius = MECHA_M(5.0f),
         .iLifeTicks = 24, .iAmmo = 2, .iReloadTicks = MECHA_SEC(3.0f),
@@ -1044,25 +1057,25 @@ static const tMechaMechDef s_aMechDefs[] = {
         .fMuzzleHeight = 0.46f, .fMuzzleSide = 0.0f },
     },
     [MECHA_SLOT_RIGHT] = {
-      [MECHA_STANCE_STAND] = { .szName = "NEEDLE FLIGHT", .byKind = MECHA_PROJ_HOMING,
+      [MECHA_STANCE_STAND] = { .szName = "YO-YO", .byKind = MECHA_PROJ_HOMING,
         .byCount = 3, .byPalette = PAL_TRACER_CYAN, .iSpreadAngle = MECHA_DEG(13),
         .fSpeed = MECHA_MPS(135.0f), .fDamage = 34.0f, .fRadius = MECHA_M(0.8f),
         .iLifeTicks = 175, .iAmmo = 5, .iReloadTicks = MECHA_SEC(2.6f),
         .iRecoveryTicks = 18, .iHomingRate = MECHA_DEG(150), .fStagger = 14.0f,
         .fMuzzleHeight = 0.70f, .fMuzzleSide = 1.0f },
-      [MECHA_STANCE_GUARD] = { .szName = "NEEDLE HELD", .byKind = MECHA_PROJ_HOMING,
+      [MECHA_STANCE_GUARD] = { .szName = "YO-YO SLEEPER", .byKind = MECHA_PROJ_HOMING,
         .byCount = 6, .byPalette = PAL_TRACER_CYAN, .iSpreadAngle = MECHA_DEG(18),
         .fSpeed = MECHA_MPS(120.0f), .fDamage = 30.0f, .fRadius = MECHA_M(0.8f),
         .iLifeTicks = 200, .iAmmo = 3, .iReloadTicks = MECHA_SEC(3.6f),
         .iRecoveryTicks = 30, .iHomingRate = MECHA_DEG(175), .fStagger = 12.0f,
         .fMuzzleHeight = 0.60f, .fMuzzleSide = 1.0f },
-      [MECHA_STANCE_DASH] = { .szName = "NEEDLE TRAIL", .byKind = MECHA_PROJ_HOMING,
+      [MECHA_STANCE_DASH] = { .szName = "YO-YO WALK", .byKind = MECHA_PROJ_HOMING,
         .byCount = 2, .byPalette = PAL_TRACER_CYAN, .iSpreadAngle = MECHA_DEG(9),
         .fSpeed = MECHA_MPS(150.0f), .fDamage = 32.0f, .fRadius = MECHA_M(0.8f),
         .iLifeTicks = 150, .iAmmo = 6, .iReloadTicks = MECHA_SEC(2.4f),
         .iRecoveryTicks = 12, .iHomingRate = MECHA_DEG(130), .fStagger = 11.0f,
         .fMuzzleHeight = 0.70f, .fMuzzleSide = 1.0f },
-      [MECHA_STANCE_JUMP] = { .szName = "NEEDLE CROWN", .byKind = MECHA_PROJ_HOMING,
+      [MECHA_STANCE_JUMP] = { .szName = "YO-YO LOOP", .byKind = MECHA_PROJ_HOMING,
         .byCount = 8, .byPalette = PAL_TRACER_CYAN, .iSpreadAngle = MECHA_DEG(24),
         .fSpeed = MECHA_MPS(115.0f), .fDamage = 26.0f, .fRadius = MECHA_M(0.8f),
         .iLifeTicks = 210, .iAmmo = 2, .iReloadTicks = MECHA_SEC(4.2f),

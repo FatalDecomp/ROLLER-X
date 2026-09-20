@@ -1014,9 +1014,9 @@ on the stick, and pick what to spend the next round on.
   for them in the gauge: a third of a second of boost and a drain that empties
   the bar in three of them. The ZIZIN is still the car.
 
-- **Two of the bipeds are not built like the others.** Hiiragi 14A is the slender
-  frame: narrow waist, wide skirt, tapered limbs, crests swept back off the
-  head, and a walk that puts its feet down on the centreline with the hips
+- **Two of the bipeds are not built like the others.** Hiiragi 14A is the
+  slender frame: narrow waist, wide skirt, tapered limbs, crests swept back off
+  the head, and a walk that puts its feet down on the centreline with the hips
   travelling across to follow them and the shoulders rolling the other way.
   Corvid 3 carries a rack of eight pods across its back and no gun in either
   hand, because what it fights with is drones and mines that hang in the air

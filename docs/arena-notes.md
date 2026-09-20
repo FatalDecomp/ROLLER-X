@@ -174,10 +174,10 @@ published ways [AI-13].
 Nine machines on four drawn chassis \[TYPE-06\]: five ordinary bipeds, the
 wheeled ZIZIN (which gets its own pilot branch in `mecha_ai_think`), BASTION 88
 on tracks [MESH-38] and Tarant VZ on six legs [MESH-39]. Two of the bipeds wear
-their own trim package [TYPE-07] -- Hiiragi 14A the slender frame with a crossing
-walk [MESH-33, MESH-40] and Corvid 3 a rack of drone pods [MESH-36]. Machines
-are built at one of three detail tiers by range [MESH-32], and a machine that
-wins a round holds a pose [MESH-41, MESH-42].
+their own trim package [TYPE-07] -- Hiiragi 14A the slender frame with a
+crossing walk [MESH-33, MESH-40] and Corvid 3 a rack of drone pods [MESH-36].
+Machines are built at one of three detail tiers by range [MESH-32], and a
+machine that wins a round holds a pose [MESH-41, MESH-42].
 
 ### Known and open, at 0.2.1
 
@@ -2989,8 +2989,8 @@ the waist and widen the flare, and the flare made no difference at all to the
 figure -- which is the tell that the number was not reading the skirt.
 
 **The second was the ratio it led to.** With the arms counted, hip/shoulder came
-out 0.84, a hair off the roster average of 0.85, so by that measure Hiiragi 14A was
-already proportioned like everyone else and the complaint was imaginary.
+out 0.84, a hair off the roster average of 0.85, so by that measure Hiiragi 14A
+was already proportioned like everyone else and the complaint was imaginary.
 
 Measured off the builder's own part and bone tags instead -- binders are
 `MECHA_PART_ARM` carried on `MECHA_BONE_TORSO`, the skirt is `MECHA_PART_SKIRT`
@@ -4176,6 +4176,7 @@ fitting the toe independently in this pass wanted a positive pitch, twice, from
 two different directions. The note's *reasoning* about which way a
 forward-pointing limb swings is wrong, and the comment in the source that
 repeated it has gone.
+
 ## MESH-56 — a pistol, a fist, and where the quads came from
 
 Three asks in one pass: more gun, a hand that is visibly holding it, and a
@@ -4304,3 +4305,51 @@ gun's frame off that times the weapon scale, and two constants in different
 units landed together by accident. There is no lesson here beyond the one the
 guard already encodes -- but it is worth knowing that the pairs it catches are
 almost never the ones you would have guessed.
+
+## DEF-15 -- Hiiragi 14A fights like a delinquent, not a ballerina
+
+The frame was renamed to Hiiragi a while after its weapons were written, and the
+weapons never followed. It still opened with PIROUETTE, guarded with CURTSEY and
+dashed with GRAND JETE, which is a different character from the one the model
+had become: the machine reads as a street delinquent, and the attack list read
+as a recital programme.
+
+Renaming it was not a matter of finding twelve tougher-sounding words. The
+roster has a register and the rest of the machines keep to it -- a family noun
+per weapon rack, plus one word per stance, all caps, plain English. Kira Type
+R's sabre is SABRE SLASH / RISE / LUNGE / DIVE. The stance word does real work
+there: it tells you what the stance does to the attack, so GUARD is the braced
+version and JUMP is the one that comes down. A rename that drops the family or
+stops describing the stance costs the player the thing the naming was for.
+
+So the three racks were given three families, each chosen to fit what the rack
+already does mechanically rather than picked for flavour and bolted on:
+
+- The left rack is a scatter of bullets with a single heavy beam on guard, so it
+  became RAZOR -- thrown blades scatter, and a beam is the one committed cut.
+  RAZOR / RAZOR OPEN / RAZOR SPRAY / RAZOR RAIN. The jump rack arcs, and RAIN is
+  what the roster already calls an arc (SCATTER RAIN, SPINE RAIN).
+- The centre rack is all melee, so it became the bike chain: CHAIN WHIP at a
+  stand (three hits across 40 degrees, which is a chain spun round her), CHAIN
+  WRAP on guard (one close heavy blow from the lowest muzzle on the machine),
+  CHAIN RUSH on a dash, CHAIN DROP off a jump.
+- The right rack is all homing, and the steel yo-yo is the one weapon in the
+  reference that tracks and comes back -- so the mechanic picked the family
+  rather than the other way round. Its trick names then landed on the stances
+  for nothing: a SLEEPER hangs at the end of the string, which is the guard
+  rack's six slow high-tracking shots; a WALK runs out flat, which is the dash's
+  two fast tight ones; a LOOP goes overhead, which is the jump's eight.
+
+The class string went with them, STRIKE DANCER to STREET BOSS. It is the only
+class on the roster that describes an attitude rather than a chassis, which was
+true of STRIKE DANCER too, so the slot keeps its shape.
+
+One thing fell out of this that was not the point of it. The right rack used to
+be the NEEDLE family, and Exos 2000 already owns four weapons called NEEDLE,
+NEEDLE FOCUS, NEEDLE STRAFE and NEEDLE RAIN. Two machines sharing a weapon
+family is the same failure [DEF-10] and [DEF-13] chased through the silhouettes:
+the roster tells its machines apart by giving each one something no other
+machine has, and a shared name undoes that as surely as a shared outline. It had
+been sitting there since both entries were written. Worth noting that it took a
+rename for an unrelated reason to surface it -- nothing checks weapon names for
+collisions, and nothing caught this one.
