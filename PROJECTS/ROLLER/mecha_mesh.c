@@ -1510,6 +1510,9 @@ static int mecha_blend_angle(int iFrom, int iTo, float fAmount)
  * Its whole job is that the arm does not read as one straight piece from
  * shoulder to muzzle. [MESH-54] */
 #define MECHA_WRIST_BREAK  MECHA_DEG(9)
+/* How far the grip is raked off the bore: ninety degrees would stand it
+ * square under the barrel, and no pistol since the flintlock does. */
+#define MECHA_GRIP_RAKE    MECHA_DEG(-73)
 /*
  * Two pieces the reference mesh has tilted, which a frustum cannot be: its
  * top and bottom faces are flat in its own frame by construction, so a
@@ -2275,6 +2278,7 @@ typedef struct
   float   fFootToeDrop;
   float   fCrestLift;
   float   fCrestHeight;
+  float   fLegSlim;
   /*
    * Where the hips are, and what that does to everything above them. A
    * machine whose hips ride high has long legs and a short body, and the
@@ -2324,6 +2328,16 @@ static void mecha_build_setup(tMechaBuild *pB, const tMechaMech *pMech,
    * rather than as a mech drawn at three quarters. [MESH-33]
    */
   pB->fTaper = pB->iProfile == MECHA_PROFILE_SLENDER ? 0.74f : 1.0f;
+  /*
+   * And the whole leg is drawn thinner on top of that taper, cross-section
+   * only: every width and depth from the hip down comes through here while
+   * the lengths, the joint positions and the gait do not. That is the
+   * difference between a slimmer leg and a shorter one -- fTaper changes
+   * the shape of the limb, this changes its gauge, and a machine built by
+   * scaling fLimb instead would lose the stride along with the bulk.
+   * [MESH-56]
+   */
+  pB->fLegSlim = pB->iProfile == MECHA_PROFILE_SLENDER ? 0.84f : 1.0f;
   /*
    * Back off from the 1.9 this was briefly at. That was reaching for a
    * silhouette that would not read as the interceptor's at range, which is
@@ -2450,14 +2464,23 @@ static void mecha_build_torso(tMechaQuadList *pList, const tMechaBuild *pB,
    * seeing a box. Further than 0.24 and the plate's top rear corner starts
    * cutting back through the chest it is supposed to be lying on. [MESH-54]
    */
-  mecha_add_frustum(pList, pTorso, 0.0f, 0.230f * pB->fUpperY,
-                    0.573f * pB->fRadius * pB->fTorso * pB->fChest,
-                    0.52f * pB->fRadius * pB->fTorso * pB->fChest,
-                    0.08f * pB->fRadius,
-                    0.44f * pB->fRadius * pB->fTorso * pB->fChest,
-                    0.05f * pB->fRadius,
-                    0.09f * pB->fUpperY, 0.0f, -0.18f * pB->fRadius,
-                    pB->byTrim, pB->byTrim, 0);
+  /*
+   * MID and nearer. A plate lying on the front of the chest is read off
+   * its rake, and a rake is a thing you can only see when the chest is
+   * more than a few pixels wide: at range it sits inside the torso's own
+   * outline and changes nothing but the count. The intakes below do break
+   * the outline, which is why they are the trim that stays. [MESH-56]
+   */
+  if (pB->iDetail >= MECHA_DETAIL_MID) {
+    mecha_add_frustum(pList, pTorso, 0.0f, 0.230f * pB->fUpperY,
+                      0.573f * pB->fRadius * pB->fTorso * pB->fChest,
+                      0.52f * pB->fRadius * pB->fTorso * pB->fChest,
+                      0.08f * pB->fRadius,
+                      0.44f * pB->fRadius * pB->fTorso * pB->fChest,
+                      0.05f * pB->fRadius,
+                      0.09f * pB->fUpperY, 0.0f, -0.18f * pB->fRadius,
+                      pB->byTrim, pB->byTrim, 0);
+  }
 
   /* Intakes either side of it, the one piece of chest trim that reads at
    * any distance because it breaks the plate's outline rather than sitting
@@ -2961,11 +2984,41 @@ static void mecha_build_arms_head(tMechaQuadList *pList,
       /* The forearm flares towards the wrist -- it is the piece carrying
        * the gun, and a limb that narrows all the way down has nothing to
        * carry one with. */
-      mecha_add_frustum(pList, &fore, 0.0f, -0.5f * fFore, 0.0f,
-                        0.17f * pB->fRadius * pB->fLimb, 0.17f * pB->fRadius * pB->fLimb,
-                        0.12f * pB->fRadius * pB->fLimb * pB->fTaper,
-                        0.12f * pB->fRadius * pB->fLimb * pB->fTaper,
-                        0.5f * fFore, 0.0f, 0.0f, pB->byTrim, pB->byTrim, 0);
+      if (pB->iDetail >= MECHA_DETAIL_MID) {
+        mecha_add_frustum(pList, &fore, 0.0f, -0.5f * fFore, 0.0f,
+                          0.17f * pB->fRadius * pB->fLimb, 0.17f * pB->fRadius * pB->fLimb,
+                          0.12f * pB->fRadius * pB->fLimb * pB->fTaper,
+                          0.12f * pB->fRadius * pB->fLimb * pB->fTaper,
+                          0.5f * fFore, 0.0f, 0.0f, pB->byTrim, pB->byTrim, 0);
+      } else {
+        /*
+         * Far off, everything below the elbow is one tapered block: the
+         * forearm, the fist and the weapon together. Seven boxes an arm is
+         * the right answer at the range you can make out a thumb and the
+         * wrong one at seven hundred metres, where the whole limb is a few
+         * pixels and every one of those boxes is still transformed, sorted
+         * and filled. This is what pays for the detail up close -- the
+         * buffer was at three-quarters before any of it, and the machines
+         * spending it were the ones nobody is looking at. The block still
+         * reaches to where the muzzle would be, because a machine that
+         * stops at the wrist at range is a machine that looks unarmed.
+         * [MESH-56]
+         */
+        float fFarLen = fFore
+                        + (pB->iProfile == MECHA_PROFILE_CARRIER ? 0.10f
+                                                                 : 0.32f)
+                          * pB->fUpperY * pB->fGun;
+
+        mecha_add_frustum(pList, &fore, 0.0f, -0.5f * fFarLen,
+                          0.022f * pB->fRadius * pB->fGun,
+                          0.088f * pB->fRadius * pB->fGun,
+                          0.104f * pB->fRadius * pB->fGun,
+                          0.17f * pB->fRadius * pB->fLimb,
+                          0.17f * pB->fRadius * pB->fLimb,
+                          0.5f * fFarLen, 0.0f,
+                          -0.022f * pB->fRadius * pB->fGun,
+                          pB->byBody, pB->byBody, 0);
+      }
 
       /*
        * The wrist, and the difference between carrying a weapon and having
@@ -2983,10 +3036,56 @@ static void mecha_build_arms_head(tMechaQuadList *pList,
       mecha_pose_child(&hand, &fore, 0.0f, -fFore, 0.0f, 0,
                        MECHA_WRIST_BREAK, 0);
       mecha_pose_name(&hand, MECHA_BONE_HAND_L + iSide, pB->paBones);
-      mecha_add_box(pList, &hand, 0.0f, -0.035f * pB->fUpperY, 0.0f,
-                    0.13f * pB->fRadius * pB->fLimb, 0.035f * pB->fUpperY,
-                    0.12f * pB->fRadius * pB->fLimb,
-                    pB->byJoint, pB->byJoint, 0);
+      /*
+       * The hand. One box was a mitten: it read as the end of the arm, and
+       * a gun in front of it read as bolted to that. What makes a fist is
+       * the three pieces, not the size -- the back of the hand, a block of
+       * knuckles narrowing away from the wrist, and a thumb lying up the
+       * inboard side of the grip. All three are the joint colour and the
+       * grip is the trim colour, which is the whole of why the hand reads:
+       * three pale boxes against a pale gun are more gun, and a dark hand
+       * closed on a pale grip is a hand. The thumb is the one that does
+       * the rest of the work:
+       * it is the only part of a closed hand that is not symmetrical, so it
+       * is the only part that says which way the hand is turned, and a hand
+       * you can tell the orientation of is a hand that is gripping
+       * something. [MESH-56]
+       */
+      if (pB->iDetail >= MECHA_DETAIL_MID) {
+        mecha_add_box(pList, &hand, 0.0f, -0.014f * pB->fUpperY,
+                      -0.115f * pB->fRadius * pB->fGun,
+                      0.122f * pB->fRadius * pB->fGun, 0.032f * pB->fUpperY,
+                      0.100f * pB->fRadius * pB->fGun,
+                      pB->byJoint, pB->byJoint, 0);
+      }
+      if (pB->iDetail >= MECHA_DETAIL_FULL) {
+        mecha_add_frustum(pList, &hand, 0.0f, -0.072f * pB->fUpperY,
+                          -0.122f * pB->fRadius * pB->fGun,
+                          0.100f * pB->fRadius * pB->fGun,
+                          0.088f * pB->fRadius * pB->fGun,
+                          0.118f * pB->fRadius * pB->fGun,
+                          0.096f * pB->fRadius * pB->fGun,
+                          /* Deeper than the receiver above it reaches. The
+                           * two are measured in different units -- fingers
+                           * off the machine's height, the gun's frame off
+                           * that times the weapon scale -- and at 0.030
+                           * they happened to bottom out within a unit of
+                           * one plane. [MESH-18] */
+                          0.038f * pB->fUpperY, 0.0f, 0.0f,
+                          pB->byJoint, pB->byJoint, 0);
+        /* Its front face is kept well inside the back of the hand rather
+         * than near it. Near put the two within a unit of one plane on the
+         * machines whose hands are smallest, and two coplanar overlapping
+         * quads are the one thing the painter's order cannot sort.
+         * [MESH-18] */
+        mecha_add_box(pList, &hand,
+                      -fSide * 0.104f * pB->fRadius * pB->fGun,
+                      -0.040f * pB->fUpperY,
+                      -0.052f * pB->fRadius * pB->fGun,
+                      0.032f * pB->fRadius * pB->fGun, 0.026f * pB->fUpperY,
+                      0.082f * pB->fRadius * pB->fGun,
+                      pB->byJoint, pB->byJoint, 0);
+      }
 
       mecha_quads_part(pList, MECHA_PART_GUN);
       /*
@@ -3007,41 +3106,89 @@ static void mecha_build_arms_head(tMechaQuadList *pList,
          * gun to overlap, and the grip to be the thing between them, not a
          * gap.
          */
-        float fHold = 0.06f * pB->fRadius * pB->fGun;
+        /*
+         * A pistol, built the way a pistol is: a bore line raised above the
+         * hand, a slide running out along it, and a grip dropping off the
+         * back of that down through the fist. What it replaced was a
+         * frustum coaxial with the forearm, which is a barrel the arm ends
+         * in however much trim you hang on it -- the shape only reads as a
+         * held weapon once the bore stops being the arm's own centreline.
+         *
+         * The frame's -Y is the aim and its +Z is the gun's up: with the
+         * arm raised onto a target, +Z is the world's up, and with it
+         * hanging at rest, +Z is the machine's forward, so the same
+         * offsets give a pistol levelled at someone and a pistol held
+         * muzzle-down at the side. [MESH-56]
+         */
+        float fG = pB->fRadius * pB->fGun;
+        float fUG = pB->fUpperY * pB->fGun;
+        float fBore = 0.115f * fG;
 
-        /* The grip, out of the fist and into the gun. It has to be wide
-         * enough to see, because it is the whole argument that the gun is
-         * held: a grip you cannot make out is a gun that is still bolted
-         * on, just further forward. */
-        if (pB->iDetail >= MECHA_DETAIL_MID) {
-          /* Its top sits inside the fist rather than flush with the top
-           * of it. Flush put the two faces in one plane with nothing to
-           * sort them by, which is the one thing the painter's order
-           * cannot do [MESH-18] -- and it did it on every machine on the
-           * roster at once, two pairs each. */
-          mecha_add_frustum(pList, &hand, 0.0f, -0.065f * pB->fUpperY,
-                            0.5f * fHold,
-                            0.10f * pB->fRadius * pB->fGun,
-                            0.11f * pB->fRadius * pB->fGun,
-                            0.09f * pB->fRadius * pB->fGun,
-                            0.10f * pB->fRadius * pB->fGun,
-                            0.05f * pB->fUpperY, 0.0f,
-                            0.5f * fHold, pB->byJoint, pB->byJoint, 0);
+        /* Below MID the forearm already drew the whole limb as one
+         * block, weapon included. */
+        if (pB->iDetail < MECHA_DETAIL_MID) {
+          mecha_quads_part(pList, MECHA_PART_ARM);
+          continue;
         }
-        mecha_add_frustum(pList, &hand, 0.0f,
-                          -0.14f * pB->fUpperY * pB->fGun, fHold,
-                          0.20f * pB->fRadius * pB->fGun, 0.30f * pB->fRadius * pB->fGun,
-                          0.22f * pB->fRadius * pB->fGun, 0.24f * pB->fRadius * pB->fGun,
-                          0.13f * pB->fUpperY * pB->fGun, 0.0f,
-                          -0.03f * pB->fRadius * pB->fGun, pB->byBody, pB->byBody, 0);
-        /* A muzzle off the end of it, so a gun has a direction. */
+
+        /* The grip, in a frame of its own turned down off the bore and
+         * raked back, because a grip square to the barrel is a drill and a
+         * grip raked off it is a pistol. It passes through the fist rather
+         * than stopping at it: the hand has to close on something. */
         if (pB->iDetail >= MECHA_DETAIL_MID) {
-          mecha_add_frustum(pList, &hand, 0.0f,
-                            -0.27f * pB->fUpperY * pB->fGun,
-                            fHold + 0.16f * pB->fRadius * pB->fGun,
-                            0.09f * pB->fRadius * pB->fGun, 0.14f * pB->fRadius * pB->fGun,
-                            0.07f * pB->fRadius * pB->fGun, 0.12f * pB->fRadius * pB->fGun,
-                            0.05f * pB->fUpperY * pB->fGun, 0.0f, 0.0f,
+          tMechaPose grip;
+
+          mecha_pose_child(&grip, &hand, 0.0f, -0.040f * fUG,
+                           0.040f * fG, 0, MECHA_GRIP_RAKE, 0);
+          mecha_add_frustum(pList, &grip, 0.0f, 0.040f * fUG, 0.0f,
+                            0.095f * fG, 0.078f * fG,
+                            0.084f * fG, 0.058f * fG,
+                            0.086f * fUG, 0.0f, 0.0f,
+                            pB->byTrim, pB->byTrim, 0);
+        }
+
+        /* The receiver: the block the grip comes out of and the slide runs
+         * off, sat over the fist. It is what gives the gun a back end. */
+        if (pB->iDetail >= MECHA_DETAIL_MID) {
+          mecha_add_frustum(pList, &hand, 0.0f, -0.058f * fUG,
+                            fBore - 0.052f * fG,
+                            0.100f * fG, 0.138f * fG,
+                            0.092f * fG, 0.114f * fG,
+                            0.070f * fUG, 0.0f,
+                            0.020f * fG, pB->byBody, pB->byBody, 0);
+        }
+
+        /* The slide, out along the bore. Long, square and set above the
+         * hand -- it is the whole silhouette of the weapon at any range
+         * where the rest of this is one pixel, so it is drawn at every
+         * tier. */
+        mecha_add_frustum(pList, &hand, 0.0f, -0.160f * fUG, fBore,
+                          0.088f * fG, 0.098f * fG,
+                          0.080f * fG, 0.086f * fG,
+                          0.112f * fUG, 0.0f,
+                          -0.008f * fG, pB->byBody, pB->byBody, 0);
+
+
+        /* A charge rail down the top of it, in the machine's own light. One
+         * lit edge along the slide is the whole of what makes the thing
+         * read as energy rather than powder, and it costs a box. */
+        if (pB->iDetail >= MECHA_DETAIL_FULL) {
+          mecha_add_frustum(pList, &hand, 0.0f, -0.165f * fUG,
+                            fBore + 0.088f * fG,
+                            0.034f * fG, 0.082f * fG,
+                            0.026f * fG, 0.070f * fG,
+                            0.098f * fUG, 0.0f, -0.006f * fG,
+                            pB->byGlow, pB->byGlow, MECHA_QUAD_GLOW);
+        }
+
+        /* The muzzle, which is the only part of it anybody downrange
+         * looks at. */
+        if (pB->iDetail >= MECHA_DETAIL_MID) {
+          mecha_add_frustum(pList, &hand, 0.0f, -0.268f * fUG,
+                            fBore - 0.004f * fG,
+                            0.062f * fG, 0.072f * fG,
+                            0.076f * fG, 0.084f * fG,
+                            0.047f * fUG, 0.0f, 0.0f,
                             pB->byJoint, pB->byJoint, 0);
         }
       }
@@ -3645,6 +3792,7 @@ void mecha_mesh_mech_rigged(tMechaQuadList *pList, const tMechaWorld *pWorld,
   float fHeight;
   float fRadius;
   float fLimb;
+  float fLegW;
   float fTaper;
   float fWalkPhase = -1.0f;
   float fVertical;
@@ -3705,6 +3853,8 @@ void mecha_mesh_mech_rigged(tMechaQuadList *pList, const tMechaWorld *pWorld,
   fHeight = build.fHeight;
   fRadius = build.fRadius;
   fLimb = build.fLimb;
+  /* Every width and depth below the hip goes through this. [MESH-56] */
+  fLegW = fRadius * fLimb * build.fLegSlim;
   fTaper = build.fTaper;
   bAirborne = pMech->fY > mecha_arena_ground_height(&pWorld->arena, pMech->fX,
                                                     pMech->fZ, pMech->fY)
@@ -3899,31 +4049,37 @@ void mecha_mesh_mech_rigged(tMechaQuadList *pList, const tMechaWorld *pWorld,
     /* Wide at the hip and narrowing to the knee, which is the line a
      * thigh has in the reference art and which a box cannot hold. */
     mecha_add_frustum(pList, &thigh, 0.0f, -0.5f * fThighLen, 0.0f,
-                      0.20f * fRadius * fLimb * fTaper,
-                      0.21f * fRadius * fLimb * fTaper,
-                      0.187f * fRadius * fLimb, 0.226f * fRadius * fLimb,
+                      0.20f * fLegW * fTaper,
+                      0.21f * fLegW * fTaper,
+                      0.187f * fLegW, 0.226f * fLegW,
                       0.5f * fThighLen,
                       /* The top of the thigh is narrower than it was and
                        * carried inboard rather than centred on the hip, so
                        * the gap between the legs opens at the top and the
                        * outer line stays where it was. Read off the
                        * reference mesh. [MESH-55] */
-                      -fSide * 0.106f * fRadius * fLimb, 0.0f,
+                      -fSide * 0.106f * fLegW, 0.0f,
                       byBody, byBody, 0);
     /* The knee, standing proud of both thigh and shin so it reads as a
-     * joint and its faces stay out of their planes. [MESH-18] */
+     * joint and its faces stay out of their planes. [MESH-18]
+     *
+     * Deeper than it was. Slimming the leg narrowed the thigh's front face
+     * without shortening it, which steepened that face until it ran
+     * parallel to the knee's and within half a unit of the same plane --
+     * a pair of overlapping quads with nothing to sort them by. The fix is
+     * the same thing the block is already for: more daylight. [MESH-56] */
     mecha_add_box(pList, &thigh, 0.0f, -fThighLen, 0.0f,
-                  0.26f * fRadius * fLimb, 0.05f * fHeight,
-                  0.27f * fRadius * fLimb, byJoint, byJoint, 0);
+                  0.26f * fLegW, 0.05f * fHeight,
+                  0.30f * fLegW, byJoint, byJoint, 0);
     /* A guard over the front of it, sloped back to the shin. This is the
      * one piece of leg trim that survives to MID: a kneecap catches the
      * light against the joint behind it and reads a long way out. */
     if (iDetail >= MECHA_DETAIL_MID) {
       mecha_add_frustum(pList, &thigh, 0.0f, -fThighLen - 0.01f * fHeight,
-                        0.17f * fRadius * fLimb,
-                        0.22f * fRadius * fLimb, 0.11f * fRadius * fLimb,
-                        0.14f * fRadius * fLimb, 0.05f * fRadius * fLimb,
-                        0.07f * fHeight, 0.0f, -0.05f * fRadius * fLimb,
+                        0.17f * fLegW,
+                        0.22f * fLegW, 0.11f * fLegW,
+                        0.14f * fLegW, 0.05f * fLegW,
+                        0.07f * fHeight, 0.0f, -0.05f * fLegW,
                         byTrim, byTrim, 0);
     }
 
@@ -3943,27 +4099,27 @@ void mecha_mesh_mech_rigged(tMechaQuadList *pList, const tMechaWorld *pWorld,
      * that merely tapers to a point looks like it would fall over.
      */
     mecha_add_frustum(pList, &shin, 0.0f, -0.5f * fShinLen, 0.0f,
-                      0.23f * fRadius * fLimb, 0.26f * fRadius * fLimb,
-                      0.16f * fRadius * fLimb * fTaper,
-                      0.17f * fRadius * fLimb * fTaper,
+                      0.23f * fLegW, 0.26f * fLegW,
+                      0.16f * fLegW * fTaper,
+                      0.17f * fLegW * fTaper,
                       0.5f * fShinLen, 0.0f, 0.0f, byBody, byBody, 0);
     /* Armour round the ankle, which is where the leg meets the foot and
      * the one place a walking machine shows its weight. */
     if (iDetail >= MECHA_DETAIL_MID) {
       mecha_add_frustum(pList, &shin, 0.0f, -fShinLen + 0.03f * fHeight,
-                        -0.04f * fRadius * fLimb,
-                        0.27f * fRadius * fLimb, 0.24f * fRadius * fLimb,
-                        0.22f * fRadius * fLimb, 0.20f * fRadius * fLimb,
+                        -0.04f * fLegW,
+                        0.27f * fLegW, 0.24f * fLegW,
+                        0.22f * fLegW, 0.20f * fLegW,
                         0.05f * fHeight, 0.0f, 0.0f, byJoint, byJoint, 0);
     }
     /* A vernier down the outside of the calf. Pure trim, and the first
      * thing to go. */
     if (iDetail >= MECHA_DETAIL_FULL) {
       mecha_add_frustum(pList, &shin,
-                        fSide * 0.20f * fRadius * fLimb,
-                        -0.52f * fShinLen, -0.10f * fRadius * fLimb,
-                        0.05f * fRadius * fLimb, 0.13f * fRadius * fLimb,
-                        0.04f * fRadius * fLimb, 0.09f * fRadius * fLimb,
+                        fSide * 0.20f * fLegW,
+                        -0.52f * fShinLen, -0.10f * fLegW,
+                        0.05f * fLegW, 0.13f * fLegW,
+                        0.04f * fLegW, 0.09f * fLegW,
                         0.18f * fShinLen, 0.0f, 0.0f, byTrim, byTrim, 0);
     }
 
@@ -3985,8 +4141,8 @@ void mecha_mesh_mech_rigged(tMechaQuadList *pList, const tMechaWorld *pWorld,
                      -(int)(fSide * (float)aiRoll[iSide]));
     mecha_pose_name(&foot, MECHA_BONE_FOOT_L + iSide, build.paBones);
     mecha_add_raked(pList, &foot, 0.0f, -0.5f * fAnkle, 0.06f * fRadius,
-                    0.27f * fRadius * fLimb, 0.38f * fRadius * fLimb,
-                    0.24f * fRadius * fLimb, 0.34f * fRadius * fLimb,
+                    0.27f * fLegW, 0.38f * fRadius * fLimb,
+                    0.24f * fLegW, 0.34f * fRadius * fLimb,
                     0.5f * fAnkle, 0.0f, 0.0f, 0.19f,
                     byTrim, byTrim, 0);
     /* A toe wedge off the front of it. The foot was one slab, which from
@@ -4001,8 +4157,8 @@ void mecha_mesh_mech_rigged(tMechaQuadList *pList, const tMechaWorld *pWorld,
       mecha_add_raked(pList, &foot,
                       0.0f, -(0.723f + build.fFootToeDrop) * fAnkle,
                       (0.30f + 0.14f) * fRadius * fLimb,
-                      0.24f * fRadius * fLimb, 0.10f * fRadius * fLimb,
-                      0.19f * fRadius * fLimb, 0.0925f * fRadius * fLimb,
+                      0.24f * fLegW, 0.10f * fRadius * fLimb,
+                      0.19f * fLegW, 0.0925f * fRadius * fLimb,
                       0.277f * fAnkle,
                       0.0f, 0.0732f * fRadius * fLimb, 0.55f,
                       byTrim, byTrim, 0);
@@ -4011,8 +4167,8 @@ void mecha_mesh_mech_rigged(tMechaQuadList *pList, const tMechaWorld *pWorld,
     if (iDetail >= MECHA_DETAIL_FULL) {
       mecha_add_frustum(pList, &foot, 0.0f, -0.5f * fAnkle,
                         -0.32f * fRadius * fLimb,
-                        0.20f * fRadius * fLimb, 0.09f * fRadius * fLimb,
-                        0.16f * fRadius * fLimb, 0.07f * fRadius * fLimb,
+                        0.20f * fLegW, 0.09f * fRadius * fLimb,
+                        0.16f * fLegW, 0.07f * fRadius * fLimb,
                         0.42f * fAnkle, 0.0f, -0.03f * fRadius * fLimb,
                         byJoint, byJoint, 0);
     }

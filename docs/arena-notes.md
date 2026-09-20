@@ -4176,3 +4176,93 @@ fitting the toe independently in this pass wanted a positive pitch, twice, from
 two different directions. The note's *reasoning* about which way a
 forward-pointing limb swings is wrong, and the comment in the source that
 repeated it has gone.
+## MESH-56 — a pistol, a fist, and where the quads came from
+
+Three asks in one pass: more gun, a hand that is visibly holding it, and a
+slimmer leg. The first two cost quads and the buffer had none left, so most of
+the work here is the accounting.
+
+### The gun was a barrel the arm ended in
+
+The old weapon was a frustum coaxial with the forearm, with a grip and a muzzle
+hung on it. MESH-54 added those to stop it reading as bolted on, and they help,
+but the shape is still decided by one fact: the bore is the arm's own
+centreline. Anything on that line is a limb that ends in a gun.
+
+A pistol's bore is *above* the hand. So the frame's -Y is the aim, its +Z is the
+gun's up, and the weapon is built off a bore line raised a tenth of a radius
+clear of the wrist: slide out along it, receiver stepping down off the back of
+it, grip dropping off that at seventy-three degrees, fist closed round the grip
+below the bore. The same offsets serve both poses, which is the nice part of
+working in the hand's frame — with the arm up on a target +Z is the world's up
+and the thing is a pistol levelled at someone; with the arm down at rest +Z is
+the machine's forward and it is the same pistol held muzzle-down at the side.
+
+### What makes a hand read
+
+Not size, and not box count for its own sake. Three things, in order of how much
+they do:
+
+1. **Colour.** The hand is the joint colour and the grip is the trim colour.
+   Three pale boxes against a pale gun are more gun. A dark hand closed on a
+   pale grip is a hand. This was worth more than the other two together and cost
+   nothing.
+1. **The thumb.** It is the only part of a closed hand that is not symmetrical,
+   so it is the only part that says which way the hand is turned, and a hand you
+   can read the orientation of is a hand that is gripping something.
+1. **Being in the right place.** The first attempt put the knuckles two hundred
+   units forward of the grip, hanging under the barrel where a trigger guard
+   would be. It looked like a second grip. The fix was to notice that the grip
+   is raked seventy-three degrees, so its *thickness* runs along the hand's Y
+   and its *length* runs along the hand's Z -- and the fist has to straddle the
+   thickness, not chase the length.
+
+That one cost three renders and was settled in one dump of the hand's vertices
+in its own frame. The renders said "wrong"; the numbers said where.
+
+### Where the quads came from
+
+The worst scene was at 9154 of 12288 quads before any of this, against a test
+that wants it under three quarters, which is 9216. Sixty-two spare. The pistol
+and the fist add forty-eight to a machine drawn at full detail, and the peak
+frame holds about three of those, so the first build came in a hundred and
+forty-two over.
+
+The answer was not a bigger buffer. That buffer is two static arrays of a
+hundred and forty-four thousand quads between them, which is a megabyte and a
+half of a Dreamcast's sixteen, and a quarter of the peak frame is machines at
+seven hundred metres that nobody is looking at. So the detail was paid for out
+of the far tier:
+
+| change                                  | far | why                                                             |
+| --------------------------------------- | --- | --------------------------------------------------------------- |
+| everything below the elbow as one block | -12 | forearm, fist and weapon are a few pixels between them          |
+| the glacis plate                        | -6  | a rake you cannot see is a plate inside the torso's own outline |
+
+A far machine went from 168 quads to 150; a full one from 348 to 396. Peak
+landed at 9190. The reserve the budget test is protecting is not a number to
+preserve, it is a float to spend -- but it gets spent on the tier being looked
+at, and refilled from the tier that is not.
+
+### The leg is a gauge, not a scale
+
+`fLegSlim` multiplies every width and depth below the hip and nothing else. Not
+the lengths, not the joint positions, not the hip's stance width, and not the
+foot's fore-and-aft reach -- a slimmer foot is narrower, not stubbier. Scaling
+`fLimb` instead would have taken the stride with it, and `fTaper` is a different
+job: that changes the *shape* of the limb, this changes its gauge. The slender
+profile runs at 0.84 and everything else at 1.0.
+
+It broke one thing on the way past. Narrowing the thigh without shortening it
+steepened its front face until that face ran parallel to the knee block's and
+within half a unit of the same plane -- two overlapping quads with nothing to
+sort them by. The knee block is already there to hold those apart [MESH-18]; it
+just needed to be deeper. Worth noting that the coplanar test only runs at full
+detail, so a tier-specific version of this would not be caught.
+
+The same trap caught the new hand twice: the knuckles bottomed out within a unit
+of the receiver, because fingers are measured off the machine's height and the
+gun's frame off that times the weapon scale, and two constants in different
+units landed together by accident. There is no lesson here beyond the one the
+guard already encodes -- but it is worth knowing that the pairs it catches are
+almost never the ones you would have guessed.
