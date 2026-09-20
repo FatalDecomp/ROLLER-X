@@ -2858,6 +2858,17 @@ static void mecha_build_arms_head(tMechaQuadList *pList,
      * as it rises instead of standing straight up. [MESH-55] */
     float fBinderHx0 = 0.421f * pB->fRadius * pB->fShoulder;
     float fBinderHx1 = 0.24f * pB->fRadius * pB->fShoulder;
+    /*
+     * Where the binder sits and how deep it is, worked out once. The lip
+     * below used to place itself at its own multiple of fUpperY scaled by
+     * the shoulder build, while the binder's own height was not scaled at
+     * all -- so the two drifted apart with every change to fBuildShoulder
+     * and the lip ended up floating half a metre clear of the armour it is
+     * supposed to edge. A part that sits on another part is measured off
+     * that part. [MESH-58]
+     */
+    float fBinderY = 0.29f * pB->fUpperY;
+    float fBinderHy = 0.09f * pB->fUpperY * pB->fShoulder;
     /* Seated so its inner face overlaps the shoulder rather than meeting it
      * exactly, because two faces in one plane have nothing to sort them
      * with. [MESH-18] */
@@ -2906,12 +2917,12 @@ static void mecha_build_arms_head(tMechaQuadList *pList,
        * frustum that has to be right at every tier.
        */
       mecha_add_frustum(pList, pTorso, fSide * fBinderX,
-                        0.29f * pB->fUpperY, 0.0f,
+                        fBinderY, 0.0f,
                         fBinderHx0,
                         0.40f * pB->fRadius * pB->fShoulder,
                         fBinderHx1,
                         0.30f * pB->fRadius * pB->fShoulder,
-                        0.09f * pB->fUpperY * pB->fShoulder,
+                        fBinderHy,
                         fSide * 0.0229f * pB->fRadius * pB->fShoulder, 0.0f,
                         pB->byTrim, pB->byTrim, 0);
       /* A lip along the top of it, in the joint colour, so the binder has
@@ -2923,7 +2934,7 @@ static void mecha_build_arms_head(tMechaQuadList *pList,
          * moved and re-skewed. [MESH-55] */
         mecha_add_frustum(pList, pTorso,
                           fSide * (fBinderX + 0.0882f * pB->fRadius),
-                          0.38f * pB->fUpperY * pB->fShoulder, 0.0f,
+                          fBinderY + fBinderHy - 0.012f * pB->fUpperY, 0.0f,
                           fBinderHx1,
                           0.30f * pB->fRadius * pB->fShoulder,
                           0.80f * fBinderHx1,
