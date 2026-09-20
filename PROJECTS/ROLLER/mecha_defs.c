@@ -960,11 +960,20 @@ static const tMechaMechDef s_aMechDefs[] = {
    * thing on this machine is its hips, which is true of nothing else on
    * the roster. [DEF-13]
    */
-  .fBuildShoulder = 0.52f, .fBuildTorso = 0.64f, .fBuildLimb = 0.76f,
-  .fBuildHead = 0.86f, .fBuildGun = 0.80f,
-  /* Hips high and arms short: long legs under a small body, which is the
-   * figure this frame is meant to cut. [DEF-10] */
-  .fBuildHip = 0.60f, .fBuildArm = 0.88f,
+  /*
+   * Read off Fei-Yen. What makes that figure is not one measurement, it is
+   * a set of them agreeing: a head under an eighth of the height, shoulders
+   * narrower than the hips, a short body over legs that are most of the
+   * machine, and limbs whose cross-section is small against their length.
+   * Miss any one and the rest stop reading -- a slim limb under a wide
+   * shoulder is a thin arm on a big mech, not a slender frame. [DEF-14]
+   */
+  .fBuildShoulder = 0.43f, .fBuildTorso = 0.57f, .fBuildLimb = 0.68f,
+  .fBuildHead = 0.70f, .fBuildGun = 0.74f,
+  /* Hips higher still and the arms lengthened rather than shortened: the
+   * body shrinks by exactly what the legs gain, so the head stays put and
+   * the figure grows a waist instead of growing taller. [DEF-10] */
+  .fBuildHip = 0.62f, .fBuildArm = 0.94f,
   /*
    * And the smallest thing on two legs in the game. A hip flare is three
    * pixels at the range machines are told apart at, so the difference

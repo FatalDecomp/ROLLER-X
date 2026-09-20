@@ -2337,7 +2337,7 @@ static void mecha_build_setup(tMechaBuild *pB, const tMechaMech *pMech,
    * scaling fLimb instead would lose the stride along with the bulk.
    * [MESH-56]
    */
-  pB->fLegSlim = pB->iProfile == MECHA_PROFILE_SLENDER ? 0.84f : 1.0f;
+  pB->fLegSlim = pB->iProfile == MECHA_PROFILE_SLENDER ? 0.80f : 1.0f;
   /*
    * Back off from the 1.9 this was briefly at. That was reaching for a
    * silhouette that would not read as the interceptor's at range, which is
@@ -2441,9 +2441,9 @@ static void mecha_build_torso(tMechaQuadList *pList, const tMechaBuild *pB,
                      MECHA_CHEST_PITCH, 0);
     mecha_add_hull(pList, &chest, 0.0f, 0.160f * pB->fUpperY,
                    -0.013f * pB->fRadius,
-                   0.618f * pB->fRadius * pB->fTorso * pB->fTaper,
+                   0.520f * pB->fRadius * pB->fTorso * pB->fTaper,
                    0.380f * pB->fRadius * pB->fTorso * pB->fChest,
-                   0.6616f * pB->fRadius * pB->fTorso * pB->fChest,
+                   0.620f * pB->fRadius * pB->fTorso * pB->fChest,
                    0.583f * pB->fRadius * pB->fTorso * pB->fChest,
                    0.1306f * pB->fUpperY, 0.0f,
                    -0.0626f * pB->fRadius, 0.0774f, 0.865f, 0.768f,
@@ -4105,22 +4105,25 @@ void mecha_mesh_mech_rigged(tMechaQuadList *pList, const tMechaWorld *pWorld,
                      aiKnee[iSide], 0);
     mecha_pose_name(&shin, MECHA_BONE_SHIN_L + iSide, build.paBones);
     /*
-     * The calf goes the other way from the thigh: in at the knee, out
-     * again at the ankle. That flare is what a leg stands on, and a shin
-     * that merely tapers to a point looks like it would fall over.
+     * The calf carries its width just under the knee and draws down to a
+     * thin ankle, which is the whole of a feminine leg line and the
+     * reverse of what was here. A shin that is widest where it meets the
+     * floor is a leg built to stand on; one that is widest at the calf is
+     * a leg built to look at, and the foot below it is what it stands on
+     * instead. [DEF-14]
      */
     mecha_add_frustum(pList, &shin, 0.0f, -0.5f * fShinLen, 0.0f,
-                      0.23f * fLegW, 0.26f * fLegW,
-                      0.16f * fLegW * fTaper,
-                      0.17f * fLegW * fTaper,
+                      0.125f * fLegW, 0.150f * fLegW,
+                      0.190f * fLegW,
+                      0.210f * fLegW,
                       0.5f * fShinLen, 0.0f, 0.0f, byBody, byBody, 0);
     /* Armour round the ankle, which is where the leg meets the foot and
      * the one place a walking machine shows its weight. */
     if (iDetail >= MECHA_DETAIL_MID) {
       mecha_add_frustum(pList, &shin, 0.0f, -fShinLen + 0.03f * fHeight,
                         -0.04f * fLegW,
-                        0.27f * fLegW, 0.24f * fLegW,
-                        0.22f * fLegW, 0.20f * fLegW,
+                        0.185f * fLegW, 0.175f * fLegW,
+                        0.155f * fLegW, 0.150f * fLegW,
                         0.05f * fHeight, 0.0f, 0.0f, byJoint, byJoint, 0);
     }
     /* A vernier down the outside of the calf. Pure trim, and the first
@@ -4152,8 +4155,8 @@ void mecha_mesh_mech_rigged(tMechaQuadList *pList, const tMechaWorld *pWorld,
                      -(int)(fSide * (float)aiRoll[iSide]));
     mecha_pose_name(&foot, MECHA_BONE_FOOT_L + iSide, build.paBones);
     mecha_add_raked(pList, &foot, 0.0f, -0.5f * fAnkle, 0.06f * fRadius,
-                    0.27f * fLegW, 0.38f * fRadius * fLimb,
-                    0.24f * fLegW, 0.34f * fRadius * fLimb,
+                    0.215f * fLegW, 0.38f * fRadius * fLimb,
+                    0.195f * fLegW, 0.34f * fRadius * fLimb,
                     0.5f * fAnkle, 0.0f, 0.0f, 0.19f,
                     byTrim, byTrim, 0);
     /* A toe wedge off the front of it. The foot was one slab, which from
@@ -4168,8 +4171,8 @@ void mecha_mesh_mech_rigged(tMechaQuadList *pList, const tMechaWorld *pWorld,
       mecha_add_raked(pList, &foot,
                       0.0f, -(0.723f + build.fFootToeDrop) * fAnkle,
                       (0.30f + 0.14f) * fRadius * fLimb,
-                      0.24f * fLegW, 0.10f * fRadius * fLimb,
-                      0.19f * fLegW, 0.0925f * fRadius * fLimb,
+                      0.195f * fLegW, 0.10f * fRadius * fLimb,
+                      0.155f * fLegW, 0.0925f * fRadius * fLimb,
                       0.277f * fAnkle,
                       0.0f, 0.0732f * fRadius * fLimb, 0.55f,
                       byTrim, byTrim, 0);
@@ -4178,8 +4181,8 @@ void mecha_mesh_mech_rigged(tMechaQuadList *pList, const tMechaWorld *pWorld,
     if (iDetail >= MECHA_DETAIL_FULL) {
       mecha_add_frustum(pList, &foot, 0.0f, -0.5f * fAnkle,
                         -0.32f * fRadius * fLimb,
-                        0.20f * fLegW, 0.09f * fRadius * fLimb,
-                        0.16f * fLegW, 0.07f * fRadius * fLimb,
+                        0.160f * fLegW, 0.09f * fRadius * fLimb,
+                        0.130f * fLegW, 0.07f * fRadius * fLimb,
                         0.42f * fAnkle, 0.0f, -0.03f * fRadius * fLimb,
                         byJoint, byJoint, 0);
     }
