@@ -348,8 +348,23 @@ static const struct
 } s_aBones[MECHA_BONE_COUNT] = {
   [MECHA_BONE_NONE]       = { "",            MECHA_BONE_NONE },
   [MECHA_BONE_ROOT]       = { "root",        MECHA_BONE_NONE },
+  /*
+   * The pelvis is the lower body, and both the legs and everything above
+   * the waist hang off it. It used to be a sibling of the torso and of the
+   * hips, all three off the root, which meant it drove nothing: cant the
+   * pelvis and the skirt went with it while the legs stood where they were
+   * and the torso stayed put, so the skirt read as a loose plate rather
+   * than as armour on a hip. Hung this way, canting the pelvis takes the
+   * whole machine with it and the torso bends at the waist above it, which
+   * is the articulation the figure actually has. [MESH-57]
+   *
+   * This is the declared skeleton, not the order the builder happens to
+   * work the frames out in. Every bone frame is absolute by the time it is
+   * written, and the exporter reads the parentage from here, so the two do
+   * not have to mirror each other and no vertex moves when this changes.
+   */
   [MECHA_BONE_PELVIS]     = { "pelvis",      MECHA_BONE_ROOT },
-  [MECHA_BONE_TORSO]      = { "torso",       MECHA_BONE_ROOT },
+  [MECHA_BONE_TORSO]      = { "torso",       MECHA_BONE_PELVIS },
   [MECHA_BONE_HEAD]       = { "head",        MECHA_BONE_TORSO },
   [MECHA_BONE_SKIRT_FRONT_L] = { "skirt_front.L", MECHA_BONE_PELVIS },
   [MECHA_BONE_SKIRT_FRONT_R] = { "skirt_front.R", MECHA_BONE_PELVIS },
@@ -365,8 +380,8 @@ static const struct
   [MECHA_BONE_FOREARM_R]  = { "forearm.R",   MECHA_BONE_UPPERARM_R },
   [MECHA_BONE_HAND_L]     = { "hand.L",      MECHA_BONE_FOREARM_L },
   [MECHA_BONE_HAND_R]     = { "hand.R",      MECHA_BONE_FOREARM_R },
-  [MECHA_BONE_HIP_L]      = { "hip.L",       MECHA_BONE_ROOT },
-  [MECHA_BONE_HIP_R]      = { "hip.R",       MECHA_BONE_ROOT },
+  [MECHA_BONE_HIP_L]      = { "hip.L",       MECHA_BONE_PELVIS },
+  [MECHA_BONE_HIP_R]      = { "hip.R",       MECHA_BONE_PELVIS },
   [MECHA_BONE_THIGH_L]    = { "thigh.L",     MECHA_BONE_HIP_L },
   [MECHA_BONE_THIGH_R]    = { "thigh.R",     MECHA_BONE_HIP_R },
   [MECHA_BONE_SHIN_L]     = { "shin.L",      MECHA_BONE_THIGH_L },
