@@ -3056,19 +3056,31 @@ static void mecha_build_arms_head(tMechaQuadList *pList,
        * something. [MESH-56]
        */
       if (pB->iDetail >= MECHA_DETAIL_MID) {
-        mecha_add_box(pList, &hand, 0.0f, -0.50f * fWristR, 0.0f,
-                      0.91f * fWristR, 0.50f * fWristR, 0.91f * fWristR,
-                      pB->byJoint, pB->byJoint, 0);
+        /* Necked at the wrist. A box the width of the forearm butted
+         * against the forearm is one piece however you colour it: what
+         * separates a hand from an arm is that the arm gets thinner before
+         * the hand gets wider. So the palm comes out of the wrist at a bit
+         * over half the forearm's width and swells to the knuckles, and
+         * the step where the two meet is the joint. It costs nothing -- a
+         * frustum is the same six faces a box was. [MESH-56] */
+        mecha_add_frustum(pList, &hand, 0.0f, -0.48f * fWristR, 0.0f,
+                          0.88f * fWristR, 0.88f * fWristR,
+                          0.54f * fWristR, 0.54f * fWristR,
+                          0.48f * fWristR, 0.0f, 0.0f,
+                          pB->byJoint, pB->byJoint, 0);
       }
       if (pB->iDetail >= MECHA_DETAIL_FULL) {
-        mecha_add_frustum(pList, &hand, 0.0f, -1.32f * fWristR, 0.0f,
-                          0.74f * fWristR, 0.74f * fWristR,
-                          0.88f * fWristR, 0.88f * fWristR,
-                          0.32f * fWristR, 0.0f, 0.0f,
+        /* And the knuckles are the widest thing on the hand, standing
+         * a little proud of the palm behind them, because that is where a
+         * closed fist carries its width. */
+        mecha_add_frustum(pList, &hand, 0.0f, -1.21f * fWristR, 0.0f,
+                          0.78f * fWristR, 0.78f * fWristR,
+                          0.94f * fWristR, 0.94f * fWristR,
+                          0.33f * fWristR, 0.0f, 0.0f,
                           pB->byJoint, pB->byJoint, 0);
         mecha_add_box(pList, &hand, -fSide * 0.79f * fWristR,
-                      -0.68f * fWristR, 0.18f * fWristR,
-                      0.22f * fWristR, 0.38f * fWristR, 0.50f * fWristR,
+                      -0.68f * fWristR, 0.24f * fWristR,
+                      0.22f * fWristR, 0.38f * fWristR, 0.56f * fWristR,
                       pB->byJoint, pB->byJoint, 0);
       }
 
