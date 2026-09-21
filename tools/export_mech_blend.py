@@ -351,6 +351,18 @@ def main():
           % (machine["name"], nverts, nfaces, len(machine["bones"]),
              os.path.abspath(out)))
     print("  %.2f m tall" % (machine["height"] / machine["metre"]))
+    # Say which format this is.  Blender refuses a file from a version
+    # later than itself, and since the format follows whichever bpy is
+    # installed rather than anything chosen here, writing an unopenable
+    # file is silent and easy.  The docstring above has warned about it
+    # from the start; a warning nobody is shown is not a warning.
+    # bpy is imported inside build_blend rather than at module scope, so
+    # that a bad argument fails before paying to load it.  By here it has
+    # been imported and this is free.
+    import bpy
+
+    print("  Blender %d.%d format -- older Blenders cannot open this"
+          % bpy.app.version[:2])
 
 
 if __name__ == "__main__":
