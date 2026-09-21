@@ -4590,3 +4590,44 @@ do. A swing that travels at a constant rate reads as a machine moving an arm;
 what makes it read as a blow is that nearly all of the travel happens in the
 first third. The weight then falls away over the last third so the arm hands
 itself back to the aim instead of snapping there.
+
+## MESH-63 -- the leg does not pivot where the skirt hangs
+
+The leg and the skirt swung from the same point. Measured on the slender frame,
+`pelvis`, `torso`, `hip.L`, `thigh.L` and `skirt_side.L` all sat at y = 6.963 m
+-- one pivot doing two jobs. That is wrong on any machine wearing skirt armour:
+the plate is bolted to the body and the leg swings underneath it, and if the two
+turn about the same point the plate can never be over the joint, only beside it.
+
+The leg now pivots at `fLegY`, below the waist the skirt still hangs from, at
+0.086 of the hip height. Everything else about the placement is unchanged, and
+the machine does not get shorter: the foot is put on the floor by the same
+solve, so the span from pivot to ankle shrinks and the body above the waist does
+not move. Overall height went 11.108 m to 11.119 m, and that centimetre is the
+stance solve finding slightly less shortening in a shorter leg, not the figure
+moving.
+
+Worth correcting something stated wrongly when this was first written down: the
+thigh does not get shorter *under a longer shin*. Both are fractions of the same
+span, 0.52 and 0.48, so both shorten and their ratio does not move at all. Thigh
+3.246 to 2.931 m, shin 2.919 to 2.636 m. What changes is where the joints are,
+not how the leg is divided.
+
+The part that nearly went out broken is worth more than the change itself.
+Dropping the pivot left the top of the thigh flush with the bottom of the body
+-- sixteen millimetres of overlap standing still, which sounds survivable.
+Probed across the walk cycle instead of at rest, two phases of the stride came
+back at *minus* twelve millimetres: a hole at the hip on the swinging leg, on
+exactly the frame where the leg is furthest out. A standing measurement would
+have passed it.
+
+The fix costs nothing. The thigh is one frustum, so reaching it past its own
+pivot by 0.02 of the leg span is the same quad count with a different extent,
+and the whole of the extension is inside the skirt where nothing can see it. Re-
+probed at five phases on all five bipeds, the worst overlap on the roster is now
+the slender frame's +0.101 m, and every other machine is half a metre or better.
+
+That gap between the two measurements is the whole lesson, and it is the same
+one this project keeps relearning: a pose is not a rig. The rest positions were
+fine. The failure was only ever going to appear in motion, and only on two
+frames of it.

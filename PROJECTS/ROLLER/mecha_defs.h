@@ -360,6 +360,26 @@
  */
 #define MECHA_HIP_CLASSIC      0.47f
 
+/*
+ * How far below the waist the leg actually pivots, as a fraction of the hip
+ * height.
+ *
+ * The skirt hangs off the pelvis and the leg swung from the same point, so
+ * a plate hinged at the waist and the thigh it covers shared one pivot --
+ * which is wrong on any machine with skirt armour: the armour is bolted to
+ * the body and the leg swings underneath it, and if the two turn about the
+ * same point the plate can never be over the joint, only beside it.
+ *
+ * Dropping the leg costs the thigh exactly what it gains, because the foot
+ * is still put on the floor by the same solve: the span from pivot to ankle
+ * shrinks, the thigh and shin are both fractions of that span, and the
+ * machine's overall height does not move at all. Thigh and shin are both
+ * fractions of that span, so both shorten and their ratio is unchanged --
+ * what moves is the joint between them, and the hip, which now sits inside
+ * the skirt rather than level with its hinge. [MESH-63]
+ */
+#define MECHA_HIP_DROP         0.086f
+
 #define MECHA_ARM_YAW_LIMIT    MECHA_DEG(46)
 #define MECHA_ARM_PITCH_LIMIT  MECHA_DEG(38)
 #define MECHA_ARM_DROOP        MECHA_DEG(22)

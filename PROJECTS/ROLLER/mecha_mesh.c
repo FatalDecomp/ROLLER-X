@@ -2342,6 +2342,9 @@ typedef struct
    * simply makes the machine taller than its own height. [TYPE-08]
    */
   float   fHipY;
+  /* Where the leg pivots, which is below the waist the skirt hangs from --
+   * they are not the same joint. [MESH-63] */
+  float   fLegY;
   float   fUpperY;   /* fHeight, scaled for the shortened upper body */
   float   fArmLen;   /* fHeight, scaled for the arm length */
   /*
@@ -2437,6 +2440,7 @@ static void mecha_build_setup(tMechaBuild *pB, const tMechaMech *pMech,
     float fArm = pDef->fBuildArm > 0.0f ? pDef->fBuildArm : 1.0f;
 
     pB->fHipY = fHip * pB->fHeight;
+    pB->fLegY = pB->fHipY * (1.0f - MECHA_HIP_DROP);
     pB->fUpperY = pB->fHeight * (1.0f - fHip) / (1.0f - MECHA_HIP_CLASSIC);
     pB->fArmLen = pB->fHeight * fArm;
   }
@@ -4004,6 +4008,7 @@ void mecha_mesh_mech_rigged(tMechaQuadList *pList, const tMechaWorld *pWorld,
   float fLateral;
   float fAnkle;
   float fLegSpan;
+  float fHipRise;
   float fThighLen;
   float fShinLen;
   float fLift = 0.0f;
@@ -4115,8 +4120,20 @@ void mecha_mesh_mech_rigged(tMechaQuadList *pList, const tMechaWorld *pWorld,
     if (iGait == MECHA_GAIT_SKATE)
       fPhase = (float)(pWorld->iTick % MECHA_SKATE_TICKS)
                / (float)MECHA_SKATE_TICKS;
-    fLegSpan = build.fHipY - fAnkle;
+    /* Measured from the leg's own pivot, not from the waist. [MESH-63] */
+    fLegSpan = build.fLegY - fAnkle;
     fThighLen = 0.52f * fLegSpan;
+    /*
+     * How far the thigh carries on above its own pivot. Dropping the leg
+     * below the waist [MESH-63] left the top of the thigh flush with the
+     * bottom of the body -- sixteen millimetres of overlap standing still,
+     * and twelve the wrong way at the two points in the stride where the
+     * leg is furthest out, which is a hole at the hip. The thigh reaches
+     * past its pivot to close it. It costs nothing, because it is the same
+     * frustum made longer rather than another one, and it is never seen:
+     * the whole of it is inside the skirt.
+     */
+    fHipRise = 0.02f * fLegSpan;
     fShinLen = fLegSpan - fThighLen;
 
     /* The cross, eased in with the rest of the pose. Blended here rather
@@ -4246,14 +4263,15 @@ void mecha_mesh_mech_rigged(tMechaQuadList *pList, const tMechaWorld *pWorld,
      * two rotations do not commute. [MESH-17]
      */
     mecha_pose_child(&hip, &pose, fSide * 0.42f * fRadius * fLimb,
-                     build.fHipY, 0.0f, aiHipYaw[iSide], 0,
+                     build.fLegY, 0.0f, aiHipYaw[iSide], 0,
                      (int)(fSide * (float)aiRoll[iSide]));
     mecha_pose_name(&hip, MECHA_BONE_HIP_L + iSide, build.paBones);
     mecha_pose_child(&thigh, &hip, 0.0f, 0.0f, 0.0f, 0, -aiThigh[iSide], 0);
     mecha_pose_name(&thigh, MECHA_BONE_THIGH_L + iSide, build.paBones);
     /* Wide at the hip and narrowing to the knee, which is the line a
      * thigh has in the reference art and which a box cannot hold. */
-    mecha_add_frustum(pList, &thigh, 0.0f, -0.5f * fThighLen, 0.0f,
+    mecha_add_frustum(pList, &thigh, 0.0f,
+                      0.5f * (fHipRise - fThighLen), 0.0f,
                       0.20f * fLegW * fTaper,
                       0.21f * fLegW * fTaper,
                       /* Flared hard at the hip and left slim at the knee.
@@ -4262,7 +4280,7 @@ void mecha_mesh_mech_rigged(tMechaQuadList *pList, const tMechaWorld *pWorld,
                        * sees: it has to be big enough that what comes out
                        * from under the hem is still thickening. [MESH-56] */
                       0.29f * fLegW, 0.30f * fLegW,
-                      0.5f * fThighLen,
+                      0.5f * (fThighLen + fHipRise),
                       /* The top of the thigh is narrower than it was and
                        * carried inboard rather than centred on the hip, so
                        * the gap between the legs opens at the top and the
