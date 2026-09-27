@@ -8,6 +8,27 @@
 #include "network.h"
 #include "func2.h"
 #include "replay.h"
+
+/*
+ * Below this, a non-magnetic surface stops throwing the car into the air.
+ *
+ * The launch test already scales its tolerance with speed -- a car goes
+ * airborne when the ground has dropped further than fFinalSpeed * 0.015
+ * below it -- which is a gradient gate, and the right one: the faster you
+ * are going the steeper a slope has to be before you leave it. What it has
+ * no floor for is the bottom of that scale. At a crawl the tolerance goes
+ * to nearly nothing, so the smallest lip in the surface reads as a
+ * gradient the car cannot follow, and a car edging over a non-magnetic
+ * crest at walking pace is put into the air by it.
+ *
+ * The arena hit the same thing and answered it with a speed floor
+ * [SIM-12]. This is that number in the race game's units: it works in
+ * thirds of a mile per hour (func2.c's speedometer divides by three), so
+ * the arena's three metres a second is about twenty here -- a crawl, well
+ * under the thirty-six and fifty this file already treats as slow. Above
+ * it nothing changes at all. [SIM-32]
+ */
+#define WHIP_RAMP_LAUNCH_MIN_SPEED 20.0
 #include "colision.h"
 #include "frontend.h"
 #include "phone_ui.h"
@@ -2832,6 +2853,11 @@ LABEL_171:
         }
         uiJumpFlag = abs(iTrackColorValue) & SURFACE_FLAG_NON_MAGNETIC;
         if (pCar->fFinalSpeed < 0.0)
+          uiJumpFlag = 0;
+        /* Too slow to be thrown by a slope, so the surface holds it. Set
+         * here with the other two so every launch site downstream reads
+         * one flag rather than each repeating the test. [SIM-32] */
+        if (pCar->fFinalSpeed < WHIP_RAMP_LAUNCH_MIN_SPEED)
           uiJumpFlag = 0;
         if ((iTrackColorValue & SURFACE_FLAG_PREVENT_JUMP) != 0 && pCar->fFinalSpeed > 240.0)
           uiJumpFlag = 0;

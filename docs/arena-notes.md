@@ -4737,3 +4737,52 @@ complete -- the linker said nothing because nothing called into the new file
 yet. The moment `draw_road` did, ReleaseSafe failed on an undefined symbol, and
 the source-set drift check then caught CMake across all five targets. A
 translation unit nothing calls hides three of the four lists it belongs in.
+
+## SIM-32 -- a floor under the ramp launch
+
+Asked to port the arena's non-magnetic handling into the race game, and most of
+what looked portable was already there or could not apply. Worth writing down,
+because the shape of the answer was not the shape of the question.
+
+The launch is the race game's own. A car leaves a non-magnetic surface when
+`getgroundz` has fallen further than `fFinalSpeed * 0.015` below it, and the
+arena's [SIM-13] says as much in its title -- it was copied from here, not to
+here.
+
+The arena's own addition, [SIM-12], fixes a problem this side cannot have. It
+exists because the arena samples a heightfield, so a machine going downhill
+hangs a fraction of a metre up, falls, lands, and hangs again -- an invisible
+staircase. The race game has no such state: the branch is `converttoair` or
+`putflat`, and `putflat` sets the car onto the surface every tick. Ported
+literally it would have been dead code.
+
+The gradient gate it wraps that in is also already here, with the timestep
+folded into the constant. The arena sticks while the drop rate is at most
+\`speed
+
+- 1.0`, which is `drop_per_tick \<= speed \*
+  DT`; the race game flies when `drop_per_tick > speed \*
+  0.015`. The same inequality, with 0.015 standing where DT stands -- and at 60 Hz DT is 0.0167, within a tenth of it. I first read `fSpeedScaled\`
+  as a fixed epsilon and said the game converted to air on any drop at all,
+  which was wrong and would have had me reimplementing a gate that has been
+  there since the decompilation.
+
+What was genuinely missing is the bottom of that scale. Scaling the tolerance
+with speed is right going fast and wrong going slow: at a crawl it goes to
+nearly nothing, so the smallest lip in a non-magnetic surface reads as a
+gradient the car cannot follow, and a car edging over a crest at walking pace is
+thrown into the air by it. The arena has a floor under this and the race game
+did not.
+
+So the port is one constant and one guard. Twenty, in units where the
+speedometer divides by three, is about seven miles an hour -- the arena's three
+metres a second, and well under the thirty-six and fifty this file already
+treats as slow. Above it nothing changes at all.
+
+It clears `uiJumpFlag` in the block where the two existing guards clear it
+rather than testing at each launch site, because there are eight of those and a
+ninth added later would forget. That structure is what the test pins: car
+physics has no runtime harness in this tree, nothing in tests/ links control.c,
+so the test checks the shape the way this repo already checks structure it
+cannot execute -- the floor is named, it is a crawl, it clears the flag, and it
+does so before anything reads it.
