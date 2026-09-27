@@ -493,6 +493,46 @@ fn configureRenderQueue3DTests(
     );
     editor_visibility_tests.dependOn(&run_editor_track_only.step);
 
+    // A single frame of a real track from an arbitrary camera, as a PNG.
+    // Software renderer, so it runs where there is no GPU backend.
+    const aerial_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    aerial_mod.sanitize_c = .off;
+    aerial_mod.addCMacro("ROLLER_EDITOR_CORE", "1");
+    aerial_mod.addIncludePath(sdl.builder.path("include"));
+    aerial_mod.addIncludePath(sdl_image_source.builder.path("include"));
+    aerial_mod.addIncludePath(wildmidi.builder.path("include"));
+    aerial_mod.addIncludePath(libcdio.builder.path("include"));
+    aerial_mod.addIncludePath(libcdio.builder.path("zig-config"));
+    aerial_mod.addIncludePath(b.path("external/Nuklear-4.13.2"));
+    aerial_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    aerial_mod.linkLibrary(sdl.artifact("SDL3"));
+    aerial_mod.linkLibrary(sdl_image.artifact("SDL3_image"));
+    aerial_mod.linkLibrary(wildmidi.artifact("wildmidi"));
+    aerial_mod.linkLibrary(libcdio.artifact("cdio"));
+    aerial_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = rollerCoreSources(b),
+    });
+    aerial_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{ "tests/track_aerial_shot.c" },
+    });
+    const aerial_exe = b.addExecutable(.{
+        .name = "track_aerial_shot",
+        .root_module = aerial_mod,
+    });
+    // Not installed by default: the step below is the only way to ask for it,
+    // because it is a dev tool that wants retail assets to be useful.
+    const aerial_step = b.step(
+        "track-aerial-shot",
+        "Build the real-track single-frame PNG shot tool (retail assets)",
+    );
+    aerial_step.dependOn(&b.addInstallArtifact(aerial_exe, .{}).step);
+
     const editor_geometry_mod = b.createModule(.{
         .target = target,
         .optimize = optimize,

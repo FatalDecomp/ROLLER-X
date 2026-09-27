@@ -4786,3 +4786,41 @@ physics has no runtime harness in this tree, nothing in tests/ links control.c,
 so the test checks the shape the way this repo already checks structure it
 cannot execute -- the floor is named, it is a crawl, it clears the flag, and it
 does so before anything reads it.
+
+## GBOX-03 -- seeing the groundbox on a real track
+
+The arena has had a headless renderer since it was written and the race game has
+not: its pictures come from playing it. That is fine while a change is to the
+car and useless when it is to the scenery, so `tests/track_aerial_shot.c` loads
+a real `.trk` on the editor core's track-only path, points the free camera where
+it is told, and writes a PNG. Software renderer, because there is no GPU backend
+in a container. The camera is arguments rather than a hard-coded shot because
+finding the useful angle takes more tries than rebuilding should.
+
+Two things it settled straight away.
+
+The first is that most stock tracks draw no groundbox at all, and are right not
+to. `GroundColour[sec][GROUND_COLOUR_OFLOOR]` is `-2` on every one of track1's
+493 sections -- the floor is the horizon colour, not a texture -- and the
+groundbox only has artwork to use where a track names some. Of the tracks to
+hand, TRACK21 names a real floor index on all 497 sections, TRACK17, TRACK18 and
+TRACK23 on all of theirs, and a dozen more on part; the rest are `-2` or `-1`
+throughout and stay empty. A blank aerial of track1 is the feature working,
+which is worth writing down because it looks exactly like the feature being
+broken.
+
+The second is the camera convention, which cost a round of confusing pictures.
+`roller_ed_camera_apply` puts `fPosition[1]` in `worldy`, and `worldy` is the
+vertical axis -- `draw_road` hands it to the renderer as `viewY`, which is the
+axis the ground's own quads measure their height along. Putting the height on
+`fPosition[2]` instead slides the camera across the map at ground level, and
+under the terrain wherever the course climbs, at which point the frame fills
+with the underside of the ground plane and reads as the groundbox covering the
+sky. There is no depth buffer and no backface cull to say otherwise.
+
+Worth knowing from the shots themselves: the reach is finite and, from high
+enough up, its edge is in frame. On track21 the mean section spacing is 841
+units, so the outermost ring reaches about 108000 units from the camera, which
+is far past anything a car sees and short of the horizon from thirty thousand
+units up. The harness prints both numbers beside the floor indices so the next
+person reads the edge as the edge rather than as a mountain.
