@@ -112,8 +112,11 @@ class CMakeRollerCoreTests(unittest.TestCase):
             }
             # 75 for the game and its editor, plus the ten translation
             # units of the arena mode, which is part of the core because it
-            # is built on the same renderer and frontend the rest of it is.
-            self.assertEqual(len(source_names), 85)
+            # is built on the same renderer and frontend the rest of it is,
+            # plus the groundbox -- scenery the renderer draws under every
+            # track, so it belongs to the core for the same reason.
+            self.assertEqual(len(source_names), 86)
+            self.assertIn("groundbox.c", source_names)
             self.assertIn("editor_camera.c", source_names)
             self.assertIn("editor_overlay.c", source_names)
             self.assertIn("editor_helpers.c", source_names)

@@ -953,11 +953,41 @@ fn configureRenderQueue3DTests(
     );
     mecha_render_tests.dependOn(&run_mecha_render.step);
 
+    // The groundbox's nearest-section lookup. It reads the track globals but
+    // links none of the track loader -- the test supplies its own -- so it
+    // needs SDL's headers (3d.h reaches them through frontend.h) and none of
+    // its libraries.
+    const groundbox_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    groundbox_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    groundbox_mod.addIncludePath(sdl.builder.path("include"));
+    groundbox_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "PROJECTS/ROLLER/groundbox.c",
+            "tests/groundbox_lookup_test.c",
+        },
+    });
+    const groundbox_exe = b.addExecutable(.{
+        .name = "groundbox_lookup_test",
+        .root_module = groundbox_mod,
+    });
+    const run_groundbox = runArtifact(b, groundbox_exe, under_valgrind);
+    const groundbox_tests = b.step(
+        "test-groundbox",
+        "Run the groundbox nearest-section lookup tests",
+    );
+    groundbox_tests.dependOn(&run_groundbox.step);
+
     const test_step = b.step("test", "Run focused unit tests and optional seam checks");
     test_step.dependOn(render_queue_tests);
     test_step.dependOn(tick_clock_tests);
     test_step.dependOn(mecha_sim_tests);
     test_step.dependOn(mecha_render_tests);
+    test_step.dependOn(groundbox_tests);
 
     const roller_core_manifest_check = b.addSystemCommand(&.{
         pythonExe(),

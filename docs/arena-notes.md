@@ -4631,3 +4631,54 @@ That gap between the two measurements is the whole lesson, and it is the same
 one this project keeps relearning: a pose is not a rig. The rest positions were
 fine. The failure was only ever going to appear in motion, and only on two
 frames of it.
+
+## GBOX-01 -- ground under every track, and finding it fast
+
+The race game builds its tracks from splines, and the only way to get a floor
+that reads as solid is to set the flag that detaches the outer floor from the
+shoulders -- `GroundColour[sec][GROUND_COLOUR_OFLOOR] == -2`. Tracks that do not
+set it have no ground under them at all, just the flat band `DrawHorizon` paints
+below the horizon line. The groundbox gives every track ground, whether it asked
+or not, the way the sky half is there whether or not a track asked for it.
+
+This note covers the first piece of it: answering "what is the ground doing at
+this point on the map". The drawing needs that once per cell per frame, so it is
+answered out of a table rather than by searching.
+
+The table is a coarse 64-square grid over the track's own extent, each bucket
+naming the section whose floor centre is nearest. Building it is brute force --
+every bucket against every section, 64 x 64 x 500 at the very worst -- and runs
+once when a track loads. The obvious cheaper build, walking outward from the
+section the camera is on, was rejected rather than tried: a course that doubles
+back passes close to itself, and "next section along" stops meaning "next
+section in space" exactly where the answer starts to matter.
+
+A section's floor centre is the midpoint of ground points 2 and 3, because those
+are the two inner edges the outer-floor quad is itself built from. That one
+midpoint answers both questions a query has -- where the section is, and how
+high its floor sits -- so per-section height came free rather than needing
+anything new.
+
+Queries outside the grid clamp to its edge instead of failing, and that is the
+behaviour rather than a fallback: ground running out to the horizon should keep
+the height and the artwork of the piece of course it is running away from, and
+the nearest edge bucket is that piece.
+
+Two sentinels mean opposite things and are handled as such. `-1` is a track
+asking for no floor, and it stays a hole -- the query fails and nothing will be
+drawn. `-2` is the detach flag, and the normal floor quad is skipped for it, so
+the section names no artwork; it still wants ground, so it borrows the surface
+of the nearest section around the loop that has one, searching both ways at once
+so a detached stretch takes its look from whichever end of itself is closer
+rather than always from behind.
+
+The tile cycle it will be drawn with is the arena's \[ARENA-28\]: three
+consecutive indices picked by `(row + col) % 3`. That was written for rock that
+should not read as a checkerboard, which is exactly what ground stretching to
+the horizon needs, and it takes its three indices from the floor index the track
+already names -- so nothing is added to the .trk.
+
+Still to come: the drawing itself, which goes between `game_render_draw_sky` and
+`DrawTrack3` in `draw_road`, where world quads rasterise immediately rather than
+entering the sorted queue -- so the ground lands over the horizon band and under
+the track without touching the sort.
