@@ -127,6 +127,7 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/function.c",
             "PROJECTS/ROLLER/graphics.c",
             "PROJECTS/ROLLER/gpu_parity.c",
+            "PROJECTS/ROLLER/groundbox.c",
             "PROJECTS/ROLLER/horizon.c",
             "PROJECTS/ROLLER/loadtrak.c",
             "PROJECTS/ROLLER/mecha_ai.c",

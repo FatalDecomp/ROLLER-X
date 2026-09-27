@@ -1,6 +1,9 @@
 #include "groundbox.h"
 #include "3d.h"
 #include "loadtrak.h"
+#include "drawtrk3.h"
+#include "editor_api.h"
+#include "editor_surface.h"
 #include <math.h>
 //-------------------------------------------------------------------------------------------------
 /*
@@ -35,6 +38,7 @@ static int     s_aiSurface[MAX_TRACK_CHUNKS];
 static float   s_fX0;
 static float   s_fZ0;
 static float   s_fStep;
+static float   s_fCell;
 static int     s_iBuiltLen = -1;
 static float   s_fBuiltMark;
 static bool    s_bReady;
@@ -169,6 +173,33 @@ static void gbox_build(void)
         }
     }
 
+    /*
+     * How big one patch of ground is, taken from the track's own scale
+     * rather than named as a number: the mean distance between consecutive
+     * section centres. A course built at any scale then gets ground whose
+     * tiles are the size of its own sections, which is the only definition
+     * of "the right size" that survives not knowing the units.
+     */
+    {
+        float fTotal = 0.0f;
+        int iSpans = 0;
+
+        for (iSec = 0; iSec < TRAK_LEN; iSec++) {
+            int iNext = iSec + 1 < TRAK_LEN ? iSec + 1 : 0;
+            float fAx, fAy, fAz, fBx, fBy, fBz, fDx, fDz;
+
+            gbox_section_centre(iSec, &fAx, &fAy, &fAz);
+            gbox_section_centre(iNext, &fBx, &fBy, &fBz);
+            fDx = fBx - fAx;
+            fDz = fBz - fAz;
+            fTotal += sqrtf(fDx * fDx + fDz * fDz);
+            iSpans++;
+        }
+        s_fCell = iSpans > 0 ? fTotal / (float)iSpans : 1.0f;
+        if (s_fCell < 1.0f)
+            s_fCell = 1.0f;
+    }
+
     gbox_build_surfaces();
     {
         float fX, fY, fZ;
@@ -245,4 +276,146 @@ bool groundbox_floor_at(float fX, float fZ, float *pfY, int *piSurface)
     if (piSurface)
         *piSurface = s_aiSurface[iSec];
     return true;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+/*
+ * How far the ground reaches, and how it pays for it.
+ *
+ * A single grid fine enough to texture convincingly underfoot and wide
+ * enough to reach the horizon is thousands of quads, which no software
+ * rasteriser is going to give up for scenery. So the ground is drawn as
+ * rings: a block of small patches around the camera, and around that a
+ * ring of patches twice the size, and so on outward. Each ring costs the
+ * same handful of quads and covers four times the area of the one inside
+ * it, so the reach grows geometrically while the count grows linearly --
+ * five rings past the middle reach 128 patches out for about three hundred
+ * quads.
+ *
+ * Coarser artwork further away is not a compromise being accepted here; it
+ * is the same argument [ARENA-30] makes about merging ground tiles, seen
+ * from the other end. Nobody reads the grain of the ground at the horizon.
+ */
+/* Three, and the arena's own reason for three [ARENA-28]: two alternating
+ * tiles read as a checkerboard, which is what a floor wants and the
+ * opposite of what ground stretching to the horizon wants. */
+#define GBOX_TILE_CYCLE 3
+#define GBOX_TEXTURE_SET ROLLER_ED_TEXTURE_SET_TRACK
+
+#define GBOX_RING_HALF 4
+#define GBOX_RINGS     6
+
+/*
+ * One patch. Its corners are each asked for their own height, so a patch
+ * spanning a change in the course is a facet rather than a flat lid over
+ * it, and two patches sharing an edge agree along it because the height is
+ * a function of position and nothing else.
+ *
+ * The tile is the track's own floor index plus the arena's cycle
+ * [ARENA-28]: three consecutive indices chosen by (row + col) % 3, on the
+ * world's own grid rather than the camera's, so the pattern stays put on
+ * the ground instead of crawling with the viewer. Only the low byte moves;
+ * every flag the track set on its floor is carried through untouched.
+ */
+static void gbox_draw_patch(GameRenderer *pRenderer, int iCellX, int iCellZ,
+                            float fSize)
+{
+    GameRenderVertex aVertices[4];
+    float afX[4];
+    float afZ[4];
+    float fX0 = (float)iCellX * fSize;
+    float fZ0 = (float)iCellZ * fSize;
+    int iSurface = 0;
+    int iBase;
+    int iTile;
+    int i;
+
+    /* Wound so the face looks up, matching the track's own floor. */
+    afX[0] = fX0;         afZ[0] = fZ0;
+    afX[1] = fX0;         afZ[1] = fZ0 + fSize;
+    afX[2] = fX0 + fSize; afZ[2] = fZ0 + fSize;
+    afX[3] = fX0 + fSize; afZ[3] = fZ0;
+
+    /*
+     * The centre query is here for the surface word; failing it early is
+     * only an economy, saving four more queries on a patch that is over a
+     * hole anyway. It is not what keeps ground off a hole -- the corners
+     * below are, and they catch the case that matters, a patch whose
+     * middle is over solid ground and whose corner overhangs the gap.
+     */
+    if (!groundbox_floor_at(fX0 + 0.5f * fSize, fZ0 + 0.5f * fSize,
+                            NULL, &iSurface))
+        return;
+
+    for (i = 0; i < 4; i++) {
+        float fY = 0.0f;
+
+        if (!groundbox_floor_at(afX[i], afZ[i], &fY, NULL))
+            return;                         /* a corner over a hole */
+        aVertices[i].x = afX[i];
+        aVertices[i].y = fY;
+        aVertices[i].z = afZ[i];
+        aVertices[i].u = 0.0f;
+        aVertices[i].v = 0.0f;
+    }
+
+    iBase = iSurface & SURFACE_MASK_TEXTURE_INDEX;
+    iTile = iBase;
+    /* Only cycle where all three indices exist; near the top of the bank
+     * the run would wrap onto unrelated artwork. */
+    if (iBase + (GBOX_TILE_CYCLE - 1) <= SURFACE_MASK_TEXTURE_INDEX) {
+        int iStep = (iCellX + iCellZ) % GBOX_TILE_CYCLE;
+
+        if (iStep < 0)
+            iStep += GBOX_TILE_CYCLE;
+        iTile = iBase + iStep;
+    }
+
+    set_starts(ROLLER_ED_RENDER_UV_TILE);
+    game_render_quad_world(
+        pRenderer, aVertices,
+        game_render_get_texture_handle(pRenderer, GBOX_TEXTURE_SET),
+        (iSurface & SURFACE_MASK_FLAGS) | iTile,
+        0.0f);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void groundbox_draw(GameRenderer *pRenderer, const GameRenderCamera *pCamera)
+{
+    int iRing;
+
+    if (!pRenderer || !pCamera || !gbox_ready())
+        return;
+
+    for (iRing = 0; iRing < GBOX_RINGS; iRing++) {
+        float fSize = s_fCell * (float)(1 << iRing);
+        int iCx = (int)floorf(pCamera->viewX / fSize);
+        int iCz = (int)floorf(pCamera->viewZ / fSize);
+        int iX, iZ;
+
+        for (iZ = iCz - GBOX_RING_HALF; iZ < iCz + GBOX_RING_HALF; iZ++) {
+            for (iX = iCx - GBOX_RING_HALF; iX < iCx + GBOX_RING_HALF; iX++) {
+                if (iRing > 0) {
+                    /* The middle of this ring is the ring inside it, drawn
+                     * finer. Skip any patch wholly covered by it. */
+                    float fInner = s_fCell * (float)(1 << (iRing - 1));
+                    int iIx = (int)floorf(pCamera->viewX / fInner);
+                    int iIz = (int)floorf(pCamera->viewZ / fInner);
+                    float fLoX = (float)(iIx - GBOX_RING_HALF) * fInner;
+                    float fHiX = (float)(iIx + GBOX_RING_HALF) * fInner;
+                    float fLoZ = (float)(iIz - GBOX_RING_HALF) * fInner;
+                    float fHiZ = (float)(iIz + GBOX_RING_HALF) * fInner;
+                    float fX0 = (float)iX * fSize;
+                    float fZ0 = (float)iZ * fSize;
+
+                    if (fX0 >= fLoX && fX0 + fSize <= fHiX
+                            && fZ0 >= fLoZ && fZ0 + fSize <= fHiZ)
+                        continue;
+                }
+                gbox_draw_patch(pRenderer, iX, iZ, fSize);
+            }
+        }
+    }
 }

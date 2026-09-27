@@ -17,6 +17,7 @@
 #include "view.h"
 #include "graphics.h"
 #include "colision.h"
+#include "groundbox.h"
 #include "horizon.h"
 #include "building.h"
 #include "tower.h"
@@ -2796,6 +2797,11 @@ void draw_road(uint8 *pScrPtr, int iCarIdx, unsigned int uiViewMode, int iCopyIm
 
   // Gameplay frame phase: atmosphere. Sky/horizon stays outside the depth-sorted 3D queue.
   game_render_draw_sky(g_pGameRenderer, &cam, &proj); // Draw sky/horizon background
+  // And the ground under it, which is the same kind of thing: scenery drawn
+  // straight down rather than queued, so it covers the flat band DrawHorizon
+  // leaves below the horizon and everything the track draws lands on top of
+  // it. [GBOX-01]
+  groundbox_draw(g_pGameRenderer, &cam);
 
   // Gameplay frame phase: visibility/entity production.
 #if defined(ROLLER_EDITOR_CORE)

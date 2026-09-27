@@ -4682,3 +4682,58 @@ Still to come: the drawing itself, which goes between `game_render_draw_sky` and
 `DrawTrack3` in `draw_road`, where world quads rasterise immediately rather than
 entering the sorted queue -- so the ground lands over the horizon band and under
 the track without touching the sort.
+
+## GBOX-02 -- drawing the ground, in rings
+
+The second half of the groundbox: drawing it. It goes in `draw_road` between
+`game_render_draw_sky` and `DrawTrack3`, because world quads rasterise where
+they are issued rather than entering the sorted queue -- so the ground lands
+over the flat band `DrawHorizon` leaves below the horizon, and everything the
+track draws lands on top of it, without the sort being involved at all.
+
+The shape of it is rings rather than a grid. A single grid fine enough to
+texture convincingly underfoot and wide enough to reach the horizon is thousands
+of quads, which no software rasteriser is giving up for scenery. So it is a
+block of small patches around the camera, a ring of patches twice the size
+around that, and so on: each ring costs the same handful of quads and covers
+four times the area of the one inside it, so reach grows geometrically while the
+count grows linearly. Six rings come to 304 quads, measured, for a reach of 128
+patches. Coarser artwork further out is the same argument [ARENA-30] makes about
+merging ground tiles, seen from the other end -- nobody reads the grain of the
+ground at the horizon.
+
+Patch size is taken from the track rather than named: the mean distance between
+consecutive section centres. A course built at any scale gets ground whose
+patches are the size of its own sections, which is the only definition of "the
+right size" that survives not knowing the units.
+
+Each corner is asked for its own height, so a patch spanning a change in the
+course is a facet rather than a flat lid over it, and two patches sharing an
+edge agree along it because height is a function of position and nothing else.
+
+The tile is [ARENA-28] unchanged: the track's own floor index plus
+`(x + z) % 3`, on the world's grid rather than the camera's so the pattern stays
+put on the ground instead of crawling with the viewer. Only the low byte of the
+surface word moves; every flag the track set on its floor is carried through
+untouched, which the test checks. The cycle is skipped near the top of the bank,
+where index+2 would wrap onto unrelated artwork.
+
+Two things this pass got wrong and the tests caught. The first was a redundancy
+worth recording: there are two guards against drawing over a hole, one on the
+patch centre and one on the corners, and removing either alone changes nothing
+because the other still blocks it. That made the first hole test worthless -- it
+passed against both broken builds. What distinguishes them is the case that
+actually matters, a patch whose middle is over solid ground and whose corner
+overhangs the gap, and the test now asserts it directly by asking every recorded
+corner whether it is over ground rather than guessing at a distance from the
+hole. The corner guard is what does the work; the centre check is an economy,
+and now says so.
+
+The second was a build-list problem that only the drawing exposed. Adding a
+translation unit means four lists, not one: the manifest, the Zig game sources,
+the Zig core sources, and CMake. The manifest and the Zig core list share a
+file, and CMake globs, so the lookup commit needed only the manifest and looked
+complete -- the linker said nothing because nothing called into the new file
+yet. The moment `draw_road` did, ReleaseSafe failed on an undefined symbol, and
+the source-set drift check then caught CMake across all five targets. A
+translation unit nothing calls hides three of the four lists it belongs in.

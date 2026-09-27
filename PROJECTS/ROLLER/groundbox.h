@@ -2,6 +2,7 @@
 #define _ROLLER_GROUNDBOX_H
 //-------------------------------------------------------------------------------------------------
 #include "types.h"
+#include "game_render.h"
 //-------------------------------------------------------------------------------------------------
 /*
  * The ground under everything: floor geometry generated for any track,
@@ -39,6 +40,18 @@ int groundbox_section_at(float fX, float fZ);
  * applied on top.
  */
 bool groundbox_floor_at(float fX, float fZ, float *pfY, int *piSurface);
+
+/*
+ * Draw the ground. Call it between the sky and the track: world quads
+ * rasterise where they are issued rather than entering the sorted queue, so
+ * this lands over the horizon band and under everything the track puts on
+ * top of it, without touching the sort.
+ *
+ * Nothing is drawn where the track asked for a hole, and nothing is
+ * suppressed where the track already has a floor of its own -- a track that
+ * set the detach flag gets both, the real floor over this one.
+ */
+void groundbox_draw(GameRenderer *pRenderer, const GameRenderCamera *pCamera);
 
 //-------------------------------------------------------------------------------------------------
 #endif
